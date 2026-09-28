@@ -1,6 +1,6 @@
 // MicroGit の最小ゲストを Virtualization.framework で起動する（Issue #17、Phase 1 の macOS バックエンド）。
 //
-// 使い方: microgit-vm --kernel <Image> [--console <ログの書き出し先>] [--memory-mb 256] [--cmdline "console=hvc0"]
+// 使い方: microgit-vm --kernel <Image> [--initrd <initramfs>] [--console <ログの書き出し先>] [--memory-mb 256] [--cmdline "console=hvc0"]
 //
 // ゲストの virtio-console の名前付きポート "microgit" を、このプロセスの stdin/stdout につなぐ。
 // 命令の形は guest/agent/main.go を参照（1 行 1 JSON）。stdout には命令の応答しか出さない。
@@ -16,6 +16,7 @@ func fail(_ message: String) -> Never {
 }
 
 var kernelPath: String?
+var initrdPath: String?
 var consolePath: String?
 var memoryMB: UInt64 = 256
 var commandLine = "console=hvc0"
@@ -25,6 +26,8 @@ while let arg = args.popFirst() {
     switch arg {
     case "--kernel":
         kernelPath = args.popFirst()
+    case "--initrd":
+        initrdPath = args.popFirst()
     case "--console":
         consolePath = args.popFirst()
     case "--memory-mb":
@@ -38,8 +41,9 @@ while let arg = args.popFirst() {
     }
 }
 // トップレベルでは guard let が同じ名前の変数と衝突するので、別の名前で受ける
-guard let kernel = kernelPath else { fail("usage: microgit-vm --kernel <Image> [--console <file>] [--memory-mb N] [--cmdline S]") }
+guard let kernel = kernelPath else { fail("usage: microgit-vm --kernel <Image> [--initrd <file>] [--console <file>] [--memory-mb N] [--cmdline S]") }
 guard FileManager.default.fileExists(atPath: kernel) else { fail("kernel not found: \(kernel)") }
+if let initrd = initrdPath, !FileManager.default.fileExists(atPath: initrd) { fail("initrd not found: \(initrd)") }
 
 let consoleHandle: FileHandle
 if let logPath = consolePath {
@@ -57,6 +61,9 @@ config.memorySize = max(memoryMB * 1024 * 1024, VZVirtualMachineConfiguration.mi
 // initramfs はカーネルに埋め込んであるので、カーネルだけ渡す（arm64 は圧縮していない Image が要る）
 let bootLoader = VZLinuxBootLoader(kernelURL: URL(fileURLWithPath: kernel))
 bootLoader.commandLine = commandLine
+if let initrd = initrdPath {
+    bootLoader.initialRamdiskURL = URL(fileURLWithPath: initrd)
+}
 config.bootLoader = bootLoader
 
 // hvc0: カーネルと agent のログ

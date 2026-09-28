@@ -54,7 +54,7 @@ powershell -ExecutionPolicy Bypass -File windows\run-golden.ps1 -Demo -Step
 | [scripts/guest/demo.mjs](../scripts/guest/demo.mjs) | ホスト | デモ |
 | [scripts/golden/check-guest.mjs](../scripts/golden/check-guest.mjs) | ホスト | ゴールデンテストをゲストで流して照合する |
 | [windows/run-golden.ps1](../windows/run-golden.ps1) | ホスト（Windows） | QEMU の引数を組み立てて、上の 2 つを動かす |
-| [mac/microgit-vm/main.swift](../mac/microgit-vm/main.swift) | ホスト（Mac） | Mac 標準の仕組みで仮想マシンを作る（未確認） |
+| [mac/microgit-vm/main.swift](../mac/microgit-vm/main.swift) | ホスト（Mac） | Mac 標準の仕組みで仮想マシンを作る（Apple silicon実機確認済み） |
 
 ---
 

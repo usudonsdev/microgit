@@ -39,11 +39,11 @@ VS Code 終了  agent（仮想マシン）を止める
 | Windows（x64） | QEMU（WHPX → TCG）、名前付きパイプ | — | `resources/kernel/win32-x64/qemu/…`、`resources/kernel/guest/x86_64/Image` | `guest/.cache/qemu-win/`、`guest/out/x86_64/Image` |
 | macOS（arm64） | `microgit-vm`（Virtualization.framework） | — | `resources/kernel/darwin-arm64/microgit-vm`、`resources/kernel/guest/arm64/Image` | `mac/.build/microgit-vm`、`guest/out/arm64/Image` |
 
-- 「同梱の置き場所」に部品を置いた VSIX は `scripts/package-vsix.mjs` が作る（[release.md](./release.md)、#19）。macOS 用は Mac の実機確認（#17）まで作らず、macOS には部品の無い VSIX が配られる
+- 「同梱の置き場所」に部品を置いた VSIX は `scripts/package-vsix.mjs` が作る（[release.md](./release.md)、#19）。Apple silicon Macにはdarwin-arm64、Intel MacにはNode.js版だけのuniversalを配る
 - Linux の agent と macOS の `microgit-vm` は、起動の前に実行ビットを確かめ、無ければ付ける（`src/kernel/executable.ts`。VSIX を Windows で作ったり、GitHub Actions の成果物を通したりすると落ちるため）
 - Linux で層を tmpfs に置くのは、カーネル 6.6 以降で `$XDG_RUNTIME_DIR` があるとき（tmpfs の `user.*` xattr が要る。ADR-0005）
 - **起動できそうでも、本当に使えるかは起動して確かめる**。agent の ready を待ち、小さな層を 1 枚作って捨てるところまでやる（probe）。Ubuntu 23.10 以降のように非特権のユーザー名前空間が止められていると、ここで `unshare` が失敗して Node.js 版に切り替わる（補足 S-3。GitHub Actions の Ubuntu 24.04 で CI が毎回確かめる）
-- macOS は実機でまだ確かめていない（#17）。起動に失敗すれば Node.js 版になる
+- macOSはApple silicon実機で確認済み（#17）。起動またはprobeに失敗すればNode.js版になる
 
 ## 4. Windows の通り道：名前付きパイプ（ADR-0006）
 
@@ -97,7 +97,7 @@ NFR-2 の Phase 0 の受け入れ基準（Linux ネイティブが Node.js 版�
 |---|---|---|
 | `src/test/unit/launchers.test.ts` | ホストごとの起動の計画と、使えない理由 | 単体テスト（Windows・Linux、CI） |
 | `src/test/unit/backendSelector.test.ts` | 設定ごとの選び方、起動 1 回、使えないときの切り替え（すぐ終わる agent・mount できない agent・版違い）、落ちたときの起動し直し。偽の agent を使う | 単体テスト（同上） |
-| `scripts/test/kernel-backend-e2e.mjs` | 14 シナリオ・123 回の過去に戻る操作で、カーネル版と Node.js 版のワークスペースがどちらも Git のツリーと一致するか。深さの上限 2 で写しの層を何度も通り、キャッシュを捨てたあとの作り直しも試す | WSL2（VM なし）、Windows（QEMU）、CI（QEMU arm64 / x86_64） |
+| `scripts/test/kernel-backend-e2e.mjs` | 15 シナリオ・126 回の過去に戻る操作で、カーネル版と Node.js 版のワークスペースがどちらも Git のツリーと一致するか。3 MiB、700ファイル、深さの上限 2、キャッシュ再構築も試す | WSL2（VM なし）、Windows（QEMU）、macOS（Virtualization.framework）、CI（QEMU arm64 / x86_64） |
 | `scripts/test/native-fallback.mjs` | その環境でカーネル版が起動できるか。GitHub の Ubuntu 24.04 では `uid_map` の理由で Node.js 版に切り替わること（補足 S-3） | WSL2・Windows（kernel）、CI（fallback） |
 | `src/test/suite/overlayBackend.test.ts` | 実際の VS Code の中で、MicroGit を有効にして保存し、過去に戻るコマンドでワークスペースが戻るか（日本語の名前、あとから作ったファイルの削除）。使ったバックエンドを Overlay Status で確かめる | Windows（kernel と nodejs の両方）、CI（nodejs） |
 
@@ -107,7 +107,7 @@ NFR-2 の Phase 0 の受け入れ基準（Linux ネイティブが Node.js 版�
 
 | 制限 | 扱い |
 |---|---|
-| macOS は実機で確かめていない | #17 |
+| macOSのvirtio-consoleは約64 KiBを超えるJSON 1行で停止する | Macだけ24 KiBずつ`stage` / `readChunk`。詳細はagent-protocol.md §4.1.1 |
 | 1 回の commit の中身は 90 MiB まで（超えると Node.js 版） | 記録するのは保存したファイルだけなので、普通は届かない |
 | 層はゲストのメモリに置く（既定 256 MB、tmpfs は半分） | 大きいリポジトリでは `microgit.kernel.memoryMb` を増やす。溢れたら `ENOSPC` で捨てて作り直し、それでもだめなら Node.js 版 |
 | Dev Containers・Codespaces では試していない | 非特権のユーザー名前空間が使えなければ、probe で失敗して Node.js 版になる（S-3 と同じ仕組み） |

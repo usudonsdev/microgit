@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	agentVersion    = "1.0.0"
+	agentVersion    = "1.1.0"
 	protocolVersion = 1
 	portName        = "microgit"
 	stateRoot       = "/run/microgit"
@@ -32,13 +32,20 @@ const (
 )
 
 type request struct {
-	ID     int        `json:"id"`
-	Op     string     `json:"op"`
-	Layer  string     `json:"layer,omitempty"`
-	Parent string     `json:"parent,omitempty"`
-	Ops    [][]string `json:"ops,omitempty"`
-	Path   string     `json:"path,omitempty"`
-	Paths  []string   `json:"paths,omitempty"`
+	ID        int        `json:"id"`
+	Op        string     `json:"op"`
+	Layer     string     `json:"layer,omitempty"`
+	Parent    string     `json:"parent,omitempty"`
+	Ops       [][]string `json:"ops,omitempty"`
+	OpsUpload string     `json:"opsUpload,omitempty"`
+	StagedOp  []string   `json:"stagedOp,omitempty"`
+	Path      string     `json:"path,omitempty"`
+	Paths     []string   `json:"paths,omitempty"`
+	Upload    string     `json:"upload,omitempty"`
+	Data      string     `json:"data,omitempty"`
+	Append    bool       `json:"append,omitempty"`
+	Offset    int64      `json:"offset,omitempty"`
+	Limit     int        `json:"limit,omitempty"`
 }
 
 type response struct {
@@ -58,6 +65,7 @@ type response struct {
 	ExdevRenames int        `json:"exdevRenames,omitempty"`
 	Entries      []string   `json:"entries,omitempty"`
 	Data         *string    `json:"data,omitempty"`
+	Done         bool       `json:"done,omitempty"`
 	Files        []fileData `json:"files,omitempty"`
 	Layers       *int       `json:"layers,omitempty"`
 	UsedBytes    uint64     `json:"usedBytes,omitempty"`
@@ -279,8 +287,22 @@ func handle(s *store, req request) response {
 			return fail(err)
 		}
 		return response{OK: true}
+	case "stage":
+		if err := s.stage(req.Upload, req.Data, req.Append); err != nil {
+			return fail(err)
+		}
+		return response{OK: true}
+	case "stageOp":
+		if err := s.stageOp(req.Upload, req.StagedOp, req.Append); err != nil {
+			return fail(err)
+		}
+		return response{OK: true}
 	case "commit":
-		info, err := s.commit(req.Layer, req.Parent, req.Ops)
+		ops, err := s.resolveOps(req.Ops, req.OpsUpload)
+		if err != nil {
+			return fail(err)
+		}
+		info, err := s.commit(req.Layer, req.Parent, ops)
 		if err != nil {
 			return fail(err)
 		}
@@ -304,6 +326,12 @@ func handle(s *store, req request) response {
 			return fail(err)
 		}
 		return response{OK: true, Layer: req.Layer, Files: files}
+	case "readChunk":
+		data, done, err := s.readChunk(req.Layer, req.Path, req.Offset, req.Limit)
+		if err != nil {
+			return fail(err)
+		}
+		return response{OK: true, Layer: req.Layer, Data: &data, Done: done}
 	case "inspect":
 		entries, err := s.inspect(req.Layer)
 		if err != nil {

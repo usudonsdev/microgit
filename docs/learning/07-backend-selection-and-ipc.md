@@ -14,7 +14,7 @@
 
 - Linux：カーネルが新しく、非特権のユーザー名前空間が許されていれば使える。Ubuntu 23.10 以降は既定で止められている
 - Windows：QEMU とゲストがあれば使える。仮想化機能が無効なら遅い方法（TCG）になる
-- macOS：まだ実機で確かめていない
+- macOS：Virtualization.frameworkをApple silicon実機で確認。virtio-consoleの約64 KiB制限は`stage` / `readChunk`で分割
 
 MicroGit は「どの環境でも動く」ことが最優先なので、**使えるならカーネル版、だめなら今までの Node.js 版**に、利用者が何もしなくても切り替わる必要がある。
 

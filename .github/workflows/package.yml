@@ -18,7 +18,10 @@ on:
       - '.vscodeignore'
       - 'THIRD_PARTY_NOTICES.md'
       - 'src/test/runTest.ts'
+      - 'src/test/suite/**'
       - 'src/kernel/**'
+      - 'guest/**'
+      - 'mac/**'
       - 'windows/qemu/**'
       - 'package.json'
 
@@ -33,8 +36,19 @@ jobs:
   qemu:
     uses: ./.github/workflows/qemu-windows.yml
 
+  mac-helper:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and ad-hoc sign microgit-vm
+        run: mac/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: microgit-mac-helper
+          path: mac/.build/microgit-vm
+
   package:
-    needs: [guest, qemu]
+    needs: [guest, qemu, mac-helper]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -98,10 +112,10 @@ jobs:
             vsix: linux-arm64
             expect: kernel
             allow_userns: true
-          # macOS はカーネル版の部品が無い universal の VSIX（Mac の実機確認は #17）
+          # Apple silicon は同梱の microgit-vm と arm64 ゲストを Virtualization.framework で起動する
           - os: macos-14
-            vsix: universal
-            expect: nodejs
+            vsix: darwin-arm64
+            expect: kernel
     name: verify (${{ matrix.vsix }} on ${{ matrix.os }}, expect ${{ matrix.expect }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
@@ -164,7 +178,8 @@ jobs:
           MicroGit $tag のプラットフォーム別 VSIX（下書き。Marketplace への公開は別の手順、docs/release.md）。
 
           - microgit-*-win32-x64.vsix / linux-x64 / linux-arm64：カーネル版の部品入り
-          - microgit-*-universal.vsix：それ以外の環境（Node.js 版だけ）
+          - microgit-*-darwin-arm64.vsix：Apple silicon Mac（Virtualization.framework）
+          - microgit-*-universal.vsix：Intel Mac など、それ以外の環境（Node.js 版だけ）
           - third-party-sources-$tag.tar：同梱した GPL・LGPL の部品（Linux カーネル、QEMU、DLL）のソースと、ビルドの設定・手順（THIRD_PARTY_NOTICES.md）
           - vsix.json：各 VSIX の大きさと sha256
           EOF

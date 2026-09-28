@@ -2,7 +2,7 @@
 
 | 項目 | 内容 |
 |---|---|
-| 版 | v1（2026-09-26、#12 で確定）。agent 1.0.0 |
+| 版 | v1（2026-09-26、#12 で確定。2026-09-28 に大容量転送の加法的命令を追加）。agent 1.1.0 |
 | 実装 | [guest/agent/main.go](../guest/agent/main.go)（受け答え）、[guest/agent/overlay.go](../guest/agent/overlay.go)（層） |
 | テスト | [guest/agent/agent_test.go](../guest/agent/agent_test.go)、[scripts/golden/check-guest.mjs](../scripts/golden/check-guest.mjs) |
 | 関連 | [ADR-0001](./adr/0001-source-of-truth.md)（層はキャッシュ）、[ADR-0003](./adr/0003-layer-compaction.md)（深さの上限）、[ADR-0004](./adr/0004-commit-per-save.md)（保存ごとに層）、[ADR-0005](./adr/0005-mount-options.md)（mount オプション） |
@@ -47,10 +47,13 @@
 |---|---|---|---|
 | `hello` | — | `protocol`、`agent`、`kernel`、`mountOptions` | 版と、固定している mount オプションを返す |
 | `reset` | — | — | 層をすべて捨てる |
+| `stage` | `upload`、`data`、`append` | — | base64 の断片（最大32 KiB）を一時領域へ置く。macOS の小さいフレーム用 |
+| `stageOp` | `upload`、`stagedOp`、`append` | — | commitの操作を1件ずつ一時領域へ置く。ファイル数が多い場合の小さいフレーム用 |
 | `commit` | `layer`、`parent`、`ops` | `layer`、`depth`、`existed`、`mountOptions`、`exdevRenames` | 親までの層を lowerdir に積み、空の upper に `ops` を当てて凍結する（§4.1） |
 | `view` | `layer` | `entries`（空のツリーでは省かれる） | その時点のツリーの一覧（§4.2） |
 | `read` | `layer`、`path` | `data`（base64） | 1 ファイルの中身 |
 | `readMany` | `layer`、`paths` | `files`（`[{path, data}]`） | 複数のファイルの中身。合計 32 MiB を超えると `TOO_LARGE`（ホストは分けて頼み直す） |
+| `readChunk` | `layer`、`path`、`offset`、`limit` | `data`、`done` | 1ファイルを最大32 KiBずつ読む。macOS の小さいフレーム用 |
 | `inspect` | `layer` | `entries` | 層そのもの（凍結した upper）の中身と OverlayFS の表現（§4.3） |
 | `stats` | — | `layers`、`usedBytes`、`totalBytes` | 層の数と、置き場所の使用量 |
 | `poweroff` | — | — | 答えてから止まる（ゲストは電源断、VM なしなら片付けて終わる） |
@@ -68,6 +71,7 @@
 |---|---|---|
 | `write` | `["write", path, text]` | テキストを書く（ゴールデンテストのシナリオ用） |
 | `writeb64` | `["writeb64", path, base64, mode?]` | 中身を base64 で渡して書く。`mode` は `"644"`（省略時）か `"755"` |
+| `writeupload` | `["writeupload", path, upload, mode?]` | `stage` で受け取った中身を書く。commit の成功・失敗後に一時データを消す |
 | `rm` | `["rm", path]` | ファイルを消す |
 | `rmdir` | `["rmdir", path]` | ディレクトリを中身ごと消す |
 | `mkdir` | `["mkdir", path]` | ディレクトリを作る |
@@ -75,6 +79,18 @@
 
 - `path` は `/` 区切りの相対パス。空・絶対パス・`.`・`..` の段は `BAD_PATH`
 - `write` / `writeb64` は、置き先にディレクトリがあれば中身ごと消し、途中にファイルがあれば消してディレクトリにする。Git のツリーでは同じパスがファイルとディレクトリを同時に取らないので、ホストが「消す op」を先に並べれば起きないが、順番に依存しないようにしている
+
+### 4.1.1 macOS のフレーム分割
+
+Apple silicon Mac（macOS 26.5.1）の実機では、Virtualization.framework の
+virtio-console に約64 KiBを超えるJSON 1行を渡すと、ゲストが行末を受け取れず停止した。
+stdioをUnix domain socketへ替えても停止点は変わらなかったため、ホストのstdioではなく
+virtio-console経路の制限として扱う。
+
+`planMac` は `maxFrameBytes=48 KiB` を指定する。ホストはファイルの書き込みを24 KiBずつ
+`stage`し、`commit`には小さい`writeupload`だけを渡す。パスの数だけでcommitが48 KiBを
+超える場合は`stageOp`で操作も1件ずつ渡し、commitの`opsUpload`から参照する。読み取りも
+`readChunk`で24 KiBずつ受け取る。他OSは従来の`writeb64` / `readMany`を使い、往復回数を増やさない。
 
 ### 4.2 view の一覧の形
 

@@ -137,12 +137,12 @@ describe('Windows: QEMU', () => {
 });
 
 describe('macOS: Virtualization.framework', () => {
-    test('arm64 は microgit-vm で起動する（実機確認前、#17）', () => {
+    test('arm64 は microgit-vm で起動し、virtio-console のフレーム上限を指定する', () => {
         const plan = planLaunch(deps({ platform: 'darwin', arch: 'arm64', files: [bundled('guest', 'arm64', 'Image'), bundled('darwin-arm64', 'microgit-vm')] }));
         assert.ok(plan.ok);
         assert.strictEqual(plan.kind, 'vz');
         assert.deepStrictEqual(plan.spec.args.slice(0, 2), ['--kernel', bundled('guest', 'arm64', 'Image')]);
-        assert.ok(plan.notes.some((n) => n.includes('#17')));
+        assert.strictEqual(plan.spec.maxFrameBytes, 48 * 1024);
     });
 
     test('microgit-vm の実行ビットも確かめる（ゲストの Image は実行しないので確かめない）', () => {

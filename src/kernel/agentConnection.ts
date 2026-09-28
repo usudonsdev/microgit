@@ -4,7 +4,8 @@
  * agent の命令の通り道になるプロセス（QEMU、mac の microgit-vm、Linux の `unshare -Urm <agent>`）を子プロセスとして
  * 起動し、1 行 1 JSON で話す。通り道は 2 通り:
  *   - 子プロセスの stdin/stdout（既定。Linux の VM なし、Linux の QEMU、mac の microgit-vm）
- *   - 名前付きパイプ（spec.namedPipe。Windows の QEMU）。Windows 版 QEMU の stdio の chardev は、2026-09-26 の計測で
+ *   - 名前付きパイプ（spec.namedPipe。Windows の QEMU）。Windows 版 QEMU の stdio の chardev は、
+ *     2026-09-26 の計測で
  *     ホスト → ゲストが毎秒 13 KB ほどしか出ず、1 MiB で中身が壊れた（bad base64）。`-chardev pipe` にすると
  *     1 MiB の commit が 26 ms、16 MiB が 2.3 秒で、往復で中身も一致した（docs/kernel-backend.md §4）
  * VS Code に依存しない（単体テスト・スクリプトから使うため）。
@@ -23,10 +24,15 @@ export type LaunchSpec = {
     /** 説明（ログと Overlay Status 用） */
     description: string;
     /**
-     * 命令の通り道にする名前付きパイプ（Windows の `\\.\pipe\...`）。指定したら、子プロセスの stdin/stdout ではなく
-     * このパイプにつなぐ。子プロセス（QEMU）がパイプを作るまで、connectTimeoutMs のあいだつなぎ直す
+     * 命令の通り道にする名前付きパイプ（Windows の `\\.\pipe\...`）。指定したら、子プロセスの stdin/stdout
+     * ではなくこのパイプにつなぐ。子プロセス（QEMU）がパイプを作るまで、connectTimeoutMs のあいだつなぎ直す
      */
     namedPipe?: string;
+    /**
+     * 通り道が安全に運べる JSON 1 行の大きさ。macOS の Virtualization.framework では約 64 KiB を
+     * 超えると停止するため、stage / readChunk へ切り替える判断に使う。省略時はプロトコル上限 128 MiB。
+     */
+    maxFrameBytes?: number;
 };
 
 export type AgentReady = {

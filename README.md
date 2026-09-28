@@ -41,7 +41,8 @@
 |---|---|---|
 | Linux x64 / arm64（カーネル 5.11 以降） | 仮想マシンなし（`unshare -Urm`） | 127 ms → 22 ms |
 | Windows x64 | 同梱の QEMU で最小の Linux を起動（Windows ハイパーバイザー プラットフォームが有効ならそれを、無効なら CPU のエミュレーションを使う。管理者権限は不要） | 1,426 ms → 170 ms |
-| macOS、Windows on Arm など | Node.js 版 | — |
+| Apple silicon Mac | macOS 標準の Virtualization.framework で最小の Linux を起動 | 15シナリオ・126回の過去移動がGitのツリーと一致 |
+| Intel Mac、Windows on Arm など | Node.js 版 | — |
 
 Ubuntu 23.10 以降の既定や、一部のコンテナの中など、非特権のユーザー名前空間が止められた Linux では Node.js 版になります。
 

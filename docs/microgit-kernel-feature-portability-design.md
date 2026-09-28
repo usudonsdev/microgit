@@ -77,7 +77,7 @@ MicroGit は「カーネル機能の部品化」の最初の適用例と位置�
 │  │   ├─ Linux  : unshare -Urm ＋ agent（VM なし）        │
 │  │   ├─ Windows: 同梱の QEMU（WHPX → TCG）＋ 名前付きパイプ │
 │  │   ├─ macOS  : microgit-vm（Virtualization.framework） │
-│  │   │           ※実機確認前（#17）                      │
+│  │   │           ※Apple silicon 実機確認済み（#17）       │
 │  │   └─ Fallback: Node.js 版（層は Git から作るキャッシュ） │
 │  ├─ Layer Feeder：Git の差分を commit 命令にして送る       │
 │  └─ Boundary Guard：一覧と中身を検証してから反映            │
@@ -103,7 +103,7 @@ MicroGit は「カーネル機能の部品化」の最初の適用例と位置�
 |---|---|---|---|
 | Linux | `unshare -Urm` の中で agent を動かす。層はカーネル 6.6 以降なら `$XDG_RUNTIME_DIR` の tmpfs | 実装・確認済み（WSL2、GitHub Actions） | docs/kernel-backend.md、ADR-0008 |
 | Windows x64 | 同梱の QEMU 11.1.1（装置を絞った自前ビルド）。`-accel whpx,kernel-irqchip=off -accel tcg` で、WHPX が使えなければ TCG。ファイル共有は使わず、中身は命令で送る | 実装・確認済み（手元の Windows 11、GitHub の windows-latest） | docs/windows-backend.md、ADR-0006 |
-| macOS（Apple silicon） | Swift の小さなヘルパー `microgit-vm`（Virtualization.framework） | コードのみ。実機確認前 | #17、docs/guest-phase1.md |
+| macOS（Apple silicon） | Swift の小さなヘルパー `microgit-vm`（Virtualization.framework） | 実機確認済み。大容量は小さいフレームに分割 | #17、docs/guest-phase1.md |
 | Windows on Arm、Intel Mac | 対象外 | — | Node.js 版で動く |
 | 使えない環境 | Node.js 版。起動と小さな層を 1 枚作る試し（probe）に失敗したら、利用者の操作なしに切り替える | 実装・確認済み（Ubuntu 24.04 の既定で 5 ms） | FR-5 |
 

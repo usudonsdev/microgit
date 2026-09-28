@@ -7,7 +7,7 @@ All notable changes to the "MicroGit" extension will be documented in this file.
 ## [5.0.0] - 未公開（Marketplace に出した日を入れる）
 
 ### Added
-- **プラットフォーム別の VSIX**（#19）。Windows x64 用には同梱の QEMU と最小の Linux（約 9.4 MB）、Linux x64 / arm64 用には agent（約 1.3〜1.4 MB）が入る。それ以外の環境（macOS、Windows on Arm など）には、カーネル版の部品が無い版（約 0.1 MB、Node.js 版だけ）が配られる
+- **プラットフォーム別の VSIX**（#19）。Windows x64 用には同梱の QEMU と最小の Linux、Linux x64 / arm64 用には agent、Apple silicon Mac 用には `microgit-vm` と arm64 の最小 Linux が入る。それ以外（Intel Mac、Windows on Arm など）には Node.js 版だけの universal が配られる
 - `THIRD_PARTY_NOTICES.md`：同梱している第三者のソフトウェア（Linux カーネル、QEMU、SeaBIOS、GLib などの DLL、Go のランタイム）とライセンス、ソースの置き場所
 - 同梱の agent に実行ビットが無ければ、起動の前に付ける（付けられなければ Node.js 版で動く）
 
@@ -20,7 +20,8 @@ All notable changes to the "MicroGit" extension will be documented in this file.
 - 1 MiB を超えるファイルが Overlay のレイヤに入らない不具合を修正（`git show` の出力が execFileSync の既定の上限を超えていた）
 
 ### Added
-- **カーネルの OverlayFS を使う Overlay バックエンド**（#14、docs/kernel-backend.md）。Linux は仮想マシンなし（`unshare -Urm`、カーネル 5.11 以降）、Windows は同梱の QEMU と最小の Linux、macOS は Virtualization.framework（実機確認前）。使えない環境では自動で Node.js 版に切り替わる。過去に戻る操作が Linux で約 6 倍、Windows で約 8 倍速い（中央値、ファイル 200 の合成の履歴）
+- **カーネルの OverlayFS を使う Overlay バックエンド**（#14、docs/kernel-backend.md）。Linux は仮想マシンなし（`unshare -Urm`、カーネル 5.11 以降）、Windows は同梱の QEMU と最小の Linux、Apple silicon Mac は Virtualization.framework。使えない環境では自動で Node.js 版に切り替わる。過去に戻る操作が Linux で約 6 倍、Windows で約 8 倍速い（中央値、ファイル 200 の合成の履歴）
+- macOS の virtio-console で約64 KiBを超えるJSON 1行が停止する実機挙動に対応。中身は24 KiBずつ `stage` / `readChunk`、多数のパスは`stageOp`に分け、3 MiBと700ファイルを含む15シナリオ・126回の過去移動、VS Code内の保存・復元を確認
 - 設定 `microgit.overlayBackend`（`auto` が既定 / `kernel` / `nodejs`）、`microgit.kernel.qemuPath`・`microgit.kernel.accel`・`microgit.kernel.memoryMb`
 - `MicroGit: Overlay Status` に、使っているバックエンド、起動にかかった時間、層の数、最後に戻ったときの時間の内訳を表示
 - 設定 `microgit.durability`（`power` が既定）。マイクロ履歴の Git のオブジェクトと ref を fsync し、電源断や OS の異常終了でも記録済みの履歴を失わないようにする。`process` で従来どおり（Git の既定）に戻せる（#11、docs/adr/0002-durability.md）

@@ -6,16 +6,16 @@
  *   <成果物のフォルダ> は package.yml が actions/download-artifact で落としたもの（名前ごとにフォルダ）:
  *     microgit-guest-x86_64/{Image,init}   microgit-guest-arm64/{Image,init}   （guest.yml）
  *     microgit-qemu-win32-x64/qemu-win/     microgit-qemu-win32-x64-sources/*.src.rpm   （qemu-windows.yml）
- *     microgit-mac-helper/microgit-vm       （darwin-arm64 を作るときだけ。実機確認前、#17）
+ *     microgit-mac-helper/microgit-vm       （darwin-arm64）
  *   Go（agent のライセンスを入れるため）と curl（GPL の部品のソースを取るため）が要る。
  *
- * ターゲット（既定: win32-x64,linux-x64,linux-arm64,universal）:
+ * ターゲット（既定: win32-x64,linux-x64,linux-arm64,darwin-arm64,universal）:
  *   win32-x64    同梱の QEMU ＋ x86_64 の最小ゲスト（カーネルと agent）
  *   linux-x64    x86_64 の agent（VM なし、unshare -Urm）
  *   linux-arm64  arm64 の agent
  *   universal    カーネル版の部品なし（Node.js 版だけ）。--target を付けずに作るので、Marketplace では
- *                上のどれにも当たらない環境（macOS、Windows on Arm など）に配られる（vsce の文書）
- *   darwin-arm64 microgit-vm ＋ arm64 の最小ゲスト。Mac の実機確認（#17）までは既定に入れない
+ *                上のどれにも当たらない環境（Intel Mac、Windows on Arm など）に配られる（vsce の文書）
+ *   darwin-arm64 microgit-vm ＋ arm64 の最小ゲスト（Virtualization.framework）
  *
  * ターゲットごとに resources/kernel/ を空にして、そのプラットフォームの部品だけを置いてから `vsce package` する。
  * 置き場所は src/kernel/launchers.ts の planLaunch が探す「同梱の置き場所」と同じ。
@@ -36,7 +36,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const arg = (name, def) => (process.argv.includes(name) ? process.argv[process.argv.indexOf(name) + 1] : def);
 const artifacts = path.resolve(arg('--artifacts', 'artifacts'));
 const out = path.resolve(arg('--out', 'dist'));
-const targets = arg('--targets', 'win32-x64,linux-x64,linux-arm64,universal').split(',');
+const targets = arg('--targets', 'win32-x64,linux-x64,linux-arm64,darwin-arm64,universal').split(',');
 const skipSources = process.argv.includes('--skip-sources');
 const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
 const kernelRes = path.join(ROOT, 'resources', 'kernel');

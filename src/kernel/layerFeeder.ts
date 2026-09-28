@@ -49,6 +49,9 @@ export type EnsureResult = {
     elapsedMs: number;
 };
 
+type Upload = { id: string; data: Buffer };
+type BuiltOps = { ops: string[][]; uploads: Upload[]; bytes: number };
+
 /** `git cat-file --batch` を 1 回起動して、複数のオブジェクトの中身を読む */
 export function catFileBatch(repo: string, shas: string[]): Map<string, Buffer> {
     const out = new Map<string, Buffer>();
@@ -120,21 +123,63 @@ export class LayerFeeder {
         return parts.length > 1 ? parts[1] : undefined;
     }
 
-    private buildOps(shadowRepo: string, changes: TreeChange[]): { ops: string[][]; bytes: number } {
+    private buildOps(shadowRepo: string, changes: TreeChange[]): BuiltOps {
         const usable = changes.filter((c) => c.mode !== '160000' && isSafeGitPath(c.path));
         const removals = usable.filter((c) => c.status === 'D').map((c) => ['rmdir', c.path]);
         const writes = usable.filter((c) => c.status !== 'D');
         const contents = catFileBatch(shadowRepo, writes.map((c) => c.sha));
         let bytes = 0;
-        const writeOps = writes.map((c) => {
+        const uploads: Upload[] = [];
+        const writeOps = writes.map((c, index) => {
             const data = contents.get(c.sha)!;
             bytes += data.length;
+            if (this.agent.spec.maxFrameBytes) {
+                const id = `u-${index}-${c.sha}`;
+                uploads.push({ id, data });
+                return ['writeupload', c.path, id, modeOf(c)];
+            }
             return ['writeb64', c.path, data.toString('base64'), modeOf(c)];
         });
         if (bytes > this.options.maxCommitBytes) {
             throw new Error(`layer content is ${bytes} bytes (limit ${this.options.maxCommitBytes}); falling back`);
         }
-        return { ops: [...removals, ...writeOps], bytes };
+        return { ops: [...removals, ...writeOps], uploads, bytes };
+    }
+
+    private async stageUploads(uploads: Upload[]): Promise<void> {
+        if (!uploads.length) { return; }
+        // base64 と JSON の分を含めても planMac の 48 KiB に十分収まる。
+        const chunkBytes = 24 * 1024;
+        for (const upload of uploads) {
+            if (upload.data.length === 0) {
+                await this.agent.call({ op: 'stage', upload: upload.id, data: '', append: false });
+                continue;
+            }
+            for (let offset = 0; offset < upload.data.length; offset += chunkBytes) {
+                await this.agent.call({
+                    op: 'stage',
+                    upload: upload.id,
+                    data: upload.data.subarray(offset, offset + chunkBytes).toString('base64'),
+                    append: offset !== 0,
+                });
+            }
+        }
+    }
+
+    private async commitRequest(layer: string, parent: string, ops: string[][]): Promise<Record<string, unknown>> {
+        const direct = { op: 'commit', layer, parent, ops };
+        const maxFrame = this.agent.spec.maxFrameBytes;
+        if (!maxFrame || JSON.stringify(direct).length < maxFrame) { return direct; }
+
+        const upload = `ops-${layer}`;
+        for (let i = 0; i < ops.length; i++) {
+            const request = { op: 'stageOp', upload, stagedOp: ops[i], append: i !== 0 };
+            if (JSON.stringify(request).length >= maxFrame) {
+                throw new Error(`staged operation is too large for a ${maxFrame}-byte frame`);
+            }
+            await this.agent.call(request);
+        }
+        return { op: 'commit', layer, parent, opsUpload: upload };
     }
 
     /** コミット hash の層が agent にあるようにする */
@@ -154,11 +199,12 @@ export class LayerFeeder {
         const changes = asDiff
             ? listCommitChanges(shadowRepo, hash, parent, this.tryRunGit)
             : listCommitChanges(shadowRepo, hash, undefined, this.tryRunGit);
-        const { ops, bytes } = this.buildOps(shadowRepo, changes);
+        const { ops, uploads, bytes } = this.buildOps(shadowRepo, changes);
 
         let res: Record<string, unknown>;
         try {
-            res = await this.agent.call({ op: 'commit', layer: hash, parent: asDiff ? parent : '', ops });
+            await this.stageUploads(uploads);
+            res = await this.agent.call(await this.commitRequest(hash, asDiff ? parent : '', ops));
         } catch (e) {
             // EEXIST: 同じハッシュの層が違う親で既にある（ホストの記録と agent がずれた）。
             // UNKNOWN_LAYER: 親の層が agent に無い（agent が再起動した）。ENOSPC: 層の置き場所が一杯。
@@ -166,7 +212,8 @@ export class LayerFeeder {
             if (e instanceof AgentError && ['EEXIST', 'UNKNOWN_LAYER', 'ENOSPC'].includes(e.code)) {
                 await this.reset();
                 const snap = this.buildOps(shadowRepo, listCommitChanges(shadowRepo, hash, undefined, this.tryRunGit));
-                res = await this.agent.call({ op: 'commit', layer: hash, parent: '', ops: snap.ops });
+                await this.stageUploads(snap.uploads);
+                res = await this.agent.call(await this.commitRequest(hash, '', snap.ops));
                 const depth = Number(res.depth ?? 1);
                 this.known.set(hash, depth);
                 return { layer: hash, created: true, snapshot: true, depth, bytes: snap.bytes, elapsedMs: Date.now() - started };

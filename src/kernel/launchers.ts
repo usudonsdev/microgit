@@ -224,14 +224,22 @@ function planMac(deps: LauncherDeps): LaunchPlan {
     const notExecutable = executableOrReason(deps, helper);
     if (notExecutable) { return { ok: false, reason: notExecutable }; }
     const consoleLog = path.join(deps.logDir, 'microgit-guest-console.log');
+    // 実機で agent だけ差し替えて試すための開発用 initramfs。配布版の agent は Image に埋め込む。
+    const developmentInitrd = firstExisting(deps, [path.join(deps.extensionPath, 'guest', 'out', 'arm64', 'initrd.cpio')]);
+    const args = ['--kernel', image];
+    if (developmentInitrd) { args.push('--initrd', developmentInitrd); }
+    args.push('--console', consoleLog, '--memory-mb', String(deps.settings.memoryMb ?? 256));
     return {
         ok: true,
         kind: 'vz',
         spec: {
             command: helper,
-            args: ['--kernel', image, '--console', consoleLog, '--memory-mb', String(deps.settings.memoryMb ?? 256)],
+            args,
+            // macOS 26.5.1 の実機では、virtio-console の約 64 KiB を超える 1 行が停止した。
+            // LayerFeeder / KernelOverlayBackend はこの値があると stage/readChunk に分割する。
+            maxFrameBytes: 48 * 1024,
             description: `Virtualization.framework: ${helper}`,
         },
-        notes: ['macOS backend has not been verified on a real Mac yet (#17)', `guest console log: ${consoleLog}`],
+        notes: [`guest console log: ${consoleLog}`],
     };
 }

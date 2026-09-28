@@ -11,16 +11,17 @@
 
 ## 1. 配るもの
 
-プラットフォーム別の VSIX（`vsce package --target`）を 4 つ作る。Marketplace は、VS Code を動かしている環境に合う VSIX を配り、合うものが無い環境には `--target` を付けずに作った VSIX（universal）を配る（vsce の文書「Platform-specific extensions」）。
+プラットフォーム別の VSIX（`vsce package --target`）を 5 つ作る。Marketplace は、VS Code を動かしている環境に合う VSIX を配り、合うものが無い環境には `--target` を付けずに作った VSIX（universal）を配る（vsce の文書「Platform-specific extensions」）。
 
 | VSIX | 入っている部品 | 大きさ（5.0.0、CI の run 36250700521） | 配られる環境 |
 |---|---|---|---|
 | win32-x64 | 同梱の QEMU（#18）、x86_64 の最小ゲスト（カーネル＋agent） | 9,444,940 バイト | Windows x64 |
 | linux-x64 | x86_64 の agent | 1,429,604 バイト | Linux x64 |
 | linux-arm64 | arm64 の agent | 1,303,331 バイト | Linux arm64 |
-| universal | 無し（Node.js 版だけ） | 82,916 バイト | macOS、Windows on Arm、Linux armhf、Alpine など |
+| darwin-arm64 | `microgit-vm`、arm64 の最小ゲスト | 3,044,482 バイト（Mac実機で作った候補。CI値は成功時に更新） | Apple silicon Mac |
+| universal | 無し（Node.js 版だけ） | 82,916 バイト | Intel Mac、Windows on Arm、Linux armhf、Alpine など |
 
-- **macOS**：Mac の実機で確かめるまで（#17）、カーネル版の部品を入れない。`--targets darwin-arm64` を明示すれば作れる
+- **macOS**：Apple silicon実機（macOS 26.5.1）でVirtualization.framework、ad-hoc署名、12シナリオのゴールデンテスト、3 MiBと700ファイルを含む15シナリオ・126回の差分テスト、VS Code内の保存・復元まで確認した。配布するdarwin-arm64 VSIXそのものはpackage.ymlの成功を公開条件にする
 - **Alpine（musl）**：agent は静的リンクなので動く見込みだが、確かめていない。今は universal が配られる
 - 中身の確認：`package-vsix.mjs` は、できた VSIX の中身を「入ってよいものの一覧」と照らし、同梱の部品を除いた中身が 1 MB を超えたら止める。最初は「入っていてはいけないもの」の一覧で確かめていて、CI で成果物を落としたフォルダ（`artifacts/`、GCC のソース RPM など）が VSIX に入り、142〜150 MB になったのを見逃した
 - 実行ビット：VSIX は Linux で作る（Windows で作ると実行ビットが落ちる）。拡張機能も、起動の前に実行ビットを確かめて無ければ付ける（`src/kernel/executable.ts`）
@@ -35,9 +36,9 @@
 | ubuntu-22.04 | linux-x64 | kernel | 同梱の agent が実行ビット付きで入り、`unshare -Urm` で動く |
 | ubuntu-24.04 | linux-x64 | nodejs | 非特権のユーザー名前空間が止められた環境で、公開版でも Node.js 版になる（NFR-5、補足 S-3） |
 | ubuntu-24.04-arm | linux-arm64 | kernel | arm64 の agent（止めている設定を外して試す） |
-| macos-14 | universal | nodejs | カーネル版の部品が無い VSIX |
+| macos-14 | darwin-arm64 | kernel | 同梱の `microgit-vm` と arm64 ゲスト。3 MiBの保存・復元と、成功したkernel checkoutの記録も確認 |
 
-結果（run 36250700521、2026-09-27）：5 つとも、期待したバックエンドで拡張機能テスト 3 件が通った。カーネル版の 3 つは、入った拡張機能のフォルダの `resources/kernel/...` から起動していた（Linux の agent は mode 755）。
+以前の結果（run 36250700521、2026-09-27）はMacをuniversal / nodejsで確認したもの。Macカーネル版を加えた変更では、package.ymlの5環境が改めてすべて通るまで公開しない。
 
 手元（Windows 11）でも、`MICROGIT_TEST_VSIX=<VSIX> MICROGIT_TEST_EXPECT_BACKEND=kernel node out/test/runTest.js` で同じことができる。
 
@@ -47,25 +48,25 @@
 
 1. `feature/kernel-portability` を `master` にマージする（PR を作り、CI がすべて通ることを確かめる）
 2. `master` で `v5.0.0` のタグを打って push する → `package.yml` が走り、VSIX の作成と 5 つの環境での確認のあと、GitHub Release の **下書き** を作る（VSIX、`vsix.json`、`third-party-sources-v5.0.0.tar`）
-3. 下書きの VSIX を手元の VS Code に入れて、`MicroGit: Overlay Status` で `active=kernel` を確かめる（Windows・Linux）
+3. 下書きの VSIX を手元の VS Code に入れて、`MicroGit: Overlay Status` で `active=kernel` と `lastCheckout:` を確かめる（Windows・Linux・Apple silicon Mac）
 4. Marketplace に公開する。プラットフォームごとに VSIX を渡す：
    ```
-   npx vsce publish --packagePath microgit-5.0.0-win32-x64.vsix microgit-5.0.0-linux-x64.vsix microgit-5.0.0-linux-arm64.vsix microgit-5.0.0-universal.vsix
+   npx vsce publish --packagePath microgit-5.0.0-win32-x64.vsix microgit-5.0.0-linux-x64.vsix microgit-5.0.0-linux-arm64.vsix microgit-5.0.0-darwin-arm64.vsix microgit-5.0.0-universal.vsix
    ```
    （発行者 `usudonsdev` の Personal Access Token が要る。CI からの自動公開は、トークンを Secrets に置く判断が要るので、今は手で行う）
 5. GitHub Release の下書きを公開する（GPL・LGPL の部品のソースを誰でも取れるようにする。§5）
 6. `CHANGELOG.md` の `[5.0.0]` に公開日を入れる
 
-## 4. 公開の前に利用者が決めること
+## 4. 公開方針（2026-09-28 確定）
 
-| # | 事項 | 今の状態 | 選択肢 |
-|---|---|---|---|
-| 1 | package.json の `repository` | `https://github.com/usudonsdev/microgit` を指しているが、このリポジトリは存在しない（2026-09-26 に確認）。Marketplace のページのリンクが切れる | `usudonsdev/microgit-test` にする／リポジトリの名前を `microgit` に変える／新しく作る |
-| 2 | `LICENCE.md` の著作権者 | `Copyright (c) 2026 YourName`（雛形のまま） | 利用者の名前かハンドル |
-| 3 | O-5：OverlayFS 部品（agent など自作のコード）のライセンス | MicroGit 本体と同じ MIT で配っている | MIT のまま／Apache-2.0（特許の許諾が明示される）。Phase 4 で別のリポジトリにするときに決めてもよい |
-| 4 | GPL のソースの渡し方 | リリースごとに GitHub Release にソースを置く（§5） | このまま／「書面による申し出」（3 年間、求めがあればソースを渡す）も THIRD_PARTY_NOTICES.md に書く（連絡先が要る） |
-| 5 | Windows のコード署名 | 同梱の QEMU（と DLL）は署名していない | 署名しない（Smart App Control が有効な PC では Node.js 版になる。§6）／署名する（費用がかかる） |
-| 6 | OverlayFS 部品を別のリポジトリにするか（NFR-7、Phase 4） | しない（MicroGit の中） | Phase 4 で決める |
+| # | 事項 | 決定 |
+|---|---|---|
+| 1 | Marketplace のリポジトリURL | 実在する `https://github.com/usudonsdev/microgit-test` |
+| 2 | 著作権者 | `usudonsdev` |
+| 3 | O-5：自作のOverlayFS部品 | MicroGit本体と同じMIT。別リポジトリへ分離する時点で再検討 |
+| 4 | GPL / LGPLのソース | 各GitHub Releaseに、対応する実行物と同時にソース一式を置く。書面による申し出方式は採らない |
+| 5 | Windows / macOS のコード署名 | Windowsは未署名、Macはad-hoc署名。Developer ID / notarizationは行わず、OSに止められた場合はNode.js版へフォールバック |
+| 6 | OverlayFS部品の置き場所 | 5.xではMicroGit本体に同梱。Phase 4で分離の必要性を再評価 |
 
 ## 5. ライセンスとソース（NFR-7）
 

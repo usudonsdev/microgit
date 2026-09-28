@@ -84,6 +84,13 @@ const extraScenarios = [
         // 深さの上限（--max-depth）を何度も越える長い鎖
         commits: Array.from({ length: 9 }, (_, i) => ({ ops: [['write', `f${i % 3}.txt`, `v${i}`], ...(i === 5 ? [['rm', 'f0.txt']] : [])] })),
     },
+    {
+        name: 'e2e-many-files',
+        // Macでは中身だけでなく、commitのパス一覧も48 KiBを超えたらstageOpに分ける
+        commits: [{
+            ops: Array.from({ length: 700 }, (_, i) => ['write', `many/file-${String(i).padStart(4, '0')}-${'x'.repeat(48)}.txt`, `v${i}`]),
+        }],
+    },
 ];
 
 function applyOp(dir, op) {

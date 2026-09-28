@@ -204,6 +204,27 @@ func TestBinaryContentModeAndReadMany(t *testing.T) {
 	}
 }
 
+func TestChunkedStageAndRead(t *testing.T) {
+	c := newClient(t)
+	part1 := []byte("first-")
+	part2 := []byte("second")
+	c.ok(map[string]any{"op": "stage", "upload": "u-1", "data": b64(string(part1))})
+	c.ok(map[string]any{"op": "stage", "upload": "u-1", "data": b64(string(part2)), "append": true})
+	c.ok(map[string]any{"op": "stageOp", "upload": "ops-c1", "stagedOp": []string{"writeupload", "large.bin", "u-1", "755"}})
+	c.ok(map[string]any{"op": "commit", "layer": "c1", "opsUpload": "ops-c1"})
+
+	first := c.ok(map[string]any{"op": "readChunk", "layer": "c1", "path": "large.bin", "offset": 0, "limit": 5})
+	second := c.ok(map[string]any{"op": "readChunk", "layer": "c1", "path": "large.bin", "offset": 5, "limit": 32})
+	if first.Data == nil || second.Data == nil {
+		t.Fatal("readChunk data is missing")
+	}
+	a, _ := base64.StdEncoding.DecodeString(*first.Data)
+	b, _ := base64.StdEncoding.DecodeString(*second.Data)
+	if string(append(a, b...)) != "first-second" || first.Done || !second.Done {
+		t.Fatalf("chunked read = %q / %+v %+v", append(a, b...), first, second)
+	}
+}
+
 func TestWriteReplacesDirectoryAndFileInTheWay(t *testing.T) {
 	c := newClient(t)
 	c.commit("c1", "", []string{"write", "p/q.txt", "Q"}, []string{"write", "f", "file"})

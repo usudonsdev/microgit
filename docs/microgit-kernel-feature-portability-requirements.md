@@ -109,7 +109,7 @@
 
 **ホストの FS で表せない変更（O-14）：** Boundary Guard が弾いて利用者に知らせる（変換はしない。SR-2、docs/boundary-guard.md）。
 
-**結果（2026-09-26）：** ゴールデンテストはカーネル 6.6・6.8・6.17・6.18 で同じ結果。差分テストは WSL2（VM なし）・Windows（QEMU の WHPX と TCG）・CI の QEMU（arm64 / x86_64）で 14 シナリオ・123 回の過去に戻る操作がすべて Git と一致。macOS は未確認（#17）。
+**結果（2026-09-28）：** ゴールデンテストはカーネル 6.6・6.8・6.17・6.18 で同じ結果。差分テストは WSL2（VM なし）・Windows（QEMU の WHPX と TCG）・macOS実機（Virtualization.framework）・CI の QEMU（arm64 / x86_64）で検証する。Mac実機では3 MiBと700ファイルを含む15シナリオ・126回の過去に戻る操作がすべてGitと一致した（Windows / CIは追加シナリオを次の実行で確認する）。
 
 ---
 
@@ -185,7 +185,7 @@
 | ホスト | バックエンド |
 |---|---|
 | Linux | ネイティブOverlayFS（VMを使わない） |
-| macOS | OS標準のハイパーバイザAPIによる最小VM（第 2 版：Virtualization.framework。実機確認前、#17） |
+| Apple silicon macOS | OS標準のVirtualization.frameworkによる最小VM（実機確認済み、#17） |
 | Windows | OS標準のハイパーバイザAPIによる最小VM（方式は要検証）（第 2 版：同梱の QEMU。WHPX が使えればそれ、使えなければ TCG。通り道は名前付きパイプ。ADR-0006、docs/windows-backend.md） |
 | 上記が利用不可 | 現行のNode.js仮想実装（フォールバック） |
 
@@ -453,7 +453,7 @@ QEMU のセキュリティの方針では、TCG で動かす使い方は「仮�
 | Phase | 状態 | Issue |
 |---|---|---|
 | 0 | 済み（ゴールデンテスト、データモデル、命令の形と mount オプション、agent の言語、Linux ネイティブと自動選択、MicroGit への組み込み） | #10〜#14、#21 |
-| 1 | ゲスト・Boundary Guard は済み。macOS のバックエンドはコードのみで、実機確認待ち | #15・#16 済み、#17 |
+| 1 | ゲスト・Boundary Guard・macOS実機のバックエンドまで確認済み | #15・#16・#17 |
 | 2 | 済み（同梱の QEMU、WHPX と TCG） | #18 |
 | 3 | VSIX の作成と、公開版と同じ形での確認（5 つの環境）は済み。Marketplace への公開は利用者の判断待ち（docs/release.md §4） | #19 |
 | 4 | 未着手 | — |
@@ -512,13 +512,13 @@ QEMU のセキュリティの方針では、TCG で動かす使い方は「仮�
 | # | 状態 | 決定 |
 |---|---|---|
 | O-1 | 決定 | 同梱の QEMU（WHPX → TCG）。ファイル共有は使わず、命令の通り道（名前付きパイプ）で中身を送る（docs/windows-backend.md、ADR-0006）。検討対象に加えた LKL は O-9 で保留 |
-| O-2 | 仮決め | 層はゲストの tmpfs（Linux の VM なしは `$XDG_RUNTIME_DIR` の tmpfs か一時ディレクトリ）。キャッシュなので消えてよい（ADR-0001）。ワークスペースは共有せず、中身は命令で受け渡す |
-| O-3 | 決定 | virtio-console の名前付きポート。`CONFIG_NET` は無効（ADR-0010）。Windows はホスト側を名前付きパイプ（ADR-0006） |
+| O-2 | 決定 | 層はゲストの tmpfs（Linux の VM なしは `$XDG_RUNTIME_DIR` の tmpfs か一時ディレクトリ）。正本はGitであり再構築できる（ADR-0001）。ワークスペースは共有せず、中身は命令で受け渡す |
+| O-3 | 決定 | virtio-console の名前付きポート。`CONFIG_NET` は無効（ADR-0010）。Windows はホスト側を名前付きパイプ（ADR-0006）。Macは約64 KiBの実機上限を避けるため24 KiBずつ`stage` / `readChunk` |
 | O-4 | 決定 | Go（ADR-0011） |
 | O-5 | 未決 | 利用者に確認する（今は MicroGit 本体と同じ MIT で配っている。docs/release.md §4） |
 | O-6 | 提案 | 長期サポート版のカーネル・QEMU の安定版・Go のサポート中の版を追い、マイナー版ごとと、有効にしている機能に関わる脆弱性が出たときに上げる（docs/release.md §8）。利用者の確認待ち |
 | O-7 | 決定 | 命令の形 v1（docs/agent-protocol.md） |
-| O-8 | 未決 | #17（Mac の実機確認のときに決める） |
+| O-8 | ad-hoc署名で配布し、Developer ID / notarizationは行わない。OSに止められた場合はNode.js版へフォールバック | docs/release.md §4 |
 | O-9 | 保留 | TCG で NFR-1 を満たせたので急がない（ADR-0007） |
 | O-10 | 決定 | shadow の Git（ADR-0001） |
 | O-11 | 決定 | 既定は電源断でも失わない（ADR-0002） |
@@ -533,3 +533,4 @@ QEMU のセキュリティの方針では、TCG で動かす使い方は「仮�
 | 初版 | — | 初期要件確定版 |
 | 第 2 版 | 2026-09-26 | 補足文書の所見 S-1〜S-13 を反映（#9）。FR-1 の範囲と受け入れ基準の 2 段化、FR-2〜FR-5 の決定と結果、NFR-1〜NFR-4・NFR-6・NFR-7 の結果、SR-4 の適用範囲、§7.4（Linux の VM なしの脅威モデル）、AD-1・AD-3・AD-5 の補足、§9 に LKL・UML、§10 の進み具合、§11 に 8 件、§12 に O-8〜O-14 と決定の状況。初版の本文は消さず、「第 2 版」と印を付けて足した |
 | 第 2 版への追記 | 2026-09-26 | #19：NFR-3 に VSIX の実物の大きさ、SR-4 に Marketplace の署名、§7.5（TCG の境界）、§10 の Phase 3、§11 にリスク 2 件、§12 の O-5・O-6 |
+| 第 3 版 | 2026-09-28 | Apple silicon Mac実機の結果を反映。O-2 / O-3を確定し、virtio-consoleのフレーム分割とad-hoc署名の結果を記録 |

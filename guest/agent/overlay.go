@@ -24,13 +24,15 @@ import (
 // 余裕が小さい（docs/adr/0003-layer-compaction.md）。
 //
 // コミットのモデル（FR-2、#12 で「保存ごとに層を作る」に決定）:
-//   コミット = 親までの層を lowerdir に積み、空の upperdir に ops を書いて unmount したもの。
-//   凍結した upper がそのまま子の lower になる。view は親までの層＋自分の層だけの読み取り専用 mount。
+//
+//	コミット = 親までの層を lowerdir に積み、空の upperdir に ops を書いて unmount したもの。
+//	凍結した upper がそのまま子の lower になる。view は親までの層＋自分の層だけの読み取り専用 mount。
 //
 // 層は正本ではなくキャッシュ（ADR-0001）。ホストはいつでも reset して Git から作り直せる。
 type store struct {
 	root   string
 	layers map[string]*layer
+	opSets map[string][][]string
 	next   int
 }
 
@@ -49,12 +51,12 @@ type commitInfo struct {
 
 // overlayOpts は固定する mount オプション（#12、O-13）。record-kernel.mjs の MOUNT_OPTS と同じにする。
 //
-//   userxattr          非特権（ユーザー名前空間の root）で mount するのに必須（カーネル 5.11 以降）。
-//                      tmpfs を upper にするには tmpfs の user.* xattr（6.6 以降）も要る
-//   redirect_dir=nofollow  下の層のディレクトリの rename は EXDEV にする。userxattr と redirect_dir=on は
-//                      カーネルが同時に受け付けない（"conflicting options"。2026-09-26 に 6.6 で確認）
-//   index=off / metacopy=off / xino=off  カーネルの版や設定で既定値が変わりうるものを明示して揃える。
-//                      metacopy=on も userxattr と同時には受け付けない
+//	userxattr          非特権（ユーザー名前空間の root）で mount するのに必須（カーネル 5.11 以降）。
+//	                   tmpfs を upper にするには tmpfs の user.* xattr（6.6 以降）も要る
+//	redirect_dir=nofollow  下の層のディレクトリの rename は EXDEV にする。userxattr と redirect_dir=on は
+//	                   カーネルが同時に受け付けない（"conflicting options"。2026-09-26 に 6.6 で確認）
+//	index=off / metacopy=off / xino=off  カーネルの版や設定で既定値が変わりうるものを明示して揃える。
+//	                   metacopy=on も userxattr と同時には受け付けない
 const overlayOpts = "userxattr,redirect_dir=nofollow,index=off,metacopy=off,xino=off"
 
 // maxDepth は 1 つの view に積める層の数の上限（安全のため）。OverlayFS は 500 層まで。
@@ -66,6 +68,8 @@ const maxOptionBytes = 4096
 
 // maxReadBytes は read / readMany で 1 回に返す中身の合計の上限。応答は 1 行の JSON なので大きくしない。
 const maxReadBytes = 32 << 20
+const maxChunkBytes = 32 << 10
+const maxUploadBytes = 90 << 20
 
 func newStore(root string) (*store, error) {
 	s := &store{root: root}
@@ -73,8 +77,9 @@ func newStore(root string) (*store, error) {
 }
 
 func (s *store) abs(rel string) string { return filepath.Join(s.root, rel) }
-func (s *store) mnt() string          { return s.abs("m") }
-func (s *store) base() string         { return s.abs("base") }
+func (s *store) mnt() string           { return s.abs("m") }
+func (s *store) base() string          { return s.abs("base") }
+func (s *store) uploads() string       { return s.abs("uploads") }
 
 func (s *store) reset() error {
 	_ = syscall.Unmount(s.mnt(), 0)
@@ -82,13 +87,103 @@ func (s *store) reset() error {
 		return err
 	}
 	s.layers = map[string]*layer{}
+	s.opSets = map[string][][]string{}
 	s.next = 0
-	for _, d := range []string{s.base(), s.mnt()} {
+	for _, d := range []string{s.base(), s.mnt(), s.uploads()} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func validUploadID(id string) bool {
+	if id == "" || len(id) > 128 {
+		return false
+	}
+	for _, c := range id {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_') {
+			return false
+		}
+	}
+	return true
+}
+
+// stage は、大きいファイルを virtio-console の安全な大きさに分けて一時領域へ受け取る。
+// upload は commit の writeupload からだけ参照し、reset と commit 後に消す。
+func (s *store) stage(upload, encoded string, appendData bool) error {
+	if !validUploadID(upload) {
+		return &protoError{code: "BAD_REQUEST", msg: "bad upload id"}
+	}
+	data, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil || len(data) > maxChunkBytes {
+		return &protoError{code: "BAD_REQUEST", msg: fmt.Sprintf("bad stage data (max %d bytes)", maxChunkBytes)}
+	}
+	p := filepath.Join(s.uploads(), upload)
+	if appendData {
+		if _, err := os.Stat(p); err != nil {
+			return &protoError{code: "BAD_REQUEST", msg: "upload does not exist"}
+		}
+	}
+	flags := os.O_CREATE | os.O_WRONLY
+	if appendData {
+		flags |= os.O_APPEND
+	} else {
+		flags |= os.O_TRUNC
+	}
+	f, err := os.OpenFile(p, flags, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err = f.Write(data); err == nil {
+		err = f.Close()
+	} else {
+		_ = f.Close()
+	}
+	if err != nil {
+		return err
+	}
+	if st, err := os.Stat(p); err != nil {
+		return err
+	} else if st.Size() > maxUploadBytes {
+		_ = os.Remove(p)
+		return &protoError{code: "TOO_LARGE", msg: fmt.Sprintf("upload exceeds %d bytes", maxUploadBytes)}
+	}
+	return nil
+}
+
+// stageOp は、ファイル数が多く commit のメタデータ自体が1フレームに収まらない場合に
+// opを1件ずつ受け取る。ファイルの中身はstageで別に受け取るので、各opはパスと参照だけ。
+func (s *store) stageOp(upload string, op []string, appendOp bool) error {
+	if !validUploadID(upload) || len(op) == 0 {
+		return &protoError{code: "BAD_REQUEST", msg: "bad staged op"}
+	}
+	if !appendOp {
+		delete(s.opSets, upload)
+	} else if _, ok := s.opSets[upload]; !ok {
+		return &protoError{code: "BAD_REQUEST", msg: "staged ops do not exist"}
+	}
+	if len(s.opSets[upload]) >= 100_000 {
+		delete(s.opSets, upload)
+		return &protoError{code: "TOO_LARGE", msg: "too many staged ops"}
+	}
+	s.opSets[upload] = append(s.opSets[upload], append([]string(nil), op...))
+	return nil
+}
+
+func (s *store) resolveOps(direct [][]string, upload string) ([][]string, error) {
+	if upload == "" {
+		return direct, nil
+	}
+	if len(direct) != 0 || !validUploadID(upload) {
+		return nil, &protoError{code: "BAD_REQUEST", msg: "commit must use direct ops or opsUpload, not both"}
+	}
+	ops, ok := s.opSets[upload]
+	if !ok {
+		return nil, &protoError{code: "BAD_REQUEST", msg: "staged ops do not exist"}
+	}
+	delete(s.opSets, upload)
+	return ops, nil
 }
 
 // lowerdirs は id から親をたどった層のディレクトリを、上の層が先の順で返す。最後は空の base。
@@ -110,6 +205,7 @@ func checkOptions(data string) error {
 
 func (s *store) commit(id, parent string, ops [][]string) (commitInfo, error) {
 	var info commitInfo
+	defer s.cleanupUploads(ops)
 	if id == "" {
 		return info, &protoError{code: "BAD_REQUEST", msg: "commit needs layer"}
 	}
@@ -151,7 +247,13 @@ func (s *store) commit(id, parent string, ops [][]string) (commitInfo, error) {
 	info.mountOptions = currentMountOptions(s.mnt())
 	opErr := func() error {
 		for _, op := range ops {
-			n, err := applyOp(s.mnt(), op)
+			var n int
+			var err error
+			if len(op) > 0 && op[0] == "writeupload" {
+				err = s.applyUploadOp(s.mnt(), op)
+			} else {
+				n, err = applyOp(s.mnt(), op)
+			}
 			if err != nil {
 				return fmt.Errorf("op %v: %w", opSummary(op), err)
 			}
@@ -172,6 +274,39 @@ func (s *store) commit(id, parent string, ops [][]string) (commitInfo, error) {
 	s.layers[id] = &layer{dir: dir, parent: parent, depth: depth}
 	info.depth = depth
 	return info, nil
+}
+
+func (s *store) cleanupUploads(ops [][]string) {
+	for _, op := range ops {
+		if len(op) >= 3 && op[0] == "writeupload" && validUploadID(op[2]) {
+			_ = os.Remove(filepath.Join(s.uploads(), op[2]))
+		}
+	}
+}
+
+func (s *store) applyUploadOp(root string, op []string) error {
+	if len(op) < 3 || len(op) > 4 || !validUploadID(op[2]) {
+		return &protoError{code: "BAD_REQUEST", msg: fmt.Sprintf("bad op %v", opSummary(op))}
+	}
+	target, err := safeJoin(root, op[1])
+	if err != nil {
+		return err
+	}
+	data, err := os.ReadFile(filepath.Join(s.uploads(), op[2]))
+	if err != nil {
+		return &protoError{code: "BAD_REQUEST", msg: "staged upload is missing"}
+	}
+	mode := os.FileMode(0o644)
+	if len(op) == 4 {
+		switch op[3] {
+		case "644":
+		case "755":
+			mode = 0o755
+		default:
+			return &protoError{code: "BAD_REQUEST", msg: "bad mode " + op[3]}
+		}
+	}
+	return writeFileReplacing(root, target, data, mode)
 }
 
 // withView は id の時点のツリーを読み取り専用で mount し、fn を呼んでから unmount する。
@@ -241,11 +376,52 @@ func (s *store) readMany(id string, paths []string) ([]fileData, error) {
 	return out, err
 }
 
+// readChunk は、大きい応答が止まる macOS の virtio-console 向けに、1 ファイルを小分けで返す。
+func (s *store) readChunk(id, rel string, offset int64, limit int) (string, bool, error) {
+	if offset < 0 || limit <= 0 || limit > maxChunkBytes {
+		return "", false, &protoError{code: "BAD_REQUEST", msg: fmt.Sprintf("readChunk limit must be 1..%d", maxChunkBytes)}
+	}
+	var encoded string
+	var done bool
+	err := s.withView(id, func(root string) error {
+		p, err := safeJoin(root, rel)
+		if err != nil {
+			return err
+		}
+		st, err := os.Lstat(p)
+		if err != nil {
+			return err
+		}
+		if !st.Mode().IsRegular() {
+			return &protoError{code: "EINVAL", msg: rel + " is not a regular file"}
+		}
+		if offset > st.Size() {
+			return &protoError{code: "BAD_REQUEST", msg: "readChunk offset is past EOF"}
+		}
+		f, err := os.Open(p)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		buf := make([]byte, limit)
+		n, err := f.ReadAt(buf, offset)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return err
+		}
+		encoded = base64.StdEncoding.EncodeToString(buf[:n])
+		done = offset+int64(n) >= st.Size()
+		return nil
+	})
+	return encoded, done, err
+}
+
 // inspect は層そのもの（凍結した upper）の中身を、OverlayFS の表現が分かる形で返す。
-//   w  whiteout（種類 0,0 のキャラクタデバイス）
-//   O  opaque ディレクトリ（user.overlay.opaque=y。下の層の中身を隠す）
-//   r  redirect の付いたディレクトリ（user.overlay.redirect。redirect_dir=nofollow では作られない）
-//   d  ディレクトリ、f  ファイル、l  シンボリックリンク、o  その他
+//
+//	w  whiteout（種類 0,0 のキャラクタデバイス）
+//	O  opaque ディレクトリ（user.overlay.opaque=y。下の層の中身を隠す）
+//	r  redirect の付いたディレクトリ（user.overlay.redirect。redirect_dir=nofollow では作られない）
+//	d  ディレクトリ、f  ファイル、l  シンボリックリンク、o  その他
+//
 // ゴールデンテストはマージ済みのビューしか比べないので、層の表現はこれで確かめる（#12）。
 func (s *store) inspect(id string) ([]string, error) {
 	l, ok := s.layers[id]
@@ -337,12 +513,12 @@ func opSummary(op []string) string {
 
 // applyOp は op を 1 つ当てる。戻り値の int は、rename が EXDEV になってコピーで代わりにやった回数。
 //
-//   ["write", path, text]              テキストを書く（ゴールデンテストのシナリオ用）
-//   ["writeb64", path, base64, mode?]  中身を base64 で渡して書く。mode は "644" / "755"（省略時 644）
-//   ["rm", path]                       ファイルを消す
-//   ["rmdir", path]                    ディレクトリを中身ごと消す
-//   ["mkdir", path]                    ディレクトリを作る
-//   ["mv", from, to]                   名前を変える（下の層のディレクトリは EXDEV → コピーして消す）
+//	["write", path, text]              テキストを書く（ゴールデンテストのシナリオ用）
+//	["writeb64", path, base64, mode?]  中身を base64 で渡して書く。mode は "644" / "755"（省略時 644）
+//	["rm", path]                       ファイルを消す
+//	["rmdir", path]                    ディレクトリを中身ごと消す
+//	["mkdir", path]                    ディレクトリを作る
+//	["mv", from, to]                   名前を変える（下の層のディレクトリは EXDEV → コピーして消す）
 //
 // write / writeb64 は、置き先にディレクトリがあれば中身ごと消してからファイルを置き、途中に
 // ファイルがあれば消してディレクトリにする。Git のツリーでは同じパスがファイルとディレクトリを

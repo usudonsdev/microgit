@@ -108,6 +108,23 @@ export class KernelOverlayBackend {
 
     private async readFiles(layer: string, paths: string[]): Promise<Map<string, Buffer>> {
         const out = new Map<string, Buffer>();
+        if (this.agent.spec.maxFrameBytes) {
+            const chunkBytes = 24 * 1024;
+            for (const file of paths) {
+                const chunks: Buffer[] = [];
+                let offset = 0;
+                while (true) {
+                    const res = await this.agent.call({ op: 'readChunk', layer, path: file, offset, limit: chunkBytes });
+                    const chunk = Buffer.from(String(res.data ?? ''), 'base64');
+                    chunks.push(chunk);
+                    offset += chunk.length;
+                    if (res.done === true) { break; }
+                    if (chunk.length === 0) { throw new Error(`readChunk made no progress for ${file}`); }
+                }
+                out.set(file, Buffer.concat(chunks));
+            }
+            return out;
+        }
         const readChunk = async (chunk: string[]): Promise<void> => {
             if (!chunk.length) { return; }
             try {

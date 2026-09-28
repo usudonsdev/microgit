@@ -15,7 +15,7 @@ import * as vscode from 'vscode';
  * 環境変数 MICROGIT_TEST_BACKEND_SETTING（auto / kernel / nodejs）を付けると、設定 microgit.overlayBackend をその値にしてから試す。
  */
 suite('MicroGit Overlay backend (save → jump)', function () {
-    this.timeout(180_000);
+    this.timeout(300_000);
 
     let root: string;
     let shadow: string;
@@ -87,6 +87,20 @@ suite('MicroGit Overlay backend (save → jump)', function () {
         assert.strictEqual(shadowHead(), h3);
     });
 
+    test('3 MiB のファイルも保存して過去へ戻せる', async () => {
+        // macOS の Virtualization.framework は、virtio-console の JSON 1 行が約 64 KiB を超えると
+        // 停止した。stage / readChunk が実際の VSIX の中でも分割することを回帰確認する。
+        const large = 'a'.repeat(3 * 1024 * 1024 + 7);
+        const largeHead = await editAndSave('kb/large.txt', large);
+        const smallHead = await editAndSave('kb/large.txt', 'small\n');
+
+        await vscode.commands.executeCommand('microgit.jumpToCommit', largeHead);
+        assert.strictEqual(fs.readFileSync(path.join(root, 'kb', 'large.txt'), 'utf8'), large);
+
+        await vscode.commands.executeCommand('microgit.jumpToCommit', smallHead);
+        assert.strictEqual(fs.readFileSync(path.join(root, 'kb', 'large.txt'), 'utf8'), 'small\n');
+    });
+
     test('Overlay Status で、使ったバックエンドが分かる', async () => {
         await vscode.commands.executeCommand('microgit.overlayStatus');
         const status = vscode.workspace.textDocuments.map((d) => d.getText()).find((t) => t.startsWith('active='));
@@ -97,6 +111,11 @@ suite('MicroGit Overlay backend (save → jump)', function () {
         const expected = process.env.MICROGIT_TEST_EXPECT_BACKEND;
         if (expected) {
             assert.strictEqual(active, expected);
+            if (expected === 'kernel') {
+                // 起動だけ成功して checkout が失敗すると、Node.js 版で操作を続けたあと Status のために
+                // カーネル版が再起動し、active=kernel だけは表示される。実際に反映まで使えた証拠も要る。
+                assert.ok(status.includes('lastCheckout:'), 'カーネル版で成功した checkout の記録が無い');
+            }
         }
     });
 });

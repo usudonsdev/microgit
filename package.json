@@ -7,7 +7,7 @@
   "license": "SEE LICENSE IN LICENCE.md",
   "repository": {
     "type": "git",
-    "url": "https://github.com/usudonsdev/microgit"
+    "url": "https://github.com/usudonsdev/microgit-test"
   },
   "engines": {
     "vscode": "^1.105.0"

@@ -3,7 +3,7 @@
 | 項目 | 内容 |
 |---|---|
 | Issue | #15（最小ゲスト）、#17（macOS バックエンド）、#13（agent の言語）。Epic #8 |
-| 版 | 初版（2026-09-26）：ゲストのビルドと QEMU での確認まで済み。Mac での起動は未確認 |
+| 版 | 第2版（2026-09-28）：Apple silicon Mac実機のVirtualization.frameworkまで確認 |
 | 関連 | [要件定義書](./microgit-kernel-feature-portability-requirements.md) AD-5・AD-7・NFR-3・NFR-4、[ゴールデンテスト](./overlayfs-golden-test.md) |
 
 ## 1. 全体の形
@@ -86,7 +86,7 @@ agent を PID 1 以外で起動すると、同じ命令を stdin/stdout で受�
 |---|---|---|---|---|---|
 | WSL2、VM なし（`unshare -Urm`、x86_64） | 6.6.87.2-microsoft-standard-WSL2 | 全一致 | 4.2 s ※1 | 7.3 / 9.9 ms | 0.3 / 0.5 ms |
 | GitHub Actions、QEMU（TCG、arm64） | 6.18.53 | 全一致 | 0.7 s ※2 | 2.7 / 8.3 ms | 1.7 / 2.8 ms |
-| Mac（Virtualization.framework） | 6.18.53 | 未確認 | — | — | — |
+| Apple silicon Mac（Virtualization.framework） | 6.18.53 | 全一致 | 0.6 s | 0.13 / 0.30 ms | 0.07 / 0.15 ms |
 
 ※1 wsl.exe の起動時間を含む。※2 CPU を丸ごとエミュレーションした状態での値。
 
@@ -126,18 +126,33 @@ mac/run-golden.sh
 
 `run-golden.sh` は、起動ツールをビルドして ad-hoc 署名し、GitHub Actions の最新の成功した実行から `Image` を取ってきて、12 シナリオを流す。結果は `guest/out/arm64/guest-result-mac.json`、カーネルのログは `guest/out/arm64/console-mac.log` に残る。
 
-Mac で確かめること：
-- [ ] ad-hoc 署名で Virtualization.framework が使えるか（O-8）
-- [ ] allnoconfig ベースのカーネルが Virtualization.framework で起動するか（PCI・GIC・PSCI の構成が QEMU の virt と違う可能性がある）
-- [ ] 名前付きポートがゲストで見つかるか
-- [ ] 12 シナリオの一致と、起動時間・commit・view の計測値
+未pushのagent変更を含めてMicroGit本体まで試す場合は、固定版のGoをPATHに置いて次を実行する。
+外付けinitramfsは開発用で、公開版では`guest/build.sh`が同じagentをImageへ埋め込む。
+
+```bash
+mac/build-dev-initrd.sh
+npm run compile
+node scripts/test/kernel-backend-e2e.mjs --plan --max-depth 2
+MICROGIT_TEST_EXPECT_BACKEND=kernel npm test
+```
+
+Mac で確かめたこと（2026-09-28、Apple silicon、macOS 26.5.1）：
+- [x] ad-hoc 署名で Virtualization.framework が使える。公開版もad-hoc署名とし、止められた環境ではNode.js版へフォールバック（O-8）
+- [x] allnoconfig ベースのカーネルが Virtualization.framework で起動する
+- [x] 名前付きポートは `/dev/vport1p0` として見つかる
+- [x] 12 シナリオ一致。ready まで約0.6秒、commit p50/p95 0.13/0.30 ms、view 0.07/0.15 ms
+- [x] MicroGit本体の差分テスト15シナリオ・126回がGitのツリーと一致（3 MiB、700ファイル、日本語、バイナリ、分岐、キャッシュ再構築を含む）
+- [x] VS Code内で保存・過去移動、3 MiBの復元、`active=kernel`、成功した`lastCheckout`を確認
+
+実機で見つかった制限：virtio-consoleは約64 KiBを超えるJSON 1行で停止した。stdioを
+Unix domain socketへ替えても同じだったため、O-3はvirtio-consoleのまま、Macだけ
+24 KiBずつ`stage` / `readChunk`する方式に決めた。vsockへ全面移行するより変更範囲が小さく、
+Linux / Windowsの既存経路には往復回数を増やさない。詳細は
+[agent-protocol.md](./agent-protocol.md) §4.1.1。
 
 ## 5. まだやっていないこと
 
 | 項目 | Issue |
 |---|---|
-| Boundary Guard（ゲストから返った差分をホストで検証してから反映する） | #16 |
-| ワークスペースとの共有方式と upperdir の置き場所（O-2） | #17 |
-| 制御チャネルの正式な決定（O-3）。命令の形は #12 で v1 に確定済み | #17 |
+| upperdir の永続化（現在はゲストのtmpfs。正本はGitなので再起動時に再構築） | 将来、実測で必要になったとき |
 | ビルドに使うコンテナイメージの固定（gcc の版まで含めた、時間がたっても同じバイト列） | 未起票（必要になったら） |
-| MicroGit 本体（拡張機能）からの利用 | #14 の Backend Selector の後 |
