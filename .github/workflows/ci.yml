@@ -46,6 +46,13 @@ jobs:
       - name: Unit Tests
         run: node scripts/run-unit-tests.mjs
 
+      # 4.58 マイクロコミットの差分テスト（#32）：Git のコマンドでの記録と速い記録に同じ保存の列を流し、
+      # 結果・HEAD・ref・index が一致するか。--crlf は改行の変換を止めた shadow（ADR-0012）で CRLF の中身
+      - name: Micro-commit differential test
+        run: |
+          node scripts/test/micro-commit-diff.mjs --saves 300
+          node scripts/test/micro-commit-diff.mjs --saves 150 --crlf
+
       # 4.6 Node 版 Overlay のスモークテスト（レイヤ形式 v2、#21 で直した N-3〜N-6 の回帰テスト）
       - name: Node Overlay Smoke Test
         run: node scripts/overlay-smoke.mjs
