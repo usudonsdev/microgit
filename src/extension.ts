@@ -22,6 +22,7 @@ import {
 } from './overlay';
 import { BackendSelector, parseBackendSetting } from './kernel/backendSelector';
 import { ensureExecutable } from './kernel/executable';
+import { GitRunner, isSafeGitRef, recordMicroCommitViaGitCli } from './microCommit';
 import { findInPath, KernelSettings, planLaunch } from './kernel/launchers';
 import {
     ensureShadowRepoForBranch,
@@ -776,10 +777,8 @@ function tryRunGit(cwd: string, args: string[]): string | undefined {
     }
 }
 
-/** コミットハッシュまたは mb-* タグのみ許可 */
-function isSafeGitRef(ref: string): boolean {
-    return /^[0-9a-f]{4,40}$/i.test(ref) || /^mb-\d+$/.test(ref);
-}
+/** microCommit.ts に渡す Git の呼び出し（#32） */
+const gitRunner: GitRunner = { run: runGit, tryRun: tryRunGit };
 
 function toPosixRelative(rootPath: string, absolutePath: string): string | undefined {
     if (!isPathInsideRoot(absolutePath, rootPath)) { return undefined; }
@@ -1061,50 +1060,6 @@ async function sharedTimeTravel(target: string, rootPath: string): Promise<void>
 
 type ShadowCommitResult = 'created' | 'unchanged' | 'rewound' | 'skipped' | 'error';
 
-type PastCommitMatch = {
-    commit: string;
-    /** tree: ワークツリー全体が一致 / file: 保存ファイルの内容のみ過去と一致（Ctrl+Z・手編集戻し） */
-    reason: 'tree' | 'file';
-};
-
-/**
- * 保存内容が過去コミットと一致するか調べる。
- * 1) 全体 tree 一致（完全な過去状態）
- * 2) 保存ファイルの blob 一致（1ファイルだけ Ctrl+Z / 手編集で戻した場合）
- */
-function findPastCommitForSave(
-    shadowRepoPath: string,
-    relativeFilePath: string,
-    currentTreeHash: string,
-): PastCommitMatch | undefined {
-    const treeLog = runGit(shadowRepoPath, ['log', '--all', '--format=%H %T']).trim().split('\n').filter(Boolean);
-    for (const line of treeLog) {
-        const [cHash, tHash] = line.split(' ');
-        if (tHash === currentTreeHash && isSafeGitRef(cHash)) {
-            return { commit: cHash, reason: 'tree' };
-        }
-    }
-
-    const currentBlob = tryRunGit(shadowRepoPath, ['hash-object', '--', relativeFilePath])?.trim();
-    if (!currentBlob || !/^[0-9a-f]{40}$/i.test(currentBlob)) {
-        return undefined;
-    }
-
-    const fileLog = runGit(shadowRepoPath, ['log', '--all', '--format=%H', '--', relativeFilePath])
-        .trim()
-        .split('\n')
-        .filter(Boolean);
-    for (const cHash of fileLog) {
-        if (!isSafeGitRef(cHash)) { continue; }
-        // パス区切りは toPosixRelative 済み。rev-parse の tree:path 形式で blob を取得する
-        const blob = tryRunGit(shadowRepoPath, ['rev-parse', '--verify', `${cHash}:${relativeFilePath}`])?.trim();
-        if (blob === currentBlob) {
-            return { commit: cHash, reason: 'file' };
-        }
-    }
-    return undefined;
-}
-
 /** 現在のメインブランチ向けに bare+gitfile シャドウを用意する */
 function ensureShadowRepo(mainRepoPath: string): void {
     const branch = getCurrentBranch(mainRepoPath);
@@ -1156,58 +1111,38 @@ async function runShadowCommit(
     }
 
     try {
-        // detached HEAD のままだと以降の記録が不安定なので、コミット前にブランチへ戻す
-        const microHistoryRef = tryRunGit(shadowRepoPath, ['rev-parse', '--verify', 'refs/heads/micro-history']);
-        const headSymbolic = tryRunGit(shadowRepoPath, ['symbolic-ref', '-q', 'HEAD']);
-        if (microHistoryRef && !headSymbolic) {
-            const headHash = tryRunGit(shadowRepoPath, ['rev-parse', 'HEAD'])?.trim();
-            runGit(shadowRepoPath, ['symbolic-ref', 'HEAD', 'refs/heads/micro-history']);
-            if (headHash && isSafeGitRef(headHash)) {
-                runGit(shadowRepoPath, ['update-ref', 'refs/heads/micro-history', headHash]);
-            }
+        // Git の部分は microCommit.ts（#32。VS Code に依存しないので、ベンチと差分テストから呼べる）
+        const outcome = recordMicroCommitViaGitCli(gitRunner, {
+            shadowRepoPath,
+            relativeFilePath,
+            currentTag: currentMicroBranchTag,
+            message: () => {
+                const fromAi = consumeAiPending(mainRepoPath, relativeFilePath);
+                const mainHeadAtSave = tryRunGit(mainRepoPath, ['rev-parse', 'HEAD'])?.trim();
+                return buildMicroCommitMessage(
+                    relativeFilePath,
+                    fromAi,
+                    mainHeadAtSave && isSafeGitRef(mainHeadAtSave) ? mainHeadAtSave : undefined,
+                );
+            },
+            commitEnv: {
+                ...process.env,
+                GIT_AUTHOR_NAME: 'MicroGit',
+                GIT_AUTHOR_EMAIL: 'microgit@local',
+                GIT_COMMITTER_NAME: 'MicroGit',
+                GIT_COMMITTER_EMAIL: 'microgit@local',
+            },
+        });
+        if (outcome.kind === 'unchanged') {
+            return 'unchanged';
         }
-
-        runGit(shadowRepoPath, ['add', '--', relativeFilePath]);
-        const currentTreeHash = runGit(shadowRepoPath, ['write-tree']).trim();
-        if (!/^[0-9a-f]{40}$/i.test(currentTreeHash)) {
-            throw new Error('不正な tree ハッシュです');
-        }
-
-        let hasCommits = false;
-        if (tryRunGit(shadowRepoPath, ['rev-parse', '--verify', 'HEAD']) !== undefined) {
-            hasCommits = true;
-        }
-
-        let currentHead = '';
-        if (hasCommits) {
-            currentHead = runGit(shadowRepoPath, ['rev-parse', 'HEAD']).trim();
-            const headTree = tryRunGit(shadowRepoPath, ['rev-parse', 'HEAD^{tree}'])?.trim() ?? '';
-            // tip と同じ tree → 過去探索・commit-tree を省略
-            if (headTree && headTree === currentTreeHash) {
-                return 'unchanged';
-            }
-        }
-
-        // 以前と同じ変更（同一 tree / 同一ファイル内容）→ 新規コミットも新 mb-* も作らず HEAD だけ戻す
-        const pastMatch = hasCommits
-            ? findPastCommitForSave(shadowRepoPath, relativeFilePath, currentTreeHash)
-            : undefined;
-
-        if (pastMatch && currentHead !== pastMatch.commit) {
-            runGit(shadowRepoPath, ['update-ref', 'refs/heads/micro-history', pastMatch.commit]);
-            runGit(shadowRepoPath, ['symbolic-ref', 'HEAD', 'refs/heads/micro-history']);
-
-            // mb-* はブランチ先端にだけ付く。先端へ戻ったときだけアクティブブランチを切替。
-            const attachedTag = tryRunGit(shadowRepoPath, ['tag', '--points-at', 'HEAD', '-l', 'mb-*'])?.trim();
-            if (attachedTag) {
-                currentMicroBranchTag = attachedTag.split('\n')[0];
-            }
-
+        if (outcome.kind === 'rewound') {
+            currentMicroBranchTag = outcome.tag;
             ExtensionLogger.log(
-                `[同一変更/${pastMatch.reason}] 新規コミットなし。HEAD→${pastMatch.commit.substring(0, 7)} (active=${currentMicroBranchTag})`
+                `[同一変更/${outcome.reason}] 新規コミットなし。HEAD→${outcome.commit.substring(0, 7)} (active=${currentMicroBranchTag})`
             );
             vscode.window.setStatusBarMessage(
-                `[MicroGit] 同一変更のため HEAD のみ復帰 ${pastMatch.commit.substring(0, 7)}`,
+                `[MicroGit] 同一変更のため HEAD のみ復帰 ${outcome.commit.substring(0, 7)}`,
                 3000
             );
             const branchRewind = getCurrentBranch(mainRepoPath);
@@ -1216,58 +1151,10 @@ async function runShadowCommit(
             }
             return 'rewound';
         }
-        if (pastMatch && currentHead === pastMatch.commit) {
-            return 'unchanged';
-        }
+        const commitHash = outcome.commit;
+        const currentHead = outcome.parent ?? '';
+        currentMicroBranchTag = outcome.tag;
 
-        const fromAi = consumeAiPending(mainRepoPath, relativeFilePath);
-        const mainHeadAtSave = tryRunGit(mainRepoPath, ['rev-parse', 'HEAD'])?.trim();
-        const commitMessage = buildMicroCommitMessage(
-            relativeFilePath,
-            fromAi,
-            mainHeadAtSave && isSafeGitRef(mainHeadAtSave) ? mainHeadAtSave : undefined,
-        );
-        const commitTreeArgs = ['commit-tree', currentTreeHash];
-        if (currentHead) {
-            if (!isSafeGitRef(currentHead)) {
-                throw new Error('不正な parent ハッシュです');
-            }
-            commitTreeArgs.push('-p', currentHead);
-        }
-        commitTreeArgs.push('-m', commitMessage);
-
-        const commitHash = runGit(shadowRepoPath, commitTreeArgs, {
-            env: {
-                ...process.env,
-                GIT_AUTHOR_NAME: 'MicroGit',
-                GIT_AUTHOR_EMAIL: 'microgit@local',
-                GIT_COMMITTER_NAME: 'MicroGit',
-                GIT_COMMITTER_EMAIL: 'microgit@local',
-            },
-        }).trim();
-
-        if (!isSafeGitRef(commitHash)) {
-            throw new Error('不正な commit ハッシュです');
-        }
-
-        runGit(shadowRepoPath, ['update-ref', 'refs/heads/micro-history', commitHash]);
-        runGit(shadowRepoPath, ['symbolic-ref', 'HEAD', 'refs/heads/micro-history']);
-
-        // mb-* は各マイクロブランチの先端にだけ付ける（タグ数 = ブランチ数）。
-        // 同一ブランチ上の前進 → 先端タグを -f で移動。先端以外から保存 → 新ブランチ mb-N。
-        if (!isSafeGitRef(currentMicroBranchTag)) {
-            currentMicroBranchTag = 'mb-1';
-        }
-        const tipOfCurrentTag = tryRunGit(shadowRepoPath, ['rev-parse', currentMicroBranchTag])?.trim();
-        if (currentHead && tipOfCurrentTag && currentHead !== tipOfCurrentTag) {
-            const nextTag = getNextTagCode(shadowRepoPath);
-            runGit(shadowRepoPath, ['tag', nextTag, commitHash]);
-            currentMicroBranchTag = nextTag;
-        } else {
-            runGit(shadowRepoPath, ['tag', '-f', currentMicroBranchTag, commitHash]);
-        }
-
-        // カーネル版（#14）: 動いていれば、このコミットの層を agent に作らせる（次に戻るときに速い）。
         // まだ起動していなければ裏で起動を始め、今回は Node 版の層を書き出す。
         // カーネル版で層を作れたら、Node 版の層とビューは作らない（あとで Node 版に切り替わったら ensureLayerExists が作る）
         let recordedByKernel = false;
@@ -1324,24 +1211,6 @@ async function runShadowCommit(
         ExtensionLogger.log(`シャドウコミットに失敗しました: ${message}`, 'ERROR');
         vscode.window.showErrorMessage(`[MicroGit] 記録に失敗しました: ${message}`);
         return 'error';
-    }
-}
-
-function getNextTagCode(shadowRepoPath: string): string {
-    try {
-        const stdout = runGit(shadowRepoPath, ['tag', '-l', 'mb-*']);
-        const tags = stdout.trim().split('\n').filter(Boolean);
-        let maxNum = 0;
-        for (const tag of tags) {
-            const match = tag.match(/^mb-(\d+)$/);
-            if (match) {
-                const num = parseInt(match[1], 10);
-                if (num > maxNum) { maxNum = num; }
-            }
-        }
-        return `mb-${maxNum + 1}`;
-    } catch {
-        return 'mb-1';
     }
 }
 
