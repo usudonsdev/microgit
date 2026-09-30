@@ -1,0 +1,72 @@
+{
+  "files": 200,
+  "saves": 1000,
+  "window": 20,
+  "platform": "win32-x64",
+  "results": [
+    {
+      "impl": "microgit",
+      "history": 10,
+      "p50": 551.2,
+      "p95": 599.7,
+      "spawnsMean": 16,
+      "savesPerSec": 1.8
+    },
+    {
+      "impl": "microgit",
+      "history": 100,
+      "p50": 604.1,
+      "p95": 632.7,
+      "spawnsMean": 16.4,
+      "savesPerSec": 1.7
+    },
+    {
+      "impl": "microgit",
+      "history": 300,
+      "p50": 872.3,
+      "p95": 954.2,
+      "spawnsMean": 20.9,
+      "savesPerSec": 1.2
+    },
+    {
+      "impl": "microgit",
+      "history": 1000,
+      "p50": 2443.8,
+      "p95": 2985.3,
+      "spawnsMean": 62.5,
+      "savesPerSec": 0.4
+    },
+    {
+      "impl": "git",
+      "history": 10,
+      "p50": 80.3,
+      "p95": 82.8,
+      "spawnsMean": 0,
+      "savesPerSec": 12.3
+    },
+    {
+      "impl": "git",
+      "history": 100,
+      "p50": 80.3,
+      "p95": 83.4,
+      "spawnsMean": 0,
+      "savesPerSec": 12.4
+    },
+    {
+      "impl": "git",
+      "history": 300,
+      "p50": 79.7,
+      "p95": 83.7,
+      "spawnsMean": 0,
+      "savesPerSec": 12.5
+    },
+    {
+      "impl": "git",
+      "history": 1000,
+      "p50": 78.1,
+      "p95": 81.2,
+      "spawnsMean": 0,
+      "savesPerSec": 12.7
+    }
+  ]
+}
