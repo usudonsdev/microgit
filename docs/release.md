@@ -36,9 +36,15 @@
 | ubuntu-22.04 | linux-x64 | kernel | 同梱の agent が実行ビット付きで入り、`unshare -Urm` で動く |
 | ubuntu-24.04 | linux-x64 | nodejs | 非特権のユーザー名前空間が止められた環境で、公開版でも Node.js 版になる（NFR-5、補足 S-3） |
 | ubuntu-24.04-arm | linux-arm64 | kernel | arm64 の agent（止めている設定を外して試す） |
-| macos-14 | darwin-arm64 | kernel | 同梱の `microgit-vm` と arm64 ゲスト。3 MiBの保存・復元と、成功したkernel checkoutの記録も確認 |
+| macos-14 | darwin-arm64 | nodejs | GitHub-hosted runner は Apple silicon でも Virtualization.framework を使えないため、同梱物・インストール・3 MiBの保存と復元・Node.js版への安全なフォールバックを確認 |
 
-以前の結果（run 36250700521、2026-09-27）はMacをuniversal / nodejsで確認したもの。Macカーネル版を加えた変更では、package.ymlの5環境が改めてすべて通るまで公開しない。
+Macのkernel経路はCIでは代替できない。実際に `macos-14` runnerで起動すると
+`Virtualization is not available on this hardware`（VZErrorDomain Code=2）になることを
+run 36388874335（2026-09-28）で確認した。したがって、CIはdarwin-arm64 VSIXの
+フォールバックまでを毎回確認し、kernel経路はApple silicon実機で同じVSIXを入れて
+`active=kernel`、agent 1.1.0、成功した `lastCheckout` を確認する。今回の候補では
+3 MiBの保存・復元を含む4テストが通過済み。package.ymlの5環境がすべて通り、
+この実機確認も済んでいることを公開条件にする。
 
 手元（Windows 11）でも、`MICROGIT_TEST_VSIX=<VSIX> MICROGIT_TEST_EXPECT_BACKEND=kernel node out/test/runTest.js` で同じことができる。
 

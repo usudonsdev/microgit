@@ -112,10 +112,12 @@ jobs:
             vsix: linux-arm64
             expect: kernel
             allow_userns: true
-          # Apple silicon は同梱の microgit-vm と arm64 ゲストを Virtualization.framework で起動する
+          # GitHub-hosted の Mac runner は Apple silicon でも Virtualization.framework を利用できない。
+          # darwin-arm64 VSIX の同梱物・インストール・安全なフォールバックは CI で確認し、
+          # kernel 経路そのものは Apple silicon 実機で release.md の手順どおり確認する。
           - os: macos-14
             vsix: darwin-arm64
-            expect: kernel
+            expect: nodejs
     name: verify (${{ matrix.vsix }} on ${{ matrix.os }}, expect ${{ matrix.expect }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
