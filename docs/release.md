@@ -42,8 +42,8 @@ Macのkernel経路はCIでは代替できない。実際に `macos-14` runnerで
 `Virtualization is not available on this hardware`（VZErrorDomain Code=2）になることを
 run 36388874335（2026-09-28）で確認した。したがって、CIはdarwin-arm64 VSIXの
 フォールバックまでを毎回確認し、kernel経路はApple silicon実機で同じVSIXを入れて
-`active=kernel`、agent 1.1.0、成功した `lastCheckout` を確認する。今回の候補では
-3 MiBの保存・復元を含む4テストが通過済み。
+`active=kernel`、agent 1.1.0、成功した `lastCheckout` を確認する。9/28 の候補（下の記録の VSIX）は
+「3 MiBの保存・復元を含む4テストが通過済み」としていたが、2026-09-30 に VSIX として入れ直すと通らなかった（§2.1）。
 
 **公開条件：設計で規定したすべての OS（FR-5 の Linux・Apple silicon macOS・Windows x64）で、OverlayFS の本実装（kernel）が成功すること。**
 Node.js 版へのフォールバックが通っても、その OS の条件を満たしたことにはならない（ubuntu-24.04 と macos-14 の `expect: nodejs` は、フォールバックが壊れていないことの確認）。
@@ -56,6 +56,23 @@ Node.js 版へのフォールバックが通っても、その OS の条件を�
 | Apple silicon macOS | Apple silicon 実機に、公開する darwin-arm64 VSIX そのものを入れて `active=kernel` と成功した `lastCheckout` を確かめる |
 
 どれか 1 つでも kernel で成功していなければ公開しない。
+
+### 2.1 Apple silicon 実機での確認の記録
+
+#### 2026-09-30：不合格（1 / 4 失敗）
+
+| 項目 | 内容 |
+|---|---|
+| 機械 | Apple M5、macOS 26.5.1 |
+| VSIX | 手元で 9/28 に作った候補 `microgit-5.0.0-darwin-arm64.vsix`（3,044,482 バイト、sha256 `ffa95a3f…e9ce4`）。CI の成果物ではない（`gh` 未ログインで落とせなかった） |
+| 中身と HEAD（`5417ee2`）の一致 | `out/` の JS、`Image`（sha256 `f65d0011…789c`）、`microgit-vm`（sha256 `b25e6f3f…e760c`）がバイト単位で一致 |
+| 手順 | `MICROGIT_TEST_VSIX=<VSIX> MICROGIT_TEST_EXPECT_BACKEND=kernel node out/test/runTest.js`（VS Code 1.139.1）を 2 回。2 回とも同じ結果 |
+| 結果 | 保存・過去に戻る（日本語の名前、3 MiB を含む）の 3 つは通過。「Overlay Status で、使ったバックエンドが分かる」が失敗：`カーネル版で成功した checkout の記録が無い` |
+| Overlay Status | `active=kernel`、`backend=kernel (vz)`、**`agent=1.0.0`** protocol=1 kernel=6.18.53、boot=470〜1330ms、`commitsRecorded=0`、`layers(host view)=0`、`lastCheckout` 無し |
+
+**見立て：** VSIX の `Image` は 9/26 のビルドで、埋め込まれた agent は 1.0.0。リポジトリから動かすときは `src/kernel/launchers.ts` が開発用の `guest/out/arm64/initrd.cpio`（agent 1.1.0、`mac/build-dev-initrd.sh`）を `--initrd` で渡すので通るが、VSIX にはそれが入らない。9/28 の「4 テスト通過」はこの開発用の経路だった可能性が高い（未確認）。
+
+**次にやること：** agent 1.1.0 を埋め込んだ `Image`（guest.yml / `guest/build.sh`）で darwin-arm64 VSIX を作り直し、同じ手順で確かめる。公開条件の上では、CI（package.yml）が作った VSIX そのもので行う。
 
 手元（Windows 11）でも、`MICROGIT_TEST_VSIX=<VSIX> MICROGIT_TEST_EXPECT_BACKEND=kernel node out/test/runTest.js` で同じことができる。
 
