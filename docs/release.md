@@ -21,7 +21,7 @@
 | darwin-arm64 | `microgit-vm`、arm64 の最小ゲスト | 3,044,482 バイト（Mac実機で作った候補。CI値は成功時に更新） | Apple silicon Mac |
 | universal | 無し（Node.js 版だけ） | 82,916 バイト | Intel Mac、Windows on Arm、Linux armhf、Alpine など |
 
-- **macOS**：Apple silicon実機（macOS 26.5.1）でVirtualization.framework、ad-hoc署名、12シナリオのゴールデンテスト、3 MiBと700ファイルを含む15シナリオ・126回の差分テスト、VS Code内の保存・復元まで確認した。配布するdarwin-arm64 VSIXそのものはpackage.ymlの成功を公開条件にする
+- **macOS**：Apple silicon実機（macOS 26.5.1）でVirtualization.framework、ad-hoc署名、12シナリオのゴールデンテスト、3 MiBと700ファイルを含む15シナリオ・126回の差分テスト、VS Code内の保存・復元まで確認した。配布するdarwin-arm64 VSIXそのものでのkernel経路の確認は、CIでは代わりにならないので実機で行う（§2 の公開条件）
 - **Alpine（musl）**：agent は静的リンクなので動く見込みだが、確かめていない。今は universal が配られる
 - 中身の確認：`package-vsix.mjs` は、できた VSIX の中身を「入ってよいものの一覧」と照らし、同梱の部品を除いた中身が 1 MB を超えたら止める。最初は「入っていてはいけないもの」の一覧で確かめていて、CI で成果物を落としたフォルダ（`artifacts/`、GCC のソース RPM など）が VSIX に入り、142〜150 MB になったのを見逃した
 - 実行ビット：VSIX は Linux で作る（Windows で作ると実行ビットが落ちる）。拡張機能も、起動の前に実行ビットを確かめて無ければ付ける（`src/kernel/executable.ts`）
@@ -43,8 +43,19 @@ Macのkernel経路はCIでは代替できない。実際に `macos-14` runnerで
 run 36388874335（2026-09-28）で確認した。したがって、CIはdarwin-arm64 VSIXの
 フォールバックまでを毎回確認し、kernel経路はApple silicon実機で同じVSIXを入れて
 `active=kernel`、agent 1.1.0、成功した `lastCheckout` を確認する。今回の候補では
-3 MiBの保存・復元を含む4テストが通過済み。package.ymlの5環境がすべて通り、
-この実機確認も済んでいることを公開条件にする。
+3 MiBの保存・復元を含む4テストが通過済み。
+
+**公開条件：設計で規定したすべての OS（FR-5 の Linux・Apple silicon macOS・Windows x64）で、OverlayFS の本実装（kernel）が成功すること。**
+Node.js 版へのフォールバックが通っても、その OS の条件を満たしたことにはならない（ubuntu-24.04 と macos-14 の `expect: nodejs` は、フォールバックが壊れていないことの確認）。
+
+| 設計で規定した OS | kernel の成功をどこで確かめるか |
+|---|---|
+| Windows x64 | package.yml の windows-latest（`expect: kernel`） |
+| Linux x64 | package.yml の ubuntu-22.04（`expect: kernel`） |
+| Linux arm64 | package.yml の ubuntu-24.04-arm（`expect: kernel`） |
+| Apple silicon macOS | Apple silicon 実機に、公開する darwin-arm64 VSIX そのものを入れて `active=kernel` と成功した `lastCheckout` を確かめる |
+
+どれか 1 つでも kernel で成功していなければ公開しない。
 
 手元（Windows 11）でも、`MICROGIT_TEST_VSIX=<VSIX> MICROGIT_TEST_EXPECT_BACKEND=kernel node out/test/runTest.js` で同じことができる。
 
