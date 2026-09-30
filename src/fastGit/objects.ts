@@ -28,12 +28,25 @@ export function looseObjectPath(gitDir: string, hash: string): string {
  * loose object を書く。もうあれば書かない（中身で決まる名前なので、同じものがあれば同じ中身）。
  * 書き方は Git と同じく「一時ファイルに書く → （fsync）→ 名前を変える」。途中で落ちても壊れたオブジェクトは残らない。
  */
-export function writeLooseObject(gitDir: string, type: ObjectType, body: Buffer, options: { fsync: boolean }): string {
+export function writeLooseObject(
+    gitDir: string,
+    type: ObjectType,
+    body: Buffer,
+    options: { fsync: boolean; cache?: ObjectWriteCache },
+): string {
     const hash = hashObject(type, body);
+    const cache = options.cache;
+    if (cache?.present.has(hash)) { return hash; }
     const dest = looseObjectPath(gitDir, hash);
-    if (fs.existsSync(dest)) { return hash; }
+    if (fs.existsSync(dest)) {
+        cache?.present.add(hash);
+        return hash;
+    }
     const dir = path.dirname(dest);
-    fs.mkdirSync(dir, { recursive: true });
+    if (!cache?.dirs.has(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+        cache?.dirs.add(dir);
+    }
     const data = zlib.deflateSync(Buffer.concat([objectHeader(type, body.length), body]));
     const tmp = path.join(dir, `tmp_obj_${process.pid}_${crypto.randomBytes(6).toString('hex')}`);
     const fd = fs.openSync(tmp, 'wx', 0o444);
@@ -50,8 +63,15 @@ export function writeLooseObject(gitDir: string, type: ObjectType, body: Buffer,
         fs.rmSync(tmp, { force: true });
         if (!fs.existsSync(dest)) { throw e; }
     }
+    cache?.present.add(hash);
     return hash;
 }
+
+/**
+ * 書いた（あると分かった）オブジェクトと、作ったフォルダを覚えておく（#32。存在の確認とフォルダの作成を繰り返さない）。
+ * git gc で loose object が pack に移っても、オブジェクトそのものは残るので、覚えたままでよい
+ */
+export type ObjectWriteCache = { present: Set<string>; dirs: Set<string> };
 
 export type TreeEntry = {
     /** 100644・100755・120000・160000・40000（ディレクトリ） */

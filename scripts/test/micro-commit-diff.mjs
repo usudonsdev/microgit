@@ -5,7 +5,10 @@
  * HEAD・micro-history・タグ mb-*・index（パス・モード・blob）が 1 ビットも違わないことを確かめる。
  * 最後に両方で git fsck --strict。
  *
- * 使い方: npm run compile && node scripts/test/micro-commit-diff.mjs [--saves 400]
+ * 使い方: npm run compile && node scripts/test/micro-commit-diff.mjs [--saves 400] [--crlf]
+ *
+ * --crlf：Windows 版 Git の既定（core.autocrlf=true）の上に、shadow と同じ info/attributes（変換を止める、ADR-0012）を置き、
+ * 中身を CRLF の改行で書く。両方とも CRLF のまま記録すること（blob に CR が残ること）も確かめる。
  *
  * 保存の列に入れるもの：ファイルの書き換え、新しいファイル（深いフォルダ、日本語の名前、空白入りの名前）、
  * 2 回前の中身に戻す（同じパスの同じ中身 → rewound/file）、直前の編集の取り消し（同じ tree → rewound/tree）、
@@ -27,6 +30,8 @@ const { FastMicroCommitter, FastPathUnsupported } = require(path.join(ROOT, 'out
 
 const arg = (name, def) => (process.argv.includes(name) ? process.argv[process.argv.indexOf(name) + 1] : def);
 const SAVES = Number(arg('--saves', '400'));
+const CRLF = process.argv.includes('--crlf');
+const { SHADOW_ATTRIBUTES } = require(path.join(ROOT, 'out', 'shadowStore.js'));
 let seed = 7;
 const rand = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
 
@@ -47,7 +52,11 @@ const cli = {
 function makeRepo(name) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), `microgit-diff-${name}-`));
     git(os.tmpdir(), ['init', '-q', '-b', 'micro-history', dir]);
-    git(dir, ['config', 'core.autocrlf', 'false']);
+    git(dir, ['config', 'core.autocrlf', CRLF ? 'true' : 'false']);
+    if (CRLF) {
+        fs.mkdirSync(path.join(dir, '.git', 'info'), { recursive: true });
+        fs.writeFileSync(path.join(dir, '.git', 'info', 'attributes'), SHADOW_ATTRIBUTES);
+    }
     git(dir, ['config', 'user.name', 'Diff']);
     git(dir, ['config', 'user.email', 'diff@local']);
     return dir;
@@ -59,6 +68,7 @@ const fast = new FastMicroCommitter(B, () => true);
 let fallbacks = 0;
 
 function write(rel, content) {
+    if (CRLF) { content = content.replace(/\r?\n/g, '\r\n'); }
     for (const d of [A, B]) {
         const p = path.join(d, ...rel.split('/'));
         fs.mkdirSync(path.dirname(p), { recursive: true });
@@ -142,6 +152,13 @@ for (let n = 1; n < SAVES; n++) {
 }
 
 for (const d of [A, B]) { git(d, ['fsck', '--strict', '--no-progress']); }
+if (CRLF) {
+    for (const d of [A, B]) {
+        const blob = execFileSync('git', ['cat-file', 'blob', 'HEAD:a.txt'], { cwd: d });
+        if (!blob.includes(Buffer.from('\r\n'))) { throw new Error(`${d}: CRLF が LF に変えて記録された`); }
+    }
+    console.log('CRLF のまま記録された（両方）');
+}
 console.log(JSON.stringify({ saves: SAVES, fallbacks, stats: fast.stats, counts }, null, 1));
 console.log('OK: CLI の実装と速い実装で、毎回の結果と HEAD・ref・index が一致し、git fsck --strict も通った');
 fs.rmSync(A, { recursive: true, force: true });

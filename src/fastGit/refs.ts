@@ -71,11 +71,21 @@ export function writeRef(
     gitDir: string,
     name: string,
     hash: string,
-    options: { fsync: boolean; reflogIdent?: string; message?: string },
+    options: {
+        fsync: boolean;
+        reflogIdent?: string;
+        message?: string;
+        /** 前の値が分かっていれば渡す（読み直さない）。null は「無かった」 */
+        old?: string | null;
+        /** HEAD がこの ref を指しているかが分かっていれば渡す（読み直さない） */
+        headPointsHere?: boolean;
+        /** 親のフォルダがあると分かっていれば true（作らない） */
+        dirExists?: boolean;
+    },
 ): void {
     const file = path.join(gitDir, ...name.split('/'));
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    const old = readRef(gitDir, name) ?? '0'.repeat(40);
+    if (!options.dirExists) { fs.mkdirSync(path.dirname(file), { recursive: true }); }
+    const old = (options.old === undefined ? readRef(gitDir, name) : options.old) ?? '0'.repeat(40);
     const lock = `${file}.lock`;
     const fd = fs.openSync(lock, 'wx', 0o644);
     try {
@@ -94,7 +104,8 @@ export function writeRef(
         appendReflog(gitDir, name, old, hash, options.reflogIdent, options.message);
         // HEAD がこの ref を指していれば、HEAD の reflog にも足す（git update-ref と同じ）
         try {
-            if (readSymbolicHead(gitDir) === name) { appendReflog(gitDir, 'HEAD', old, hash, options.reflogIdent, options.message); }
+            const headHere = options.headPointsHere ?? readSymbolicHead(gitDir) === name;
+            if (headHere) { appendReflog(gitDir, 'HEAD', old, hash, options.reflogIdent, options.message); }
         } catch { /* HEAD が読めなければ足さない */ }
     }
 }

@@ -17,9 +17,10 @@ import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { GitIndex, IndexEntry, compareIndexEntries, entryFromStat, indexPath, readIndex, writeIndex } from './fastGit/gitIndex';
-import { Ident, hashObject, parseGitDate, serializeCommit, serializeTree, TreeEntry, writeLooseObject } from './fastGit/objects';
+import { Ident, hashObject, ObjectWriteCache, parseGitDate, serializeCommit, serializeTree, TreeEntry, writeLooseObject } from './fastGit/objects';
 import { listTags, readRef, readSymbolicHead, resolveGitDir, writeRef, writeSymbolicRef } from './fastGit/refs';
 import { isSafeGitRef, MicroCommitInput, MicroCommitOutcome } from './microCommit';
+import { SHADOW_ATTRIBUTES } from './shadowStore';
 
 export class FastPathUnsupported extends Error { }
 
@@ -31,6 +32,9 @@ type Dir = { files: Map<string, { mode: string; hash: string }>; dirs: Map<strin
 function newDir(): Dir { return { files: new Map(), dirs: new Map() }; }
 
 type FileStamp = { mtimeMs: number; size: number; ino: number } | undefined;
+
+/** ref の状態。HEAD・micro-history・タグのファイルとフォルダ・packed-refs の stat が変わっていなければ、読み直さない */
+type RefState = { key: string; symbolic?: string; head?: string; branch?: string; tags: Map<string, string> };
 
 function stamp(file: string): FileStamp {
     try {
@@ -57,9 +61,15 @@ export class FastMicroCommitter {
     private treeToCommit = new Map<string, string>();
     private fileIndex = new Map<string, Map<string, string>>();
     private loaded = false;
+    /** info/attributes が変換を止めている（ADR-0012）。止めていれば .gitattributes があっても中身は変わらない */
+    private attributesNeutral = false;
     /** HEAD のコミットの中身（パス → モードと blob）。新しいコミットが親から何を変えたかを出すのに使う */
     private headFlat: { commit: string; files: Map<string, string> } | undefined;
     readonly stats: FastCommitStats = { reloads: 0, indexReloads: 0, gitSpawns: 0 };
+    private objCache: ObjectWriteCache = { present: new Set(), dirs: new Set() };
+    private refState: RefState | undefined;
+    /** あると分かった reflog のファイル */
+    private reflogs = new Set<string>();
 
     constructor(readonly workTree: string, private readonly fsync: () => boolean) {
         this.gitDir = resolveGitDir(workTree);
@@ -85,16 +95,24 @@ export class FastMicroCommitter {
         const falsy = (v: string | undefined) => v === undefined || /^(false|no|off|0)$/i.test(v);
         if ((c('extensions.objectformat') ?? 'sha1') !== 'sha1') { throw new FastPathUnsupported('objectFormat が sha1 でない'); }
         if (c('extensions.refstorage') === 'reftable') { throw new FastPathUnsupported('reftable'); }
-        if (!falsy(c('core.autocrlf'))) { throw new FastPathUnsupported('core.autocrlf が有効（改行の変換が要る）'); }
-        if (c('core.eol') !== undefined) { throw new FastPathUnsupported('core.eol'); }
-        if (c('core.attributesfile') !== undefined) { throw new FastPathUnsupported('core.attributesFile'); }
         if (!falsy(c('core.sparsecheckout'))) { throw new FastPathUnsupported('sparse checkout'); }
         if (!falsy(c('core.splitindex'))) { throw new FastPathUnsupported('split index'); }
         // commit-tree は commit.gpgSign が有効なら署名する。署名は扱わない
         if (!falsy(c('commit.gpgsign'))) { throw new FastPathUnsupported('commit.gpgSign'); }
         const enc = c('i18n.commitencoding');
         if (enc !== undefined && !/^utf-?8$/i.test(enc)) { throw new FastPathUnsupported('i18n.commitEncoding'); }
-        if (fs.existsSync(path.join(this.gitDir, 'info', 'attributes'))) { throw new FastPathUnsupported('info/attributes'); }
+        const infoAttributes = path.join(this.gitDir, 'info', 'attributes');
+        this.attributesNeutral = false;
+        if (fs.existsSync(infoAttributes)) {
+            if (fs.readFileSync(infoAttributes, 'utf8') !== SHADOW_ATTRIBUTES) { throw new FastPathUnsupported('info/attributes'); }
+            this.attributesNeutral = true;
+        }
+        // info/attributes で変換を止めていなければ、改行の変換や属性ファイルの設定がある環境は扱わない
+        if (!this.attributesNeutral) {
+            if (!falsy(c('core.autocrlf'))) { throw new FastPathUnsupported('core.autocrlf が有効（改行の変換が要る）'); }
+            if (c('core.eol') !== undefined) { throw new FastPathUnsupported('core.eol'); }
+            if (c('core.attributesfile') !== undefined) { throw new FastPathUnsupported('core.attributesFile'); }
+        }
         if (fs.existsSync(path.join(this.gitDir, 'commondir'))) { throw new FastPathUnsupported('linked worktree'); }
     }
 
@@ -161,7 +179,7 @@ export class FastMicroCommitter {
         }
         this.indexStamp = now;
         this.buildTreeFromIndex();
-        if (this.index.entries.some((e) => path.posix.basename(e.path) === '.gitattributes')) {
+        if (!this.attributesNeutral && this.index.entries.some((e) => path.posix.basename(e.path) === '.gitattributes')) {
             throw new FastPathUnsupported('.gitattributes が記録されている');
         }
     }
@@ -179,6 +197,47 @@ export class FastMicroCommitter {
         this.loaded = false;
         this.indexStamp = undefined;
         this.headFlat = undefined;
+        this.refState = undefined;
+        this.reflogs.clear();
+    }
+
+    private refKey(tags?: Iterable<string>): string {
+        const f = (file: string) => {
+            try {
+                const st = fs.statSync(file);
+                return `${st.mtimeMs}:${st.size}:${st.ino}`;
+            } catch {
+                return '-';
+            }
+        };
+        const g = this.gitDir;
+        const parts = [
+            f(path.join(g, 'HEAD')),
+            f(path.join(g, 'refs', 'heads', 'micro-history')),
+            f(path.join(g, 'refs', 'tags')),
+            f(path.join(g, 'packed-refs')),
+        ];
+        for (const t of tags ?? []) { parts.push(f(path.join(g, 'refs', 'tags', t))); }
+        return parts.join('|');
+    }
+
+    /** ref の状態（変わっていなければメモリのもの） */
+    private refs(): RefState {
+        if (this.refState && this.refState.key === this.refKey(this.refState.tags.keys())) { return this.refState; }
+        const tags = listTags(this.gitDir);
+        this.refState = {
+            key: this.refKey(tags.keys()),
+            symbolic: readSymbolicHead(this.gitDir),
+            head: readRef(this.gitDir, 'HEAD'),
+            branch: readRef(this.gitDir, BRANCH),
+            tags,
+        };
+        return this.refState;
+    }
+
+    /** 自分で ref を書いたあと、stat を取り直す */
+    private restampRefs(): void {
+        if (this.refState) { this.refState.key = this.refKey(this.refState.tags.keys()); }
     }
 
     /** index の中身を「パス → モード blob」にする */
@@ -197,8 +256,8 @@ export class FastMicroCommitter {
         if (this.headFlat?.commit === commit) { return this.headFlat.files; }
         const m = new Map<string, string>();
         const out = this.git(['ls-tree', '-r', '-z', '--full-tree', commit]);
-        for (const rec of out.split(' ').filter(Boolean)) {
-            const tab = rec.indexOf('	');
+        for (const rec of out.split('\0').filter(Boolean)) {
+            const tab = rec.indexOf('\t');
             const [mode, , hash] = rec.slice(0, tab).split(' ');
             m.set(rec.slice(tab + 1), `${mode} ${hash}`);
         }
@@ -224,7 +283,7 @@ export class FastMicroCommitter {
             entries.push({ mode: '40000', name, hash: this.treeHash(sub, write) });
         }
         const body = serializeTree(entries);
-        d.hash = write ? writeLooseObject(this.gitDir, 'tree', body, { fsync: this.fsync() }) : hashObject('tree', body);
+        d.hash = write ? writeLooseObject(this.gitDir, 'tree', body, { fsync: this.fsync(), cache: this.objCache }) : hashObject('tree', body);
         return d.hash;
     }
 
@@ -250,17 +309,33 @@ export class FastMicroCommitter {
         return `${name} <${email}> ${d.seconds} ${d.tz}`;
     }
 
-    private setRef(name: string, hash: string, now: Date): void {
+    private setRef(name: string, hash: string, now: Date, old: string | undefined): void {
         const ident = this.reflogIdent(now);
-        if (ident && !fs.existsSync(path.join(this.gitDir, 'logs', ...name.split('/')))) {
-            // git update-ref は、core.logAllRefUpdates が有効ならブランチの reflog を作る
-            if (name.startsWith('refs/heads/')) {
-                const log = path.join(this.gitDir, 'logs', ...name.split('/'));
+        const log = path.join(this.gitDir, 'logs', ...name.split('/'));
+        if (ident && !this.reflogs.has(log)) {
+            if (!fs.existsSync(log) && name.startsWith('refs/heads/')) {
+                // git update-ref は、core.logAllRefUpdates が有効ならブランチの reflog を作る
                 fs.mkdirSync(path.dirname(log), { recursive: true });
                 fs.writeFileSync(log, '');
             }
+            if (fs.existsSync(log)) { this.reflogs.add(log); }
         }
-        writeRef(this.gitDir, name, hash, { fsync: this.fsync(), reflogIdent: ident });
+        const dir = path.dirname(path.join(this.gitDir, ...name.split('/')));
+        writeRef(this.gitDir, name, hash, {
+            fsync: this.fsync(),
+            reflogIdent: ident,
+            old: old ?? null,
+            headPointsHere: this.refState?.symbolic === name,
+            dirExists: this.objCache.dirs.has(dir),
+        });
+        this.objCache.dirs.add(dir);
+    }
+
+    /** HEAD を micro-history に向ける（もう向いていれば何もしない） */
+    private pointHeadAtBranch(): void {
+        if (this.refState?.symbolic === BRANCH) { return; }
+        writeSymbolicRef(this.gitDir, 'HEAD', BRANCH, { fsync: this.fsync() });
+        if (this.refState) { this.refState.symbolic = BRANCH; this.refState.head = this.refState.branch; }
     }
 
     /** 1 回の保存を記録する。前提から外れたら FastPathUnsupported（何も書く前に判断できるものは書く前に投げる） */
@@ -269,14 +344,19 @@ export class FastMicroCommitter {
         const now = new Date();
         const rel = input.relativeFilePath;
         let tag = input.currentTag;
-        if (path.posix.basename(rel) === '.gitattributes') { throw new FastPathUnsupported('.gitattributes の保存'); }
+        if (!this.attributesNeutral && path.posix.basename(rel) === '.gitattributes') { throw new FastPathUnsupported('.gitattributes の保存'); }
 
         // detached HEAD のままだと以降の記録が不安定なので、コミット前にブランチへ戻す（CLI の実装と同じ）
-        const microHistory = readRef(this.gitDir, BRANCH);
-        if (microHistory && !readSymbolicHead(this.gitDir)) {
-            const headHash = readRef(this.gitDir, 'HEAD');
-            writeSymbolicRef(this.gitDir, 'HEAD', BRANCH, { fsync: this.fsync() });
-            if (headHash && isSafeGitRef(headHash)) { this.setRef(BRANCH, headHash, now); }
+        let r = this.refs();
+        if (r.branch && !r.symbolic) {
+            const headHash = r.head;
+            this.pointHeadAtBranch();
+            if (headHash && isSafeGitRef(headHash)) {
+                this.setRef(BRANCH, headHash, now, r.branch);
+                r.branch = headHash;
+                r.head = headHash;
+            }
+            this.restampRefs();
         }
 
         this.reloadIndexIfChanged();
@@ -300,7 +380,7 @@ export class FastMicroCommitter {
             throw new FastPathUnsupported('ファイルとディレクトリの置き換え');
         }
         const content = fs.readFileSync(abs);
-        const blob = writeLooseObject(this.gitDir, 'blob', content, { fsync: this.fsync() });
+        const blob = writeLooseObject(this.gitDir, 'blob', content, { fsync: this.fsync(), cache: this.objCache });
         const filemode = !/^(false|no|off|0)$/i.test(this.config.get('core.filemode') ?? 'true');
         const prev = d.files.get(base);
         const mode = filemode ? ((st.mode & 0o100) ? '100755' : '100644') : (prev?.mode === '100755' ? '100755' : '100644');
@@ -324,9 +404,10 @@ export class FastMicroCommitter {
         // git write-tree
         const tree = this.treeHash(this.root, true);
 
-        const currentHead = readRef(this.gitDir, 'HEAD') ?? '';
-        const tags = listTags(this.gitDir);
-        this.ensureKnown([currentHead, ...tags.values(), readRef(this.gitDir, BRANCH)]);
+        r = this.refs();
+        const currentHead = r.head ?? '';
+        const tags = r.tags;
+        this.ensureKnown([currentHead, ...tags.values(), r.branch]);
         if (currentHead) {
             const headTree = this.commitTree.get(currentHead);
             if (headTree === tree) { return { kind: 'unchanged' }; }
@@ -340,8 +421,11 @@ export class FastMicroCommitter {
             if (byTree && isSafeGitRef(byTree)) { past = { commit: byTree, reason: 'tree' }; } else if (byFile && isSafeGitRef(byFile)) { past = { commit: byFile, reason: 'file' }; }
         }
         if (past && currentHead !== past.commit) {
-            this.setRef(BRANCH, past.commit, now);
-            writeSymbolicRef(this.gitDir, 'HEAD', BRANCH, { fsync: this.fsync() });
+            this.setRef(BRANCH, past.commit, now, r.branch);
+            r.branch = past.commit;
+            this.pointHeadAtBranch();
+            r.head = past.commit;
+            this.restampRefs();
             // git tag --points-at HEAD -l 'mb-*' の最初（名前の順）
             const attached = [...tags].filter(([, h]) => h === past!.commit).map(([n]) => n).sort()[0];
             if (attached) { tag = attached; }
@@ -366,9 +450,11 @@ export class FastMicroCommitter {
         for (const [p, v] of flat) {
             if (parentFlat.get(p) !== v) { changed.push([p, v.split(' ')[1]]); }
         }
-        const commit = writeLooseObject(this.gitDir, 'commit', body, { fsync: this.fsync() });
-        this.setRef(BRANCH, commit, now);
-        writeSymbolicRef(this.gitDir, 'HEAD', BRANCH, { fsync: this.fsync() });
+        const commit = writeLooseObject(this.gitDir, 'commit', body, { fsync: this.fsync(), cache: this.objCache });
+        this.setRef(BRANCH, commit, now, r.branch);
+        r.branch = commit;
+        this.pointHeadAtBranch();
+        r.head = commit;
 
         if (!isSafeGitRef(tag)) { tag = 'mb-1'; }
         const tip = tags.get(tag);
@@ -380,7 +466,11 @@ export class FastMicroCommitter {
             }
             tag = `mb-${max + 1}`;
         }
-        writeRef(this.gitDir, `refs/tags/${tag}`, commit, { fsync: this.fsync() });
+        const tagDir = path.join(this.gitDir, 'refs', 'tags');
+        writeRef(this.gitDir, `refs/tags/${tag}`, commit, { fsync: this.fsync(), old: tags.get(tag) ?? null, dirExists: this.objCache.dirs.has(tagDir) });
+        this.objCache.dirs.add(tagDir);
+        tags.set(tag, commit);
+        this.restampRefs();
 
         // 索引を足す
         this.commitTree.set(commit, tree);
