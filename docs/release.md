@@ -18,7 +18,7 @@
 | win32-x64 | 同梱の QEMU（#18）、x86_64 の最小ゲスト（カーネル＋agent） | 9,444,940 バイト | Windows x64 |
 | linux-x64 | x86_64 の agent | 1,429,604 バイト | Linux x64 |
 | linux-arm64 | arm64 の agent | 1,303,331 バイト | Linux arm64 |
-| darwin-arm64 | `microgit-vm`、arm64 の最小ゲスト | 3,044,482 バイト（Mac実機で作った候補。CI値は成功時に更新） | Apple silicon Mac |
+| darwin-arm64 | `microgit-vm`、arm64 の最小ゲスト | 3,138,730 バイト（CI run 36690904344） | Apple silicon Mac |
 | universal | 無し（Node.js 版だけ） | 82,916 バイト | Intel Mac、Windows on Arm、Linux armhf、Alpine など |
 
 - **macOS**：Apple silicon実機（macOS 26.5.1）でVirtualization.framework、ad-hoc署名、12シナリオのゴールデンテスト、3 MiBと700ファイルを含む15シナリオ・126回の差分テスト、VS Code内の保存・復元まで確認した。配布するdarwin-arm64 VSIXそのものでのkernel経路の確認は、CIでは代わりにならないので実機で行う（§2 の公開条件）
@@ -42,8 +42,8 @@ Macのkernel経路はCIでは代替できない。実際に `macos-14` runnerで
 `Virtualization is not available on this hardware`（VZErrorDomain Code=2）になることを
 run 36388874335（2026-09-28）で確認した。したがって、CIはdarwin-arm64 VSIXの
 フォールバックまでを毎回確認し、kernel経路はApple silicon実機で同じVSIXを入れて
-`active=kernel`、agent 1.1.0、成功した `lastCheckout` を確認する。9/28 の候補（下の記録の VSIX）は
-「3 MiBの保存・復元を含む4テストが通過済み」としていたが、2026-09-30 に VSIX として入れ直すと通らなかった（§2.1）。
+`active=kernel`、agent 1.1.0、成功した `lastCheckout` を確認する。CI run 36690904344 の
+darwin-arm64 VSIX は2026-09-30に実機でこの条件を満たした（§2.1）。
 
 **公開条件：設計で規定したすべての OS（FR-5 の Linux・Apple silicon macOS・Windows x64）で、OverlayFS の本実装（kernel）が成功すること。**
 Node.js 版へのフォールバックが通っても、その OS の条件を満たしたことにはならない（ubuntu-24.04 と macos-14 の `expect: nodejs` は、フォールバックが壊れていないことの確認）。
@@ -59,20 +59,20 @@ Node.js 版へのフォールバックが通っても、その OS の条件を�
 
 ### 2.1 Apple silicon 実機での確認の記録
 
-#### 2026-09-30：不合格（1 / 4 失敗）
+#### 2026-09-30：合格（4 / 4 通過）
 
 | 項目 | 内容 |
 |---|---|
 | 機械 | Apple M5、macOS 26.5.1 |
-| VSIX | 手元で 9/28 に作った候補 `microgit-5.0.0-darwin-arm64.vsix`（3,044,482 バイト、sha256 `ffa95a3f…e9ce4`）。CI の成果物ではない（`gh` 未ログインで落とせなかった） |
-| 中身と HEAD（`5417ee2`）の一致 | `out/` の JS、`Image`（sha256 `f65d0011…789c`）、`microgit-vm`（sha256 `b25e6f3f…e760c`）がバイト単位で一致 |
-| 手順 | `MICROGIT_TEST_VSIX=<VSIX> MICROGIT_TEST_EXPECT_BACKEND=kernel node out/test/runTest.js`（VS Code 1.139.1）を 2 回。2 回とも同じ結果 |
-| 結果 | 保存・過去に戻る（日本語の名前、3 MiB を含む）の 3 つは通過。「Overlay Status で、使ったバックエンドが分かる」が失敗：`カーネル版で成功した checkout の記録が無い` |
-| Overlay Status | `active=kernel`、`backend=kernel (vz)`、**`agent=1.0.0`** protocol=1 kernel=6.18.53、boot=470〜1330ms、`commitsRecorded=0`、`layers(host view)=0`、`lastCheckout` 無し |
+| VSIX | CI run 36690904344 の成果物 `microgit-5.0.0-darwin-arm64.vsix`（3,138,730 バイト、sha256 `4e95023f2839e36867e29bb148b4e73ce27c58e9482e79537a60aed154676207`） |
+| 手順 | `MICROGIT_TEST_VSIX=<VSIX> MICROGIT_TEST_EXPECT_BACKEND=kernel node out/test/runTest.js`（VS Code 1.139.1） |
+| 結果 | 保存・過去に戻る、日本語の名前、3 MiB、Overlay Status の4テストがすべて通過 |
+| Overlay Status | `active=kernel`、`backend=kernel (vz)`、`agent=1.1.0` protocol=1 kernel=6.18.53、boot=632ms、`commitsRecorded=3`、`layers(host view)=4`、成功した `lastCheckout` あり |
 
-**見立て：** VSIX の `Image` は 9/26 のビルドで、埋め込まれた agent は 1.0.0。リポジトリから動かすときは `src/kernel/launchers.ts` が開発用の `guest/out/arm64/initrd.cpio`（agent 1.1.0、`mac/build-dev-initrd.sh`）を `--initrd` で渡すので通るが、VSIX にはそれが入らない。9/28 の「4 テスト通過」はこの開発用の経路だった可能性が高い（未確認）。
-
-**次にやること：** agent 1.1.0 を埋め込んだ `Image`（guest.yml / `guest/build.sh`）で darwin-arm64 VSIX を作り直し、同じ手順で確かめる。公開条件の上では、CI（package.yml）が作った VSIX そのもので行う。
+同日に不合格だった3,044,482バイトの手元候補は、9/26に作ったagent 1.0.0入りの
+古い `Image` を使っていた。リポジトリからの開発テストだけは外付けinitramfsの
+agent 1.1.0を使うため、この混在を見逃した。公開判定では手元で組み合わせた候補を
+使わず、同じCI実行でゲストから作り直したVSIX成果物そのものを実機試験する。
 
 手元（Windows 11）でも、`MICROGIT_TEST_VSIX=<VSIX> MICROGIT_TEST_EXPECT_BACKEND=kernel node out/test/runTest.js` で同じことができる。
 
