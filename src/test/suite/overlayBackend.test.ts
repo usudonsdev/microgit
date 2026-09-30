@@ -121,6 +121,39 @@ suite('MicroGit Overlay backend (save → jump)', function () {
         assertRestored(smallHead, 'kb/large.txt');
     });
 
+    // 保存 1 回の処理の段階ごとの時間（#37）。MICROGIT_TEST_SAVE_BENCH=<回数> のときだけ走る計測
+    // （MICROGIT_TEST_SAVE_BENCH_OUT=<パス> で、1 回ごとの記録を JSON に書く）
+    const benchSaves = Number(process.env.MICROGIT_TEST_SAVE_BENCH ?? '0');
+    (benchSaves > 0 ? test : test.skip)(`保存 ${benchSaves} 回の段階ごとの時間を計る`, async function () {
+        this.timeout(0);
+        await vscode.commands.executeCommand('microgit.internal.waitForSaves');
+        await vscode.commands.executeCommand('microgit.internal.saveTimings', true);
+        const files = Array.from({ length: 20 }, (_, i) => `bench/dir${i % 4}/file${i}.ts`);
+        for (let n = 0; n < benchSaves; n++) {
+            const rel = files[n % files.length];
+            await editAndSave(rel, `// ${rel}\n${'x'.repeat(200)}\n// save ${n}\n`);
+            await vscode.commands.executeCommand('microgit.internal.waitForSaves');
+        }
+        type T = { stages: Record<string, number>; recordedMs?: number; restorableMs?: number; totalMs: number; result: string; recorder?: string; layer?: string };
+        const all = await vscode.commands.executeCommand<T[]>('microgit.internal.saveTimings');
+        const out = process.env.MICROGIT_TEST_SAVE_BENCH_OUT;
+        if (out) { fs.writeFileSync(out, JSON.stringify({ platform: `${process.platform}-${process.arch}`, saves: all }, null, 2)); }
+        const pct = (xs: number[], p: number) => { const s = [...xs].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.floor((s.length - 1) * p))] ?? 0; };
+        const names = ['queue', 'policy', 'write', 'ensure', 'commit', 'layer', 'fileLog', 'overlay', 'logFile', 'ui'];
+        const windowSize = Math.min(20, all.length);
+        const table = (label: string, items: T[]) => {
+            const row = (n: string, xs: number[]) => `  ${n.padEnd(11)} p50 ${pct(xs, 0.5).toFixed(1).padStart(7)}  p95 ${pct(xs, 0.95).toFixed(1).padStart(7)}`;
+            console.log(`[save-bench] ${label}（${items.length} 回、recorder=${[...new Set(items.map((i) => i.recorder))].join('/')} layer=${[...new Set(items.map((i) => i.layer))].join('/')}）`);
+            for (const n of names) { console.log(row(n, items.map((i) => i.stages[n] ?? 0))); }
+            console.log(row('recorded', items.map((i) => i.recordedMs ?? 0)));
+            console.log(row('restorable', items.map((i) => i.restorableMs ?? 0)));
+            console.log(row('total', items.map((i) => i.totalMs)));
+        };
+        table('最初の区間', all.slice(0, windowSize));
+        table('最後の区間', all.slice(-windowSize));
+        assert.strictEqual(all.length, benchSaves);
+    });
+
     test('Overlay Status で、使ったバックエンドが分かる', async () => {
         await vscode.commands.executeCommand('microgit.overlayStatus');
         const status = vscode.workspace.textDocuments.map((d) => d.getText()).find((t) => t.startsWith('active='));
