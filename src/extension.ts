@@ -24,7 +24,7 @@ import { BackendSelector, parseBackendSetting } from './kernel/backendSelector';
 import { ensureExecutable } from './kernel/executable';
 import { FastMicroCommitter } from './fastMicroCommit';
 import { SaveTimer, SaveTimingLog } from './saveTiming';
-import { readRef, readSymbolicHead, resolveGitDir } from './fastGit/refs';
+import { firstTagAtHead, readRef, readSymbolicHead, resolveGitDir } from './fastGit/refs';
 import { GitRunner, isSafeGitRef, MicroCommitInput, MicroCommitOutcome, recordMicroCommitViaGitCli } from './microCommit';
 import { findInPath, KernelSettings, planLaunch } from './kernel/launchers';
 import {
@@ -64,6 +64,15 @@ let lastEnqueuedSave: { absPath: string; contentHash: string } | undefined;
 let publishTimer: ReturnType<typeof setTimeout> | undefined;
 let pendingPublishJob: { rootPath: string; branch: string } | undefined;
 const PUBLISH_DEBOUNCE_MS = 1500;
+/**
+ * 保存のあとの後片付け（画面の更新、timeline.log、log_latest.json）。保存の処理の列の中でやると、
+ * 1 回 200 ms 前後かかって次の保存を待たせていた（#37 の計測）。保存が続く間はまとめ、落ち着いてから 1 回だけ行う
+ */
+const AFTER_SAVE_REFRESH_MS = 300;
+let afterSaveTimer: ReturnType<typeof setTimeout> | undefined;
+let afterSaveJob: { rootPath: string; savedFile?: string } | undefined;
+/** 最後に記録した保存の結果（Overlay の状態の更新で、git rev-parse HEAD を起動しないため。#37） */
+let lastSaveOutcome: { head: string; layerByKernel: boolean } | undefined;
 /** Overlay のバックエンド（カーネル版か Node.js 版か）を選ぶ（#14、docs/kernel-backend.md） */
 let backendSelector: BackendSelector | undefined;
 
@@ -230,23 +239,24 @@ export function activate(context: vscode.ExtensionContext) {
                     }
 
                     timer.mark('policy');
+                    lastSaveOutcome = undefined;
                     const result = await runShadowCommit(rootPath, absPath, snapshot, timer);
                     saveResult = result;
-                    if (result === 'created' || result === 'rewound') {
-                        await generateMicroGitFileLog(rootPath, absPath);
-                        timer.mark('fileLog');
-                        if (useOverlayCheckout()) {
-                            const head = tryRunGit(path.join(rootPath, '.microgit_shadow'), ['rev-parse', 'HEAD'])?.trim();
+                    if ((result === 'created' || result === 'rewound') && useOverlayCheckout()) {
+                        // 新しいコミットの層をカーネル版で作れたなら、ワークスペースはもう保存した内容なので何もしない。
+                        // それ以外（Node.js 版、同じ中身に戻した）は今までどおり。HEAD は記録した結果から取る（#37）
+                        const outcome = lastSaveOutcome as { head: string; layerByKernel: boolean } | undefined;
+                        if (!(result === 'created' && outcome?.layerByKernel)) {
+                            const head = outcome?.head ?? tryRunGit(path.join(rootPath, '.microgit_shadow'), ['rev-parse', 'HEAD'])?.trim();
                             if (head) {
                                 await applyOverlayCheckout(rootPath, head, { syncWorkspace: result === 'rewound' });
                             }
                         }
                         timer.mark('overlay');
                     }
-                    await ExtensionLogger.exportLogFile(rootPath);
-                    timer.mark('logFile');
-                    refreshUi(rootPath);
-                    timer.mark('ui');
+                    // 画面・timeline.log・log_latest.json は列の外で、まとめて（#37）
+                    scheduleAfterSaveRefresh(rootPath, result === 'created' || result === 'rewound' ? absPath : undefined);
+                    timer.skip();
                 } finally {
                     saveTimings.add(timer.finish(saveResult));
                     pendingSaveJobs = Math.max(0, pendingSaveJobs - 1);
@@ -424,6 +434,7 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         // テストと計測のための内部コマンド（package.json には出さない。#37）
         vscode.commands.registerCommand('microgit.internal.waitForSaves', async () => { await saveChain; }),
+        vscode.commands.registerCommand('microgit.internal.flushAfterSave', async () => { await saveChain; await flushAfterSaveRefresh(); }),
         vscode.commands.registerCommand('microgit.internal.saveTimings', (clear?: boolean) => {
             const all = [...saveTimings.all];
             if (clear) { saveTimings.clear(); }
@@ -511,6 +522,36 @@ function buildUiSnapshot(rootPath: string | undefined): MicroGitUiSnapshot {
         hasShadow: active && hasShadow,
         workspaceOpen: true,
     };
+}
+
+/** 保存のあとの後片付けを予約する。保存が続く間は後ろへずらし、落ち着いてから 1 回だけ行う（#37） */
+function scheduleAfterSaveRefresh(rootPath: string, savedFile?: string): void {
+    afterSaveJob = { rootPath, savedFile: savedFile ?? afterSaveJob?.savedFile };
+    if (afterSaveTimer) { clearTimeout(afterSaveTimer); }
+    afterSaveTimer = setTimeout(() => {
+        const job = afterSaveJob;
+        afterSaveJob = undefined;
+        afterSaveTimer = undefined;
+        if (!job) { return; }
+        // 保存の処理が走っていないときに行う（列に積むと、その間の保存を待たせる）
+        void (async () => {
+            if (job.savedFile) { await generateMicroGitFileLog(job.rootPath, job.savedFile); }
+            await ExtensionLogger.exportLogFile(job.rootPath);
+            refreshUi(job.rootPath);
+        })();
+    }, AFTER_SAVE_REFRESH_MS);
+}
+
+/** 予約した後片付けを今すぐ行う（テスト用） */
+async function flushAfterSaveRefresh(): Promise<void> {
+    const job = afterSaveJob;
+    if (afterSaveTimer) { clearTimeout(afterSaveTimer); }
+    afterSaveJob = undefined;
+    afterSaveTimer = undefined;
+    if (!job) { return; }
+    if (job.savedFile) { await generateMicroGitFileLog(job.rootPath, job.savedFile); }
+    await ExtensionLogger.exportLogFile(job.rootPath);
+    refreshUi(job.rootPath);
 }
 
 function enqueueSave(task: () => Promise<void>): void {
@@ -1240,6 +1281,7 @@ async function runShadowCommit(
             if (isRecordableBranch(branchRewind)) {
                 schedulePublishToParent(mainRepoPath, branchRewind!);
             }
+            lastSaveOutcome = { head: outcome.commit, layerByKernel: false };
             return 'rewound';
         }
         const commitHash = outcome.commit;
@@ -1292,6 +1334,7 @@ async function runShadowCommit(
         timer?.mark('layer');
         timer?.restorable();
         if (timer) { timer.timing.layer = recordedByKernel ? 'kernel' : useOverlayCheckout() ? 'nodejs' : 'none'; }
+        lastSaveOutcome = { head: commitHash, layerByKernel: recordedByKernel };
 
         const branch = getCurrentBranch(mainRepoPath);
         if (isRecordableBranch(branch)) {
@@ -1311,6 +1354,14 @@ async function runShadowCommit(
 }
 
 function detectCurrentTag(shadowRepoPath: string): string {
+    // git tag --points-at HEAD -l 'mb-*' の最初（名前の順）と同じ答えを、HEAD とタグのファイルを直接読んで出す
+    // （保存のたびに Git を起動しない。#37）。読めなければ Git に任せる
+    try {
+        const gitDir = resolveGitDir(shadowRepoPath);
+        if (readRef(gitDir, 'HEAD')) {
+            return firstTagAtHead(gitDir) ?? 'mb-1';
+        }
+    } catch { /* 下の Git に任せる */ }
     try {
         const attached = runGit(shadowRepoPath, ['tag', '--points-at', 'HEAD', '-l', 'mb-*']).trim();
         if (attached) {
