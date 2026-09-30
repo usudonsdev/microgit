@@ -40,6 +40,18 @@ suite('MicroGit Overlay backend (save → jump)', function () {
         throw new Error('shadow commit did not appear');
     }
 
+    /**
+     * 保存した直後にディスクにあった中身（コミット:パス → バイト列）。VS Code は Windows では文書の改行を CRLF に
+     * そろえて保存するので、入力した文字列ではなく、ディスクの中身と比べる（ADR-0012：保存したバイト列がそのまま戻る）
+     */
+    const savedBytes = new Map<string, Buffer>();
+    const assertRestored = (head: string, rel: string) => {
+        const want = savedBytes.get(`${head}:${rel}`);
+        assert.ok(want, `${head}:${rel} の保存した中身を覚えていない`);
+        const got = fs.readFileSync(path.join(root, ...rel.split('/')));
+        assert.ok(got.equals(want), `${rel} が保存したときと違う（${got.length} バイト、期待 ${want.length} バイト。先頭 ${JSON.stringify(got.subarray(0, 16).toString())}）`);
+    };
+
     /** VS Code の編集機能でファイルを書き換えて保存する（onDidSaveTextDocument が発火する） */
     async function editAndSave(rel: string, text: string): Promise<string> {
         const abs = path.join(root, ...rel.split('/'));
@@ -53,7 +65,9 @@ suite('MicroGit Overlay backend (save → jump)', function () {
         edit.replace(doc.uri, new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length)), text);
         assert.ok(await vscode.workspace.applyEdit(edit));
         assert.ok(await doc.save());
-        return waitForNewHead(before);
+        const head = await waitForNewHead(before);
+        savedBytes.set(`${head}:${rel}`, fs.readFileSync(abs));
+        return head;
     }
 
     suiteSetup(async () => {
@@ -77,13 +91,18 @@ suite('MicroGit Overlay backend (save → jump)', function () {
         assert.notStrictEqual(h2, h3);
 
         await vscode.commands.executeCommand('microgit.jumpToCommit', h1);
-        assert.strictEqual(fs.readFileSync(path.join(root, 'kb', 'メモ.txt'), 'utf8'), 'v1\n');
+        assertRestored(h1, 'kb/メモ.txt');
+        if (process.platform === 'win32') {
+            // VS Code は Windows では CRLF で保存する。以前は shadow が LF に変えて記録し、戻すと LF になっていた（ADR-0012）
+            assert.ok(savedBytes.get(`${h1}:kb/メモ.txt`)!.includes('\r\n'), 'Windows で保存した中身が CRLF でない');
+        }
         assert.ok(!fs.existsSync(path.join(root, 'kb', 'later.txt')), 'h1 の時点には無いファイルが残っている');
         assert.strictEqual(shadowHead(), h1);
 
         await vscode.commands.executeCommand('microgit.jumpToCommit', h3);
-        assert.strictEqual(fs.readFileSync(path.join(root, 'kb', 'メモ.txt'), 'utf8'), 'v2\n');
-        assert.strictEqual(fs.readFileSync(path.join(root, 'kb', 'later.txt'), 'utf8'), 'created later\n');
+        assert.strictEqual(fs.readFileSync(path.join(root, 'kb', 'メモ.txt'), 'utf8').replace(/\r\n/g, '\n'), 'v2\n');
+        assertRestored(h2, 'kb/メモ.txt');
+        assertRestored(h3, 'kb/later.txt');
         assert.strictEqual(shadowHead(), h3);
     });
 
@@ -96,9 +115,10 @@ suite('MicroGit Overlay backend (save → jump)', function () {
 
         await vscode.commands.executeCommand('microgit.jumpToCommit', largeHead);
         assert.strictEqual(fs.readFileSync(path.join(root, 'kb', 'large.txt'), 'utf8'), large);
+        assertRestored(largeHead, 'kb/large.txt');
 
         await vscode.commands.executeCommand('microgit.jumpToCommit', smallHead);
-        assert.strictEqual(fs.readFileSync(path.join(root, 'kb', 'large.txt'), 'utf8'), 'small\n');
+        assertRestored(smallHead, 'kb/large.txt');
     });
 
     test('Overlay Status で、使ったバックエンドが分かる', async () => {
@@ -108,6 +128,9 @@ suite('MicroGit Overlay backend (save → jump)', function () {
         const active = /^active=(\w+)/.exec(status)![1];
         console.log(`[overlayBackend.test] active backend = ${active}`);
         console.log(status.split('\n').slice(0, 12).map((l) => `  ${l}`).join('\n'));
+        // 保存の記録は、Git のコマンドを起動しない速い記録で行われたはず（#32）。shadow は改行の変換を止めているので
+        // （ADR-0012）、Windows の core.autocrlf=true でも速い記録の前提を満たす
+        assert.match(status, /^microCommit=fast:[1-9]\d* git:0$/m, '保存の記録に Git のコマンドが使われた（速い記録の前提から外れた）');
         const expected = process.env.MICROGIT_TEST_EXPECT_BACKEND;
         if (expected) {
             assert.strictEqual(active, expected);

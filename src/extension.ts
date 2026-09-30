@@ -22,7 +22,9 @@ import {
 } from './overlay';
 import { BackendSelector, parseBackendSetting } from './kernel/backendSelector';
 import { ensureExecutable } from './kernel/executable';
-import { GitRunner, isSafeGitRef, recordMicroCommitViaGitCli } from './microCommit';
+import { FastMicroCommitter } from './fastMicroCommit';
+import { readRef, readSymbolicHead, resolveGitDir } from './fastGit/refs';
+import { GitRunner, isSafeGitRef, MicroCommitInput, MicroCommitOutcome, recordMicroCommitViaGitCli } from './microCommit';
 import { findInPath, KernelSettings, planLaunch } from './kernel/launchers';
 import {
     ensureShadowRepoForBranch,
@@ -414,7 +416,9 @@ export function activate(context: vscode.ExtensionContext) {
             const text =
                 `active=${active}\n` +
                 `useOverlayCheckout=${useOverlayCheckout()}\n` +
-                `durability=${getDurability()}\n\n` +
+                `durability=${getDurability()}\n` +
+                `microCommit=fast:${recorderStats.fast} git:${recorderStats.git}` +
+                `${recorderStats.lastFallback ? ` (Git のコマンドにした理由: ${recorderStats.lastFallback})` : ''}\n\n` +
                 `[kernel backend]\n${kernelText}\n\n` +
                 `[nodejs backend（フォールバック）]\n${describeOverlayEngine()}`;
             ExtensionLogger.log(`[Overlay status]\n${text}`);
@@ -708,6 +712,16 @@ function updateStatusBar(rootPath: string | undefined): void {
 }
 
 function getCurrentBranch(repoPath: string): string | undefined {
+    // ふつうのリポジトリなら .git/HEAD を直接読む（保存のたびに Git を起動しない。#32）。
+    // git rev-parse --abbrev-ref HEAD と同じく、detached なら 'HEAD' を返す
+    try {
+        const gitDir = resolveGitDir(repoPath);
+        if (!fs.existsSync(path.join(gitDir, 'commondir'))) {
+            const sym = readSymbolicHead(gitDir);
+            if (sym?.startsWith('refs/heads/')) { return sym.slice('refs/heads/'.length); }
+            if (!sym && readRef(gitDir, 'HEAD')) { return 'HEAD'; }
+        }
+    } catch { /* 下の git に任せる */ }
     try {
         const branch = runGit(repoPath, ['rev-parse', '--abbrev-ref', 'HEAD']).trim();
         return branch || undefined;
@@ -779,6 +793,53 @@ function tryRunGit(cwd: string, args: string[]): string | undefined {
 
 /** microCommit.ts に渡す Git の呼び出し（#32） */
 const gitRunner: GitRunner = { run: runGit, tryRun: tryRunGit };
+
+/** shadow の Git のディレクトリごとの速い記録（#32）。ブランチを切り替えると shadow の指す bare が変わるので、bare で分ける */
+const fastCommitters = new Map<string, FastMicroCommitter>();
+/** 速い記録を使えなかった理由（同じ理由を何度も出さない） */
+const fastFallbackReasons = new Set<string>();
+/** Overlay Status に出す：どちらで何回記録したか、最後に Git のコマンドにした理由 */
+const recorderStats = { fast: 0, git: 0, lastFallback: '' };
+
+/**
+ * 1 回の保存を記録する。設定 microgit.fastMicroCommit（既定 true）なら、Git のプロセスを起動しない速い実装
+ * （fastMicroCommit.ts）で記録し、前提から外れたときや失敗したときは Git の CLI の実装で記録する（#32）
+ */
+function recordMicroCommit(input: MicroCommitInput): MicroCommitOutcome {
+    if (vscode.workspace.getConfiguration().get<boolean>('microgit.fastMicroCommit') !== false) {
+        let gitDir = '';
+        try {
+            gitDir = resolveGitDir(input.shadowRepoPath);
+            let fc = fastCommitters.get(gitDir);
+            if (!fc) {
+                fc = new FastMicroCommitter(input.shadowRepoPath, () => getDurability() === 'power');
+                fastCommitters.set(gitDir, fc);
+            }
+            const out = fc.record(input);
+            recorderStats.fast++;
+            return out;
+        } catch (e) {
+            fastCommitters.get(gitDir)?.invalidate();
+            const reason = e instanceof Error ? e.message : String(e);
+            recorderStats.lastFallback = reason;
+            if (!fastFallbackReasons.has(reason)) {
+                fastFallbackReasons.add(reason);
+                ExtensionLogger.log(`[記録] 速い記録を使わず Git のコマンドで記録します: ${reason}`, 'WARN');
+            }
+        }
+    }
+    recorderStats.git++;
+    return recordMicroCommitViaGitCli(gitRunner, input);
+}
+
+/** メインのリポジトリの HEAD のコミット。ファイルを直接読み、読めなければ git rev-parse（#32。保存のたびに Git を起動しない） */
+function readMainHead(mainRepoPath: string): string | undefined {
+    try {
+        const v = readRef(resolveGitDir(mainRepoPath), 'HEAD');
+        if (v) { return v; }
+    } catch { /* 下の git に任せる */ }
+    return tryRunGit(mainRepoPath, ['rev-parse', 'HEAD'])?.trim();
+}
 
 function toPosixRelative(rootPath: string, absolutePath: string): string | undefined {
     if (!isPathInsideRoot(absolutePath, rootPath)) { return undefined; }
@@ -1112,13 +1173,13 @@ async function runShadowCommit(
 
     try {
         // Git の部分は microCommit.ts（#32。VS Code に依存しないので、ベンチと差分テストから呼べる）
-        const outcome = recordMicroCommitViaGitCli(gitRunner, {
+        const outcome = recordMicroCommit({
             shadowRepoPath,
             relativeFilePath,
             currentTag: currentMicroBranchTag,
             message: () => {
                 const fromAi = consumeAiPending(mainRepoPath, relativeFilePath);
-                const mainHeadAtSave = tryRunGit(mainRepoPath, ['rev-parse', 'HEAD'])?.trim();
+                const mainHeadAtSave = readMainHead(mainRepoPath);
                 return buildMicroCommitMessage(
                     relativeFilePath,
                     fromAi,

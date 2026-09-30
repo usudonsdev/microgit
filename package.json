@@ -103,6 +103,11 @@
           "default": "power",
           "description": "マイクロ履歴をどこまで確実にディスクへ書くか（docs/adr/0002-durability.md）"
         },
+        "microgit.fastMicroCommit": {
+          "type": "boolean",
+          "default": true,
+          "description": "保存の記録を、Git のコマンドを起動せずに拡張機能の中で書く（#32）。Git の保存形式はそのまま。使えない設定のリポジトリでは自動で Git のコマンドを使う。false で常に Git のコマンドを使う"
+        },
         "microgit.overlayBackend": {
           "type": "string",
           "enum": [
