@@ -1,15 +1,23 @@
 ---
-title: "Ctrl+Z で戻ったあとの編集で消える履歴を、git commit-tree で残す VS Code 拡張"
+title: "Ctrl+Z で消えるコードを残す VS Code 拡張を作った"
 emoji: "⏱️"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["vscode", "git", "typescript", "svg", "webview"]
 published: true
 ---
 
-Ctrl + Z で過去のコードまで戻し、その状態から別の書き方を試し始めた瞬間、戻る前に書いていたコードは Undo スタックから消えます。もう戻せません。
+Ctrl+Z で少し前のコードまで戻して、そこから別の書き方を試し始める。その瞬間、戻る前に書いていたコードは Undo の履歴から消えて、もう取り戻せません。
 
-「Gitでコミットするほどではないけれど、消すにはあまりにも惜しい、数分間の試行錯誤のプロセス」
-この**「Ctrl + Z」で戻った後に変更すると前の変更が消える問題**を根本から解決し、すべての保存を非破壊的なタイムラインとして可視化するVS Code拡張機能「MicroGit」を作りました。
+コミットするほどではないけれど、消えると惜しい数分間の試行錯誤。これを残すために、**ファイルを保存するたびに裏で自動コミットを作り、過去の保存点をグラフでたどれる VS Code 拡張「MicroGit」** を作りました。
+
+:::message
+**この記事で書くこと**
+- 保存のたびに、普段の `.git` とは別の隠しリポジトリへ自動でコミットする仕組み
+- `git commit` ではなく `git commit-tree` で親コミットを指定し、過去の保存点から枝分かれさせる方法
+- VS Code の Webview に SVG でコミットグラフを描く方法
+
+VS Code 拡張から git を操作したい人、Git の内部コマンドに興味がある人向けです。
+:::
 
 ---
 
@@ -27,9 +35,9 @@ Gitで細かくブランチを切れば防げますが、数分単位のちょ�
 
 ---
 
-## アプローチ — シャドウリポジトリと非線形コミット
+## アプローチ：隠しリポジトリと枝分かれするコミット
 
-この拡張機能は、メインプロジェクトの `.git` とは完全に独立した、独自の隠しシャドウリポジトリ（`.microgit_shadow`）を裏側で管理しています。
+この拡張機能は、メインプロジェクトの `.git` とは完全に独立した、独自の隠しリポジトリ（`.microgit_shadow`、以下シャドウリポジトリ）を裏側で管理しています。
 
 最大の特徴は、通常の `git commit` コマンドを一切使わず、**Gitの低レベル配管コマンドである `git commit-tree` を直接叩いている点**です。これにより、現在のHEADポインタ（過去に戻っているならその時点）を明示的に親（`-p`）として指定し、完全に非線形な「歴史の枝分かれ」をコード保存と同時に自動生成しています。
 
@@ -66,12 +74,11 @@ async function runShadowCommit(mainRepoPath: string, savedFilePath: string): Pro
 }
 ```
 
-### 可視化 — SVG で Git グラフを描く
+### 可視化：SVG で Git グラフを描く
 
 歴史が自動で分岐するようになっても、CLIの文字列だけでは自分が今どの世界線にいるのか分からなくなります。そこで、VS CodeのWebviewを使い、親子関係を自動で解析して結線するSVGグラフビューアを実装しました。
 
-Webview側の動的線画ロジック（JavaScript）
-バックエンドから送られてきた parents（親ハッシュの配列）のデータを元に、子ノードから親ノードへ向かって動的にSVGの <line> 要素を引いています。
+Webview 側では、拡張機能の本体から送られてきた `parents`（親コミットのハッシュの配列）を元に、子ノードから親ノードへ向かって SVG の `<line>` 要素を引いています。
 
 ```javascript
 // 各コミットの親子関係をループで回してSVGの線を引く
@@ -80,7 +87,7 @@ commits.forEach((c) => {
     c.parents.forEach(pHash => {
         const parentPos = nodeMap.get(pHash);
         if (parentPos) {
-            const line = document.createElementNS("[http://www.w3.org/2000/svg](http://www.w3.org/2000/svg)", "line");
+            const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
             line.setAttribute("x1", childPos.x);
             line.setAttribute("y1", childPos.y);
             line.setAttribute("x2", parentPos.x);
@@ -115,4 +122,4 @@ commits.forEach((c) => {
 - リポジトリ: [usudonsdev/microgit-test](https://github.com/usudonsdev/microgit-test)
 - VS Code 拡張: [MicroGit](https://marketplace.visualstudio.com/items?itemName=usudonsdev.microgit)
 
-> この記事は v2.0.0 時点の記録です。現行は v4.0.0 で、シャドウ領域は `.microgit_overlay` を使う構成に変わりました。最新の設計は「[OverlayGit の論文を読んで、保存ごとのマイクロ履歴ツールを作ってみた](https://zenn.dev/usudonsdev/articles/article-zenn-microgit-overlaygit)」に書いています。
+> この記事は v2.0.0 時点の記録です。現行は v4.0.0 で、シャドウ領域は `.microgit_overlay` を使う構成に変わりました。最新の設計は「[Git 高速化の論文を読んで、保存ごとに履歴を残す拡張を作った](https://zenn.dev/usudonsdev/articles/article-zenn-microgit-overlaygit)」に書いています。
