@@ -1,0 +1,396 @@
+/**
+ * マイクロコミットの速い実装（#32）。Git のプロセスを起動せず、Git の保存形式（オブジェクト・index・ref）を直接書く。
+ *
+ * 振る舞いは recordMicroCommitViaGitCli（microCommit.ts）と同じにする：
+ *   - index に保存したファイルを足し、tree を作る
+ *   - HEAD と同じ tree なら何もしない（unchanged）
+ *   - 過去に同じ tree、または同じパスに同じ中身があったコミットがあれば、新しいコミットを作らず HEAD をそこへ戻す（rewound）
+ *   - それ以外は commit を作り、micro-history を進め、先端のタグ mb-N を動かす（先端以外からなら mb-(最大+1) を足す）
+ * 違うのは速さだけ。同じ保存の列を両方に流して、できたコミット・tree・ref・index が同じになることを
+ * 差分テスト（scripts/test/micro-commit-diff.mjs）で確かめる。
+ *
+ * 「過去の同じ変更」の探索は、最初に 1 回だけ git log で索引を作り、以後は記録のたびに索引を足す。
+ * Git の設定などがこの実装の前提から外れる（autocrlf、属性ファイル、sha256、reftable、index の版 4 など）ときは
+ * FastPathUnsupported を投げる。呼ぶ側は Git の CLI の実装に任せる。
+ */
+import { execFileSync } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
+import { GitIndex, IndexEntry, compareIndexEntries, entryFromStat, indexPath, readIndex, writeIndex } from './fastGit/gitIndex';
+import { Ident, hashObject, parseGitDate, serializeCommit, serializeTree, TreeEntry, writeLooseObject } from './fastGit/objects';
+import { listTags, readRef, readSymbolicHead, resolveGitDir, writeRef, writeSymbolicRef } from './fastGit/refs';
+import { isSafeGitRef, MicroCommitInput, MicroCommitOutcome } from './microCommit';
+
+export class FastPathUnsupported extends Error { }
+
+const BRANCH = 'refs/heads/micro-history';
+const ZERO = '0'.repeat(40);
+
+type Dir = { files: Map<string, { mode: string; hash: string }>; dirs: Map<string, Dir>; hash?: string };
+
+function newDir(): Dir { return { files: new Map(), dirs: new Map() }; }
+
+type FileStamp = { mtimeMs: number; size: number; ino: number } | undefined;
+
+function stamp(file: string): FileStamp {
+    try {
+        const st = fs.statSync(file);
+        return { mtimeMs: st.mtimeMs, size: st.size, ino: st.ino };
+    } catch {
+        return undefined;
+    }
+}
+
+const sameStamp = (a: FileStamp, b: FileStamp) =>
+    a === b || (!!a && !!b && a.mtimeMs === b.mtimeMs && a.size === b.size && a.ino === b.ino);
+
+export type FastCommitStats = { reloads: number; indexReloads: number; gitSpawns: number };
+
+export class FastMicroCommitter {
+    readonly gitDir: string;
+    private config = new Map<string, string>();
+    private index: GitIndex = { version: 2, entries: [] };
+    private indexStamp: FileStamp;
+    private root: Dir = newDir();
+    /** 履歴の索引（最初に git log で作り、記録のたびに足す） */
+    private commitTree = new Map<string, string>();
+    private treeToCommit = new Map<string, string>();
+    private fileIndex = new Map<string, Map<string, string>>();
+    private loaded = false;
+    /** HEAD のコミットの中身（パス → モードと blob）。新しいコミットが親から何を変えたかを出すのに使う */
+    private headFlat: { commit: string; files: Map<string, string> } | undefined;
+    readonly stats: FastCommitStats = { reloads: 0, indexReloads: 0, gitSpawns: 0 };
+
+    constructor(readonly workTree: string, private readonly fsync: () => boolean) {
+        this.gitDir = resolveGitDir(workTree);
+    }
+
+    private git(args: string[]): string {
+        this.stats.gitSpawns++;
+        return execFileSync('git', ['-c', 'core.quotepath=false', ...args], {
+            cwd: this.workTree, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, maxBuffer: 1 << 30,
+        }).toString();
+    }
+
+    /** 設定を読み、この実装の前提を満たすかを確かめる（最初の 1 回と、履歴を読み直すとき） */
+    private loadConfig(): void {
+        this.config.clear();
+        const out = this.git(['config', '--list', '-z']);
+        for (const item of out.split('\0').filter(Boolean)) {
+            const i = item.indexOf('\n');
+            const key = (i < 0 ? item : item.slice(0, i)).toLowerCase();
+            this.config.set(key, i < 0 ? 'true' : item.slice(i + 1));
+        }
+        const c = (k: string) => this.config.get(k);
+        const falsy = (v: string | undefined) => v === undefined || /^(false|no|off|0)$/i.test(v);
+        if ((c('extensions.objectformat') ?? 'sha1') !== 'sha1') { throw new FastPathUnsupported('objectFormat が sha1 でない'); }
+        if (c('extensions.refstorage') === 'reftable') { throw new FastPathUnsupported('reftable'); }
+        if (!falsy(c('core.autocrlf'))) { throw new FastPathUnsupported('core.autocrlf が有効（改行の変換が要る）'); }
+        if (c('core.eol') !== undefined) { throw new FastPathUnsupported('core.eol'); }
+        if (c('core.attributesfile') !== undefined) { throw new FastPathUnsupported('core.attributesFile'); }
+        if (!falsy(c('core.sparsecheckout'))) { throw new FastPathUnsupported('sparse checkout'); }
+        if (!falsy(c('core.splitindex'))) { throw new FastPathUnsupported('split index'); }
+        // commit-tree は commit.gpgSign が有効なら署名する。署名は扱わない
+        if (!falsy(c('commit.gpgsign'))) { throw new FastPathUnsupported('commit.gpgSign'); }
+        const enc = c('i18n.commitencoding');
+        if (enc !== undefined && !/^utf-?8$/i.test(enc)) { throw new FastPathUnsupported('i18n.commitEncoding'); }
+        if (fs.existsSync(path.join(this.gitDir, 'info', 'attributes'))) { throw new FastPathUnsupported('info/attributes'); }
+        if (fs.existsSync(path.join(this.gitDir, 'commondir'))) { throw new FastPathUnsupported('linked worktree'); }
+    }
+
+    /** 履歴の索引を git log 1 回で作る */
+    private loadHistory(): void {
+        this.stats.reloads++;
+        this.commitTree.clear();
+        this.treeToCommit.clear();
+        this.fileIndex.clear();
+        let out = '';
+        try {
+            out = this.git(['log', '--all', '--format=%H %T', '--raw', '--no-abbrev', '--no-renames', '-z']);
+        } catch {
+            out = ''; // まだコミットが無い
+        }
+        let commit = '';
+        const tokens = out.split('\0');
+        for (let i = 0; i < tokens.length; i++) {
+            const t = tokens[i].replace(/^\n/, '');
+            const head = /^([0-9a-f]{40}) ([0-9a-f]{40})$/.exec(t);
+            if (head) {
+                commit = head[1];
+                this.commitTree.set(commit, head[2]);
+                // git log は新しい順。最初に見たもの（いちばん新しい）を残す
+                if (!this.treeToCommit.has(head[2])) { this.treeToCommit.set(head[2], commit); }
+                continue;
+            }
+            if (t.startsWith(':')) {
+                const fields = t.split(' ');
+                const dst = fields[3];
+                const p = tokens[++i];
+                if (!commit || !dst || dst === ZERO) { continue; }
+                let m = this.fileIndex.get(p);
+                if (!m) { m = new Map(); this.fileIndex.set(p, m); }
+                if (!m.has(dst)) { m.set(dst, commit); }
+            }
+        }
+    }
+
+    private buildTreeFromIndex(): void {
+        this.root = newDir();
+        for (const e of this.index.entries) {
+            if (((e.flags >> 12) & 3) !== 0) { throw new FastPathUnsupported('index に競合（stage）がある'); }
+            if (e.extendedFlags !== 0) { throw new FastPathUnsupported('index に skip-worktree などがある'); }
+            const parts = e.path.split('/');
+            let d = this.root;
+            for (const name of parts.slice(0, -1)) {
+                let sub = d.dirs.get(name);
+                if (!sub) { sub = newDir(); d.dirs.set(name, sub); }
+                d = sub;
+            }
+            d.files.set(parts[parts.length - 1], { mode: (e.mode & 0o170000) === 0o120000 ? '120000' : (e.mode & 0o111) ? '100755' : (e.mode & 0o170000) === 0o160000 ? '160000' : '100644', hash: e.hash });
+        }
+    }
+
+    private reloadIndexIfChanged(): void {
+        const now = stamp(indexPath(this.gitDir));
+        if (this.loaded && sameStamp(now, this.indexStamp)) { return; }
+        this.stats.indexReloads++;
+        try {
+            this.index = readIndex(indexPath(this.gitDir));
+        } catch (e) {
+            throw new FastPathUnsupported(e instanceof Error ? e.message : String(e));
+        }
+        this.indexStamp = now;
+        this.buildTreeFromIndex();
+        if (this.index.entries.some((e) => path.posix.basename(e.path) === '.gitattributes')) {
+            throw new FastPathUnsupported('.gitattributes が記録されている');
+        }
+    }
+
+    private ensureLoaded(): void {
+        if (this.loaded) { return; }
+        this.loadConfig();
+        this.reloadIndexIfChanged();
+        this.loadHistory();
+        this.loaded = true;
+    }
+
+    /** 状態を捨てる（CLI の実装で記録したあとなど） */
+    invalidate(): void {
+        this.loaded = false;
+        this.indexStamp = undefined;
+        this.headFlat = undefined;
+    }
+
+    /** index の中身を「パス → モード blob」にする */
+    private flatIndex(): Map<string, string> {
+        const m = new Map<string, string>();
+        const walk = (d: Dir, prefix: string) => {
+            for (const [name, f] of d.files) { m.set(prefix + name, `${f.mode} ${f.hash}`); }
+            for (const [name, sub] of d.dirs) { walk(sub, `${prefix}${name}/`); }
+        };
+        walk(this.root, '');
+        return m;
+    }
+
+    /** あるコミットの中身。覚えていなければ git ls-tree を 1 回（同じ中身に戻したあとの最初の記録だけ） */
+    private flatOfCommit(commit: string): Map<string, string> {
+        if (this.headFlat?.commit === commit) { return this.headFlat.files; }
+        const m = new Map<string, string>();
+        const out = this.git(['ls-tree', '-r', '-z', '--full-tree', commit]);
+        for (const rec of out.split(' ').filter(Boolean)) {
+            const tab = rec.indexOf('	');
+            const [mode, , hash] = rec.slice(0, tab).split(' ');
+            m.set(rec.slice(tab + 1), `${mode} ${hash}`);
+        }
+        return m;
+    }
+
+    /** ref が知らないコミットを指していたら（ほかの処理が記録した）、履歴を読み直す */
+    private ensureKnown(hashes: Iterable<string | undefined>): void {
+        for (const h of hashes) {
+            if (h && !this.commitTree.has(h)) {
+                this.loadHistory();
+                return;
+            }
+        }
+    }
+
+    private treeHash(d: Dir, write: boolean): string {
+        if (d.hash) { return d.hash; }
+        const entries: TreeEntry[] = [];
+        for (const [name, f] of d.files) { entries.push({ mode: f.mode, name, hash: f.hash }); }
+        for (const [name, sub] of d.dirs) {
+            if (sub.files.size === 0 && sub.dirs.size === 0) { continue; }
+            entries.push({ mode: '40000', name, hash: this.treeHash(sub, write) });
+        }
+        const body = serializeTree(entries);
+        d.hash = write ? writeLooseObject(this.gitDir, 'tree', body, { fsync: this.fsync() }) : hashObject('tree', body);
+        return d.hash;
+    }
+
+    private ident(env: NodeJS.ProcessEnv, who: 'AUTHOR' | 'COMMITTER', now: Date): Ident {
+        const name = env[`GIT_${who}_NAME`];
+        const email = env[`GIT_${who}_EMAIL`];
+        if (!name || !email || /[<>\n]/.test(name + email) || name.trim() !== name || email.trim() !== email) {
+            throw new FastPathUnsupported('作者・記録者の名前とメールは環境変数で、そのまま使える形で渡す');
+        }
+        const date = parseGitDate(env[`GIT_${who}_DATE`], now);
+        if (date === 'unsupported' || date === undefined) { throw new FastPathUnsupported(`GIT_${who}_DATE の形`); }
+        return { name, email, ...date };
+    }
+
+    private reflogIdent(now: Date): string | undefined {
+        const all = this.config.get('core.logallrefupdates');
+        const bare = /^(true|yes|on|1)$/i.test(this.config.get('core.bare') ?? 'false');
+        const on = all === undefined ? !bare : /^(true|yes|on|1|always)$/i.test(all);
+        if (!on) { return undefined; }
+        const name = this.config.get('user.name') ?? 'MicroGit';
+        const email = this.config.get('user.email') ?? 'microgit@local';
+        const d = parseGitDate(undefined, now) as { seconds: number; tz: string };
+        return `${name} <${email}> ${d.seconds} ${d.tz}`;
+    }
+
+    private setRef(name: string, hash: string, now: Date): void {
+        const ident = this.reflogIdent(now);
+        if (ident && !fs.existsSync(path.join(this.gitDir, 'logs', ...name.split('/')))) {
+            // git update-ref は、core.logAllRefUpdates が有効ならブランチの reflog を作る
+            if (name.startsWith('refs/heads/')) {
+                const log = path.join(this.gitDir, 'logs', ...name.split('/'));
+                fs.mkdirSync(path.dirname(log), { recursive: true });
+                fs.writeFileSync(log, '');
+            }
+        }
+        writeRef(this.gitDir, name, hash, { fsync: this.fsync(), reflogIdent: ident });
+    }
+
+    /** 1 回の保存を記録する。前提から外れたら FastPathUnsupported（何も書く前に判断できるものは書く前に投げる） */
+    record(input: MicroCommitInput): MicroCommitOutcome {
+        this.ensureLoaded();
+        const now = new Date();
+        const rel = input.relativeFilePath;
+        let tag = input.currentTag;
+        if (path.posix.basename(rel) === '.gitattributes') { throw new FastPathUnsupported('.gitattributes の保存'); }
+
+        // detached HEAD のままだと以降の記録が不安定なので、コミット前にブランチへ戻す（CLI の実装と同じ）
+        const microHistory = readRef(this.gitDir, BRANCH);
+        if (microHistory && !readSymbolicHead(this.gitDir)) {
+            const headHash = readRef(this.gitDir, 'HEAD');
+            writeSymbolicRef(this.gitDir, 'HEAD', BRANCH, { fsync: this.fsync() });
+            if (headHash && isSafeGitRef(headHash)) { this.setRef(BRANCH, headHash, now); }
+        }
+
+        this.reloadIndexIfChanged();
+
+        // git add -- <rel>
+        const abs = path.join(this.workTree, ...rel.split('/'));
+        const st = fs.lstatSync(abs);
+        if (!st.isFile()) { throw new FastPathUnsupported('通常のファイルではない'); }
+        const parts = rel.split('/');
+        let d = this.root;
+        const chain: Dir[] = [d];
+        for (const name of parts.slice(0, -1)) {
+            if (d.files.has(name)) { throw new FastPathUnsupported('ファイルとディレクトリの置き換え'); }
+            let sub = d.dirs.get(name);
+            if (!sub) { sub = newDir(); d.dirs.set(name, sub); }
+            d = sub;
+            chain.push(d);
+        }
+        const base = parts[parts.length - 1];
+        if (d.dirs.has(base) && (d.dirs.get(base)!.files.size > 0 || d.dirs.get(base)!.dirs.size > 0)) {
+            throw new FastPathUnsupported('ファイルとディレクトリの置き換え');
+        }
+        const content = fs.readFileSync(abs);
+        const blob = writeLooseObject(this.gitDir, 'blob', content, { fsync: this.fsync() });
+        const filemode = !/^(false|no|off|0)$/i.test(this.config.get('core.filemode') ?? 'true');
+        const prev = d.files.get(base);
+        const mode = filemode ? ((st.mode & 0o100) ? '100755' : '100644') : (prev?.mode === '100755' ? '100755' : '100644');
+        d.files.set(base, { mode, hash: blob });
+        for (const x of chain) { x.hash = undefined; }
+
+        const entry: IndexEntry = entryFromStat(rel, abs, blob, mode === '100755' ? 0o100755 : 0o100644);
+        const i = this.index.entries.findIndex((e) => e.path === rel);
+        if (i >= 0) { this.index.entries[i] = entry; } else {
+            this.index.entries.push(entry);
+            this.index.entries.sort(compareIndexEntries);
+        }
+        try {
+            writeIndex(indexPath(this.gitDir), this.index, { fsync: false });
+        } catch (e) {
+            this.invalidate();
+            throw new FastPathUnsupported(`index を書けない: ${e instanceof Error ? e.message : String(e)}`);
+        }
+        this.indexStamp = stamp(indexPath(this.gitDir));
+
+        // git write-tree
+        const tree = this.treeHash(this.root, true);
+
+        const currentHead = readRef(this.gitDir, 'HEAD') ?? '';
+        const tags = listTags(this.gitDir);
+        this.ensureKnown([currentHead, ...tags.values(), readRef(this.gitDir, BRANCH)]);
+        if (currentHead) {
+            const headTree = this.commitTree.get(currentHead);
+            if (headTree === tree) { return { kind: 'unchanged' }; }
+        }
+
+        // 過去の同じ変更（同じ tree / 同じパスに同じ中身）
+        let past: { commit: string; reason: 'tree' | 'file' } | undefined;
+        if (currentHead) {
+            const byTree = this.treeToCommit.get(tree);
+            const byFile = this.fileIndex.get(rel)?.get(blob);
+            if (byTree && isSafeGitRef(byTree)) { past = { commit: byTree, reason: 'tree' }; } else if (byFile && isSafeGitRef(byFile)) { past = { commit: byFile, reason: 'file' }; }
+        }
+        if (past && currentHead !== past.commit) {
+            this.setRef(BRANCH, past.commit, now);
+            writeSymbolicRef(this.gitDir, 'HEAD', BRANCH, { fsync: this.fsync() });
+            // git tag --points-at HEAD -l 'mb-*' の最初（名前の順）
+            const attached = [...tags].filter(([, h]) => h === past!.commit).map(([n]) => n).sort()[0];
+            if (attached) { tag = attached; }
+            this.headFlat = undefined;
+            return { kind: 'rewound', commit: past.commit, reason: past.reason, tag };
+        }
+        if (past && currentHead === past.commit) { return { kind: 'unchanged' }; }
+
+        const env = input.commitEnv;
+        const body = serializeCommit({
+            tree,
+            parents: currentHead ? [currentHead] : [],
+            author: this.ident(env, 'AUTHOR', now),
+            committer: this.ident(env, 'COMMITTER', now),
+            message: input.message(),
+        });
+        // 親から変わったパス（git log -- <パス> が「そのパスを変えた」と数えるもの）。同じ中身に戻したあとは
+        // 作業ツリーと index が HEAD とずれているので、保存したファイル以外も変わっていることがある
+        const flat = this.flatIndex();
+        const parentFlat = currentHead ? this.flatOfCommit(currentHead) : new Map<string, string>();
+        const changed: Array<[string, string]> = [];
+        for (const [p, v] of flat) {
+            if (parentFlat.get(p) !== v) { changed.push([p, v.split(' ')[1]]); }
+        }
+        const commit = writeLooseObject(this.gitDir, 'commit', body, { fsync: this.fsync() });
+        this.setRef(BRANCH, commit, now);
+        writeSymbolicRef(this.gitDir, 'HEAD', BRANCH, { fsync: this.fsync() });
+
+        if (!isSafeGitRef(tag)) { tag = 'mb-1'; }
+        const tip = tags.get(tag);
+        if (currentHead && tip && currentHead !== tip) {
+            let max = 0;
+            for (const n of tags.keys()) {
+                const m = /^mb-(\d+)$/.exec(n);
+                if (m) { max = Math.max(max, Number(m[1])); }
+            }
+            tag = `mb-${max + 1}`;
+        }
+        writeRef(this.gitDir, `refs/tags/${tag}`, commit, { fsync: this.fsync() });
+
+        // 索引を足す
+        this.commitTree.set(commit, tree);
+        this.treeToCommit.set(tree, commit);
+        for (const [p, h] of changed) {
+            let fm = this.fileIndex.get(p);
+            if (!fm) { fm = new Map(); this.fileIndex.set(p, fm); }
+            fm.set(h, commit);
+        }
+        this.headFlat = { commit, files: flat };
+        return { kind: 'created', commit, parent: currentHead || undefined, tag };
+    }
+}
