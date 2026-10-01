@@ -1,0 +1,73 @@
+{
+  "durability": "process",
+  "files": 200,
+  "saves": 1000,
+  "window": 50,
+  "platform": "win32-x64",
+  "results": [
+    {
+      "impl": "fast",
+      "history": 10,
+      "p50": 29.8,
+      "p95": 41,
+      "spawnsMean": 0.3,
+      "savesPerSec": 19.2
+    },
+    {
+      "impl": "fast",
+      "history": 100,
+      "p50": 27.9,
+      "p95": 40.5,
+      "spawnsMean": 0,
+      "savesPerSec": 33.7
+    },
+    {
+      "impl": "fast",
+      "history": 300,
+      "p50": 28.5,
+      "p95": 42.7,
+      "spawnsMean": 0.1,
+      "savesPerSec": 31.8
+    },
+    {
+      "impl": "fast",
+      "history": 1000,
+      "p50": 44.5,
+      "p95": 100.7,
+      "spawnsMean": 0.1,
+      "savesPerSec": 19.8
+    },
+    {
+      "impl": "git",
+      "history": 10,
+      "p50": 190.6,
+      "p95": 256.9,
+      "spawnsMean": 0,
+      "savesPerSec": 4.8
+    },
+    {
+      "impl": "git",
+      "history": 100,
+      "p50": 149.7,
+      "p95": 165.4,
+      "spawnsMean": 0,
+      "savesPerSec": 6.4
+    },
+    {
+      "impl": "git",
+      "history": 300,
+      "p50": 144.6,
+      "p95": 154.7,
+      "spawnsMean": 0,
+      "savesPerSec": 7
+    },
+    {
+      "impl": "git",
+      "history": 1000,
+      "p50": 83.7,
+      "p95": 88.6,
+      "spawnsMean": 0,
+      "savesPerSec": 11.9
+    }
+  ]
+}

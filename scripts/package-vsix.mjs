@@ -189,7 +189,8 @@ function checkVsix(file, layout) {
         /^\[Content_Types\]\.xml$/, /^extension\.vsixmanifest$/,
         /^extension\/(package\.json|readme\.md|changelog\.md|LICENCE\.md|THIRD_PARTY_NOTICES\.md)$/,
         /^extension\/media\/[^/]+\.svg$/,
-        /^extension\/out\/(kernel\/)?[^/]+\.js$/,
+        // out/ の直下と、その 1 段下のフォルダ（kernel/、fastGit/ など）の .js。テストのコード（out/test/）は入れない
+        /^extension\/out\/(?!test\/)([^/]+\/)?[^/]+\.js$/,
         /^extension\/resources\/kernel\//,
     ];
     const allowedTop = new Set(layout.expect.map((f) => f.split('/')[0]).concat(layout.expect.length ? ['licenses'] : []));

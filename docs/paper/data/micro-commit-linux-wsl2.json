@@ -1,0 +1,104 @@
+{
+  "files": 200,
+  "saves": 1000,
+  "window": 20,
+  "platform": "linux-x64",
+  "results": [
+    {
+      "impl": "cli",
+      "history": 10,
+      "p50": 209,
+      "p95": 352,
+      "spawnsMean": 16,
+      "savesPerSec": 4
+    },
+    {
+      "impl": "cli",
+      "history": 100,
+      "p50": 85.2,
+      "p95": 88.8,
+      "spawnsMean": 16.4,
+      "savesPerSec": 11.8
+    },
+    {
+      "impl": "cli",
+      "history": 300,
+      "p50": 119.8,
+      "p95": 180.6,
+      "spawnsMean": 20.9,
+      "savesPerSec": 8.1
+    },
+    {
+      "impl": "cli",
+      "history": 1000,
+      "p50": 469.5,
+      "p95": 604.3,
+      "spawnsMean": 62.4,
+      "savesPerSec": 2.1
+    },
+    {
+      "impl": "fast",
+      "history": 10,
+      "p50": 299.4,
+      "p95": 390.1,
+      "spawnsMean": 0.3,
+      "savesPerSec": 3.7
+    },
+    {
+      "impl": "fast",
+      "history": 100,
+      "p50": 26.3,
+      "p95": 175,
+      "spawnsMean": 0,
+      "savesPerSec": 23
+    },
+    {
+      "impl": "fast",
+      "history": 300,
+      "p50": 16.3,
+      "p95": 18,
+      "spawnsMean": 0.1,
+      "savesPerSec": 60.7
+    },
+    {
+      "impl": "fast",
+      "history": 1000,
+      "p50": 15.5,
+      "p95": 18.7,
+      "spawnsMean": 0.1,
+      "savesPerSec": 64.2
+    },
+    {
+      "impl": "git",
+      "history": 10,
+      "p50": 14,
+      "p95": 14.4,
+      "spawnsMean": 0,
+      "savesPerSec": 71.5
+    },
+    {
+      "impl": "git",
+      "history": 100,
+      "p50": 10.9,
+      "p95": 11.6,
+      "spawnsMean": 0,
+      "savesPerSec": 91.2
+    },
+    {
+      "impl": "git",
+      "history": 300,
+      "p50": 11.1,
+      "p95": 12.3,
+      "spawnsMean": 0,
+      "savesPerSec": 89
+    },
+    {
+      "impl": "git",
+      "history": 1000,
+      "p50": 10.8,
+      "p95": 11.5,
+      "spawnsMean": 0,
+      "savesPerSec": 92.5
+    }
+  ]
+}
