@@ -10,6 +10,8 @@ All notable changes to the "MicroGit" extension will be documented in this file.
 - **プラットフォーム別の VSIX**（#19）。Windows x64 用には同梱の QEMU と最小の Linux、Linux x64 / arm64 用には agent、Apple silicon Mac 用には `microgit-vm` と arm64 の最小 Linux が入る。それ以外（Intel Mac、Windows on Arm など）には Node.js 版だけの universal が配られる
 - `THIRD_PARTY_NOTICES.md`：同梱している第三者のソフトウェア（Linux カーネル、QEMU、SeaBIOS、GLib などの DLL、Go のランタイム）とライセンス、ソースの置き場所
 - 同梱の agent に実行ビットが無ければ、起動の前に付ける（付けられなければ Node.js 版で動く）
+- **保存の記録を、Git のコマンドを起動せずに拡張機能の中で書く**（#32、設定 `microgit.fastMicroCommit`、既定で有効）。Git の保存形式はそのままで、ふつうの Git で履歴を読める。使えない設定のリポジトリ（sha256、reftable、コミットの署名など）では自動で Git のコマンドを使う
+- `MicroGit: Overlay Status` に、保存 1 回の処理の段階ごとの時間（直近 200 回の p50・p95）と、記録に使ったもの（fast / git）を表示（#32、#37）
 
 ### Fixed
 - ファイルを同じ名前のディレクトリに置き換えた時点（またはその逆）へ過去に戻ると、ワークスペースへの反映が例外で止まる不具合を修正（N-7。反映の順番を「消す → 書く」にした）
@@ -18,6 +20,8 @@ All notable changes to the "MicroGit" extension will be documented in this file.
 - ディレクトリを同じ名前のファイルに置き換えると、保存時・過去に戻る時に例外になる不具合を修正（N-4）
 - `.wh.` で始まる名前のファイルが Overlay のビューから消える不具合を修正（N-5）
 - 1 MiB を超えるファイルが Overlay のレイヤに入らない不具合を修正（`git show` の出力が execFileSync の既定の上限を超えていた）
+- **Windows で過去に戻ると、CRLF のファイルが LF に変わる不具合を修正**（ADR-0012）。Windows 版 Git の既定（`core.autocrlf=true`）でマイクロ履歴に LF で記録されていた。マイクロ履歴は保存した中身をそのまま記録するようにした。この変更より前の記録は LF のまま
+- **保存の記録が、履歴が長くなるほど遅くなる不具合を修正**（#32）。保存のたびに履歴全体を読み、過去のコミットごとに Git を起動していた（Windows で履歴 1,000 回のとき 1 回 2.4 秒）
 
 ### Added
 - **カーネルの OverlayFS を使う Overlay バックエンド**（#14、docs/kernel-backend.md）。Linux は仮想マシンなし（`unshare -Urm`、カーネル 5.11 以降）、Windows は同梱の QEMU と最小の Linux、Apple silicon Mac は Virtualization.framework。使えない環境では自動で Node.js 版に切り替わる。過去に戻る操作が Linux で約 6 倍、Windows で約 8 倍速い（中央値、ファイル 200 の合成の履歴）
@@ -27,6 +31,7 @@ All notable changes to the "MicroGit" extension will be documented in this file.
 - 設定 `microgit.durability`（`power` が既定）。マイクロ履歴の Git のオブジェクトと ref を fsync し、電源断や OS の異常終了でも記録済みの履歴を失わないようにする。`process` で従来どおり（Git の既定）に戻せる（#11、docs/adr/0002-durability.md）
 
 ### Changed
+- **保存 1 回の処理を短くした**（#37、#41）。画面の更新とログは保存が落ち着いてから 1 回だけ行う。カーネル版の層は、記録で分かっている変化から Git を起動せずに作る。Node.js 版は、保存のたびに過去の姿のビューを作り直さない。保存 1 回の処理全体は、手元の Windows（カーネル版）で 405 → 57 ms、Linux（カーネル版）で 12〜17 ms、Node.js 版で 512 → 18 ms（Ubuntu）
 - Overlay のレイヤ形式を v2 にした。whiteout を層の中の `.wh.*` ファイルではなく、層の外のメタデータ（`layers/<hash>.json`）に持つ。古い形式のキャッシュ（`.microgit_overlay/layers`・`views`・`write`）は初回に自動で捨てて作り直す。履歴（shadow の Git）は変わらない
 
 - `MicroGit: Fetch Micro History` が、ローカルの未 publish なマイクロ履歴を警告なしに上書き消去しうる欠陥を修正

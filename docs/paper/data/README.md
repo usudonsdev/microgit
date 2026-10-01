@@ -24,6 +24,10 @@ VS Code の中で保存を繰り返して計った、1 回ごとの段階ごと�
 | `save-pipeline-win32-offqueue.json` | 画面の更新などを列の外へ出した後 |
 | `save-pipeline-win32-policy.json` | ブランチの確認で Git を起動しなくした後 |
 | `save-pipeline-win32-delta.json` | 層の作成で Git を起動しなくした後 |
+| `save-pipeline-win32-nodejs-after.json` | 手元の Windows、Node.js 版、#41 の後（保存 100 回、過去に戻る操作 10 回の travels つき）。#41 の前は保存 100 回の計測が途中で止まった（下の注） |
+| `ci-36809764061/save-bench-*.json` | CI の 5 つの環境、#41 の後（保存 100 回、travels つき） |
 | `ci-36807397421/save-bench-*.json` | CI の 5 つの環境（公開版と同じ形、保存 100 回）。Ubuntu 22.04・24.04 arm・Windows はカーネル版、Ubuntu 24.04・macOS は Node.js 版 |
+
+注：#41 の前のコードで、Node.js 版の保存 100 回を手元で計ると、計測が 3 分かかり、2 回とも途中で「Document has been closed」で止まった（VS Code が使われていない文書を閉じたためと考える）。#41 の前後の比較は、保存 40 回にそろえて行った（`docs/design-rationale.md` §3.4、ファイルには残していない）。
 
 論文や記事に使うときは、条件をそろえた 4 つ（`fast-vs-git-*`）と、5.0.0 までの記録の伸び方（`baseline-win32` と `linux-wsl2` の `cli`）を分けて書く。
