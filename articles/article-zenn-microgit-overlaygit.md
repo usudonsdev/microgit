@@ -34,7 +34,7 @@ MicroGit でできることは次のとおりです。
 
 Cursor / Open VSX: [microgit](https://open-vsx.org/extension/usudonsdev/microgit)
 VS Code Marketplace: [microgit](https://marketplace.visualstudio.com/items?itemName=usudonsdev.microgit)
-リポジトリ: [GitHub — microgit](https://github.com/usudonsdev/microgit)
+リポジトリ: [GitHub — microgit-test](https://github.com/usudonsdev/microgit-test)
 参考にした論文: 三原公平, 柗本真佑, 楠本真二, [OverlayGit：OverlayFSを用いた高速なGitファイルシステム](https://sdl.ist.osaka-u.ac.jp/pman/pman3.cgi?D=882), 情報処理学会論文誌, 2025
 
 ---
