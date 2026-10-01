@@ -53,6 +53,14 @@ jobs:
           node scripts/test/micro-commit-diff.mjs --saves 300
           node scripts/test/micro-commit-diff.mjs --saves 150 --crlf
 
+      # 4.59 停電を模した試験（ADR-0014、#38）：ジャーナルつきの速い記録で Git のファイルを失わせ、
+      # 起動時の作り直しで期待どおりの履歴に戻り、git fsck --strict が通るか。乱数の種を変えて 3 回
+      - name: Micro-commit crash recovery test
+        run: |
+          node scripts/test/micro-commit-crash.mjs --seed 1
+          node scripts/test/micro-commit-crash.mjs --seed 2 --saves 120
+          node scripts/test/micro-commit-crash.mjs --seed 3
+
       # 4.6 Node 版 Overlay のスモークテスト（レイヤ形式 v2、#21 で直した N-3〜N-6 の回帰テスト）
       - name: Node Overlay Smoke Test
         run: node scripts/overlay-smoke.mjs
