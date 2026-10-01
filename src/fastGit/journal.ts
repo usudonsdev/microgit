@@ -110,7 +110,7 @@ export class Journal {
     /**
      * 新しいジャーナルのファイルを作り、その名前も確定させる（ディレクトリの fsync）。Linux などでは、ファイルの中身を
      * fdatasync しても、ファイルの名前（ディレクトリの中身）は確定しない。名前が消えるとジャーナルごと失う。
-     * ふつうはチェックポイントの最後に作っておくので（prepareNext）、保存のときにここを通るのは最初の 1 回だけ
+     * チェックポイントでは次のファイルを裏で作るので（createNext）、保存のときにここを通るのは、起動して最初の記録のときだけ
      */
     private open(): void {
         const dir = journalDir(this.gitDir);
@@ -122,10 +122,14 @@ export class Journal {
         if (created) { fsyncDirSync(this.gitDir); }
     }
 
-    /** 次のジャーナルのファイルを、保存の外で作っておく（チェックポイントの最後） */
-    private prepareNext(): void {
-        if (this.fd >= 0) { return; } // その間に保存があって、もう開いている
-        try { this.open(); } catch { this.fd = -1; this.file = ''; } // 作れなければ、次の保存のときに作る
+    /** 次のジャーナルのファイルを、保存の外で作る（名前の確定＝ディレクトリの fsync も、保存を待たせない） */
+    private async createNext(): Promise<{ fd: number; file: string }> {
+        const dir = journalDir(this.gitDir);
+        await fs.promises.mkdir(dir, { recursive: true });
+        const file = path.join(dir, `${process.pid}-${crypto.randomBytes(4).toString('hex')}.log`);
+        const fd = await new Promise<number>((resolve, reject) => fs.open(file, 'a', 0o644, (e, f) => (e ? reject(e) : resolve(f))));
+        await fsyncDir(dir);
+        return { fd, file };
     }
 
     /** 記録を追記して確定させる（fdatasync 1 回） */
@@ -156,22 +160,30 @@ export class Journal {
     checkpoint(): Promise<void> {
         if (this.checkpointing) { return this.checkpointing; }
         if (this.entries === 0 || this.fd < 0) { return Promise.resolve(); }
-        const oldFd = this.fd;
-        const oldFile = this.file;
-        const files = [...this.written];
-        this.fd = -1;
-        this.file = '';
-        this.entries = 0;
-        this.bytes = 0;
-        this.written = new Set();
         this.checkpointing = (async () => {
             try {
+                // 1. 次のファイルを裏で作る。その間の保存は、今のファイルに追記し続ける
+                const next = await this.createNext();
+                if (this.fd < 0) {
+                    // その間に checkpointSync が今のファイルを片付けた。次のファイルをそのまま使う
+                    this.fd = next.fd;
+                    this.file = next.file;
+                    return;
+                }
+                // 2. 切り替える（保存と保存の間に、同期で一度に）
+                const oldFd = this.fd;
+                const oldFile = this.file;
+                const files = [...this.written];
+                this.fd = next.fd;
+                this.file = next.file;
+                this.entries = 0;
+                this.bytes = 0;
+                this.written = new Set();
+                // 3. 古いファイルの記録で書いた Git のファイルと、その名前（ディレクトリ）を確定させてから、古いファイルを消す
                 fs.closeSync(oldFd);
                 for (const f of files) { await flushFile(f); }
-                // 新しく作った Git のファイルの名前も確定させてから、ジャーナルを消す
                 for (const d of parentDirs(files)) { await fsyncDir(d); }
                 await fs.promises.unlink(oldFile).catch(() => undefined);
-                this.prepareNext();
             } finally {
                 this.checkpointing = undefined;
             }
