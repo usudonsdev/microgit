@@ -25,6 +25,7 @@ import { ensureExecutable } from './kernel/executable';
 import { FastMicroCommitter } from './fastMicroCommit';
 import { SaveTimer, SaveTimingLog } from './saveTiming';
 import { firstTagAtHead, readRef, readSymbolicHead, resolveGitDir } from './fastGit/refs';
+import { recoverJournals } from './fastGit/journal';
 import { GitRunner, isSafeGitRef, MicroCommitInput, MicroCommitOutcome, recordMicroCommitViaGitCli } from './microCommit';
 import { findInPath, KernelSettings, planLaunch } from './kernel/launchers';
 import {
@@ -539,6 +540,8 @@ function scheduleAfterSaveRefresh(rootPath: string, savedFile?: string): void {
         if (!job) { return; }
         // 保存の処理が走っていないときに行う（列に積むと、その間の保存を待たせる）
         void (async () => {
+            // ジャーナルに溜まった分の Git のファイルを確定させ、ジャーナルを消す（ADR-0014。保存の時間には入らない）
+            await checkpointFastCommitters();
             if (job.savedFile) { await generateMicroGitFileLog(job.rootPath, job.savedFile); }
             await ExtensionLogger.exportLogFile(job.rootPath);
             refreshUi(job.rootPath);
@@ -553,6 +556,7 @@ async function flushAfterSaveRefresh(): Promise<void> {
     afterSaveJob = undefined;
     afterSaveTimer = undefined;
     if (!job) { return; }
+    await checkpointFastCommitters();
     if (job.savedFile) { await generateMicroGitFileLog(job.rootPath, job.savedFile); }
     await ExtensionLogger.exportLogFile(job.rootPath);
     refreshUi(job.rootPath);
@@ -669,7 +673,12 @@ function syncBranchPolicy(rootPath: string): boolean {
 /** bare + gitfile を用意。importFromParent=true のとき親 refs/microgit から取り込む */
 function prepareShadowForBranch(rootPath: string, mainBranch: string, importFromParent: boolean): void {
     try {
+        // 保存のたびに（同じブランチで importFromParent=false）ここを通るので、ジャーナルのチェックポイントと作り直しは、
+        // shadow を付け替える・親から取り込むときだけにする（保存のたびにすると、毎回ジャーナルを閉じて確定させてしまい、
+        // 次の保存が新しいジャーナルを作る＝ディレクトリの fsync が 1 回増える。CI の Linux・macOS で fsync が 2 回になった）
+        if (importFromParent) { checkpointShadowSync(path.join(rootPath, '.microgit_shadow')); } // 付け替える前の shadow の分
         ensureShadowRepoForBranch(rootPath, mainBranch, (m, l) => ExtensionLogger.log(m, l));
+        if (importFromParent) { recoverShadowJournals(path.join(rootPath, '.microgit_shadow')); }
         if (importFromParent) {
             importFromParentRefs(rootPath, mainBranch, (m, l) => ExtensionLogger.log(m, l));
         }
@@ -870,6 +879,41 @@ const saveTimings = new SaveTimingLog(200);
 /** 直近の速い記録の段階ごとの時間（保存の計測の記録に載せる。#45） */
 let lastCommitPhases: Record<string, number> | undefined;
 
+/** すべての速い記録のジャーナルを、裏でチェックポイントする（ADR-0014） */
+async function checkpointFastCommitters(): Promise<void> {
+    await Promise.all([...fastCommitters.values()].map((fc) => fc.checkpoint().catch((e: unknown) => {
+        ExtensionLogger.log(`[記録] ジャーナルのチェックポイントに失敗（次の起動で作り直します）: ${e instanceof Error ? e.message : String(e)}`, 'WARN');
+    })));
+}
+
+/**
+ * 速い記録を通らずに shadow の ref を書き換える前に呼ぶ（ADR-0014）。ジャーナルを空にしておけば、
+ * 停電のあとの作り直しが、その書き換えをジャーナルの古い値で上書きすることはない
+ */
+function checkpointShadowSync(shadowRepoPath: string): void {
+    try {
+        fastCommitters.get(resolveGitDir(shadowRepoPath))?.checkpointSync();
+    } catch (e) {
+        ExtensionLogger.log(`[記録] ジャーナルのチェックポイントに失敗: ${e instanceof Error ? e.message : String(e)}`, 'WARN');
+    }
+}
+
+/**
+ * shadow を開くときに、前に停電などで止まったときのジャーナルから作り直す（ADR-0014）。
+ * 速い記録も最初の保存のときに作り直すが、保存より先に履歴を見る・過去に戻ることがあるので、ここでも行う
+ */
+function recoverShadowJournals(shadowRepoPath: string): void {
+    try {
+        if (!fs.existsSync(shadowRepoPath)) { return; }
+        const r = recoverJournals(resolveGitDir(shadowRepoPath));
+        if (r.objectsRepaired || r.refsAdvanced || r.headRepaired || r.indexReset || r.reflogsRepaired || r.truncatedTails) {
+            ExtensionLogger.log(`[記録] 前回止まったときのジャーナルから作り直しました: ${JSON.stringify(r)}`, 'WARN');
+        }
+    } catch (e) {
+        ExtensionLogger.log(`[記録] ジャーナルからの作り直しに失敗: ${e instanceof Error ? e.message : String(e)}`, 'ERROR');
+    }
+}
+
 /**
  * 1 回の保存を記録する。設定 microgit.fastMicroCommit（既定 true）なら、Git のプロセスを起動しない速い実装
  * （fastMicroCommit.ts）で記録し、前提から外れたときや失敗したときは Git の CLI の実装で記録する（#32）
@@ -890,6 +934,8 @@ function recordMicroCommit(input: MicroCommitInput): MicroCommitOutcome {
             recorderStats.last = 'fast';
             return out;
         } catch (e) {
+            // Git のコマンドで記録する前に、ジャーナルの分を確定させて空にする（作り直しと食い違わないように）
+            try { fastCommitters.get(gitDir)?.checkpointSync(); } catch { /* 確定できなくても、次の起動で作り直す */ }
             fastCommitters.get(gitDir)?.invalidate();
             const reason = e instanceof Error ? e.message : String(e);
             recorderStats.lastFallback = reason;
@@ -1135,6 +1181,7 @@ async function sharedTimeTravel(target: string, rootPath: string): Promise<void>
         if (!isSafeGitRef(targetHash)) {
             throw new Error('コミット参照を解決できませんでした');
         }
+        checkpointShadowSync(shadowRepoPath);
         runGit(shadowRepoPath, ['update-ref', 'refs/heads/micro-history', targetHash]);
         runGit(shadowRepoPath, ['symbolic-ref', 'HEAD', 'refs/heads/micro-history']);
 
@@ -1485,6 +1532,10 @@ function getMicroGraphData(shadowRepoPath: string): Array<{
 }
 
 export function deactivate(): Thenable<void> | undefined {
+    // ジャーナルの分を確定させて消す（ADR-0014）。ここで止まっても、次の起動でジャーナルから作り直す
+    for (const fc of fastCommitters.values()) {
+        try { fc.checkpointSync(); } catch { /* 次の起動で作り直す */ }
+    }
     // カーネル版の仮想マシン（または VM なしの agent）を止める。Node.js 版は mount しないので片付け不要
     const selector = backendSelector;
     backendSelector = undefined;

@@ -17,7 +17,8 @@ import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { GitIndex, IndexEntry, compareIndexEntries, entryFromStat, indexPath, readIndex, writeIndex } from './fastGit/gitIndex';
-import { Ident, hashObject, ObjectWriteCache, parseGitDate, serializeCommit, serializeTree, TreeEntry, writeLooseObject } from './fastGit/objects';
+import { Ident, hashObject, looseObjectPath, ObjectType, ObjectWriteCache, parseGitDate, serializeCommit, serializeTree, TreeEntry, writeLooseObject } from './fastGit/objects';
+import { Journal, RecoveryReport, recoverJournals } from './fastGit/journal';
 import { listTags, readRef, readSymbolicHead, resolveGitDir, writeRef, writeSymbolicRef } from './fastGit/refs';
 import { isSafeGitRef, MicroCommitDelta, MicroCommitInput, MicroCommitOutcome } from './microCommit';
 import { SHADOW_ATTRIBUTES } from './shadowStore';
@@ -29,6 +30,17 @@ const BRANCH = 'refs/heads/micro-history';
 const ZERO = '0'.repeat(40);
 
 type Dir = { files: Map<string, { mode: string; hash: string }>; dirs: Map<string, Dir>; hash?: string };
+
+/**
+ * 1 回の記録で書くもの（ADR-0014）。計算のあいだはメモリに集め、最後に applyTxn でまとめて書く。
+ * ジャーナルを使うときは、先にジャーナルに追記して確定させ（fsync 1 回）、そのあとで Git のファイルを確定させずに書く
+ */
+type Txn = {
+    objects: Map<string, { type: ObjectType; body: Buffer }>;
+    refs: Array<{ name: string; old: string | null; new: string; reflogIdent?: string; headPointsHere: boolean }>;
+    head?: string;
+    index: boolean;
+};
 
 function newDir(): Dir { return { files: new Map(), dirs: new Map() }; }
 
@@ -81,11 +93,19 @@ export class FastMicroCommitter {
         this.phaseAt = t;
     }
     private objCache: ObjectWriteCache = { present: new Set(), dirs: new Set() };
+    /** この記録で書くもの（record の中だけ） */
+    private txn: Txn | undefined;
+    /** このプロセスのジャーナル（最初の確定させる記録のときに開く） */
+    private journal: Journal | undefined;
+    private readonly useJournal: boolean;
+    /** 最後の起動時の作り直しの結果（ADR-0014） */
+    lastRecovery: RecoveryReport | undefined;
     private refState: RefState | undefined;
     /** あると分かった reflog のファイル */
     private reflogs = new Set<string>();
 
-    constructor(readonly workTree: string, private readonly fsync: () => boolean) {
+    constructor(readonly workTree: string, private readonly fsync: () => boolean, options?: { journal?: boolean }) {
+        this.useJournal = options?.journal !== false;
         this.gitDir = resolveGitDir(workTree);
     }
 
@@ -200,6 +220,8 @@ export class FastMicroCommitter {
 
     private ensureLoaded(): void {
         if (this.loaded) { return; }
+        // 停電などのあとなら、ジャーナルから Git のファイルを作り直す（ADR-0014。遅くてよい）
+        if (this.useJournal) { this.lastRecovery = recoverJournals(this.gitDir); }
         this.loadConfig();
         this.reloadIndexIfChanged();
         this.loadHistory();
@@ -297,7 +319,7 @@ export class FastMicroCommitter {
             entries.push({ mode: '40000', name, hash: this.treeHash(sub, write) });
         }
         const body = serializeTree(entries);
-        d.hash = write ? writeLooseObject(this.gitDir, 'tree', body, { fsync: this.fsync(), cache: this.objCache }) : hashObject('tree', body);
+        d.hash = write ? this.stageObject('tree', body) : hashObject('tree', body);
         return d.hash;
     }
 
@@ -323,32 +345,107 @@ export class FastMicroCommitter {
         return `${name} <${email}> ${d.seconds} ${d.tz}`;
     }
 
-    private setRef(name: string, hash: string, now: Date, old: string | undefined): void {
-        const ident = this.reflogIdent(now);
-        const log = path.join(this.gitDir, 'logs', ...name.split('/'));
-        if (ident && !this.reflogs.has(log)) {
-            if (!fs.existsSync(log) && name.startsWith('refs/heads/')) {
-                // git update-ref は、core.logAllRefUpdates が有効ならブランチの reflog を作る
-                fs.mkdirSync(path.dirname(log), { recursive: true });
-                fs.writeFileSync(log, '');
-            }
-            if (fs.existsSync(log)) { this.reflogs.add(log); }
+    /** オブジェクトをこの記録に集める（もうあれば何もしない） */
+    private stageObject(type: ObjectType, body: Buffer): string {
+        const hash = hashObject(type, body);
+        if (this.objCache.present.has(hash) || this.txn!.objects.has(hash)) { return hash; }
+        if (fs.existsSync(looseObjectPath(this.gitDir, hash))) {
+            this.objCache.present.add(hash);
+            return hash;
         }
-        const dir = path.dirname(path.join(this.gitDir, ...name.split('/')));
-        writeRef(this.gitDir, name, hash, {
-            fsync: this.fsync(),
-            reflogIdent: ident,
-            old: old ?? null,
-            headPointsHere: this.refState?.symbolic === name,
-            dirExists: this.objCache.dirs.has(dir),
-        });
-        this.objCache.dirs.add(dir);
+        this.txn!.objects.set(hash, { type, body });
+        return hash;
+    }
+
+    /** ref の変更をこの記録に集める */
+    private setRef(name: string, hash: string, now: Date, old: string | undefined): void {
+        this.txn!.refs.push({ name, old: old ?? null, new: hash, reflogIdent: this.reflogIdent(now), headPointsHere: this.refState?.symbolic === name });
+    }
+
+    /**
+     * 集めたものを書く（ADR-0014）。ジャーナルを使うときは、先にジャーナルに追記して確定させ（fsync 1 回）、
+     * そのあとでオブジェクト → index → HEAD → ref の順に、確定させずに書く（書いたファイルはチェックポイントで確定させる）。
+     * ジャーナルを使わないとき（durability=process、またはジャーナルを止めたとき）は、今までどおり
+     */
+    private applyTxn(): void {
+        const t = this.txn;
+        this.txn = undefined;
+        if (!t) { return; }
+        const journalMode = this.fsync() && this.useJournal;
+        if (journalMode && (t.objects.size > 0 || t.refs.length > 0 || t.head)) {
+            if (!this.journal) { this.journal = new Journal(this.gitDir); }
+            this.journal.append({
+                objects: [...t.objects].map(([hash, o]) => ({ type: o.type, hash, body: o.body })),
+                refs: t.refs.map((r) => ({ name: r.name, old: r.old, new: r.new })),
+                head: t.head,
+            });
+            this.phase('journal');
+        }
+        const fsyncEach = this.fsync() && !journalMode;
+        for (const [hash, o] of t.objects) {
+            writeLooseObject(this.gitDir, o.type, o.body, { fsync: fsyncEach, cache: this.objCache, mode: journalMode ? 0o644 : undefined });
+            if (journalMode) { this.journal!.noteWritten(looseObjectPath(this.gitDir, hash)); }
+        }
+        this.phase('writeObjects');
+        if (t.index) {
+            try {
+                writeIndex(indexPath(this.gitDir), this.index, { fsync: false });
+            } catch (e) {
+                this.invalidate();
+                throw new FastPathUnsupported(`index を書けない: ${e instanceof Error ? e.message : String(e)}`);
+            }
+            this.indexStamp = stamp(indexPath(this.gitDir));
+            this.phase('writeIndex');
+        }
+        if (t.head) {
+            writeSymbolicRef(this.gitDir, 'HEAD', t.head, { fsync: fsyncEach });
+            if (journalMode) { this.journal!.noteWritten(path.join(this.gitDir, 'HEAD')); }
+        }
+        for (const r of t.refs) {
+            const log = path.join(this.gitDir, 'logs', ...r.name.split('/'));
+            if (r.reflogIdent && !this.reflogs.has(log)) {
+                if (!fs.existsSync(log) && r.name.startsWith('refs/heads/')) {
+                    // git update-ref は、core.logAllRefUpdates が有効ならブランチの reflog を作る
+                    fs.mkdirSync(path.dirname(log), { recursive: true });
+                    fs.writeFileSync(log, '');
+                }
+                if (fs.existsSync(log)) { this.reflogs.add(log); }
+            }
+            const file = path.join(this.gitDir, ...r.name.split('/'));
+            const dir = path.dirname(file);
+            writeRef(this.gitDir, r.name, r.new, {
+                fsync: fsyncEach,
+                reflogIdent: r.reflogIdent,
+                old: r.old,
+                headPointsHere: r.headPointsHere,
+                dirExists: this.objCache.dirs.has(dir),
+            });
+            this.objCache.dirs.add(dir);
+            if (journalMode) { this.journal!.noteWritten(file); }
+        }
+        this.phase('writeRefs');
+        if (t.refs.length > 0 || t.head) { this.restampRefs(); }
+        this.phase('restamp');
+        if (this.journal?.shouldCheckpoint()) {
+            // 失敗しても記録は失われない（ジャーナルは消さずに残り、次の起動で作り直す）。待たないので、ここで受け止める
+            this.journal.checkpoint().catch(() => undefined);
+        }
+    }
+
+    /** ジャーナルのチェックポイント（保存が落ち着いたときに呼ぶ。保存を待たせない） */
+    checkpoint(): Promise<void> {
+        return this.journal?.checkpoint() ?? Promise.resolve();
+    }
+
+    /** ジャーナルのチェックポイントを同期で（拡張機能の終わり） */
+    checkpointSync(): void {
+        this.journal?.checkpointSync();
     }
 
     /** HEAD を micro-history に向ける（もう向いていれば何もしない） */
     private pointHeadAtBranch(): void {
         if (this.refState?.symbolic === BRANCH) { return; }
-        writeSymbolicRef(this.gitDir, 'HEAD', BRANCH, { fsync: this.fsync() });
+        this.txn!.head = BRANCH;
         if (this.refState) { this.refState.symbolic = BRANCH; this.refState.head = this.refState.branch; }
     }
 
@@ -368,6 +465,7 @@ export class FastMicroCommitter {
         this.stats.lastPhases = {};
         this.phaseAt = performance.now();
         this.ensureLoaded();
+        this.txn = { objects: new Map(), refs: [], index: false };
         this.phase('load');
         const now = new Date();
         const rel = input.relativeFilePath;
@@ -384,7 +482,6 @@ export class FastMicroCommitter {
                 r.branch = headHash;
                 r.head = headHash;
             }
-            this.restampRefs();
         }
 
         this.reloadIndexIfChanged();
@@ -410,7 +507,7 @@ export class FastMicroCommitter {
         }
         const content = fs.readFileSync(abs);
         this.phase('readFile');
-        const blob = writeLooseObject(this.gitDir, 'blob', content, { fsync: this.fsync(), cache: this.objCache });
+        const blob = this.stageObject('blob', content);
         this.phase('blob');
         const filemode = !/^(false|no|off|0)$/i.test(this.config.get('core.filemode') ?? 'true');
         const prev = d.files.get(base);
@@ -424,13 +521,7 @@ export class FastMicroCommitter {
             this.index.entries.push(entry);
             this.index.entries.sort(compareIndexEntries);
         }
-        try {
-            writeIndex(indexPath(this.gitDir), this.index, { fsync: false });
-        } catch (e) {
-            this.invalidate();
-            throw new FastPathUnsupported(`index を書けない: ${e instanceof Error ? e.message : String(e)}`);
-        }
-        this.indexStamp = stamp(indexPath(this.gitDir));
+        this.txn.index = true;
         this.phase('index');
 
         // git write-tree
@@ -443,7 +534,10 @@ export class FastMicroCommitter {
         this.ensureKnown([currentHead, ...tags.values(), r.branch]);
         if (currentHead) {
             const headTree = this.commitTree.get(currentHead);
-            if (headTree === tree) { return { kind: 'unchanged' }; }
+            if (headTree === tree) {
+                this.applyTxn();
+                return { kind: 'unchanged' };
+            }
         }
 
         // 過去の同じ変更（同じ tree / 同じパスに同じ中身）
@@ -458,14 +552,17 @@ export class FastMicroCommitter {
             r.branch = past.commit;
             this.pointHeadAtBranch();
             r.head = past.commit;
-            this.restampRefs();
             // git tag --points-at HEAD -l 'mb-*' の最初（名前の順）
             const attached = [...tags].filter(([, h]) => h === past!.commit).map(([n]) => n).sort()[0];
             if (attached) { tag = attached; }
             this.headFlat = undefined;
+            this.applyTxn();
             return { kind: 'rewound', commit: past.commit, reason: past.reason, tag };
         }
-        if (past && currentHead === past.commit) { return { kind: 'unchanged' }; }
+        if (past && currentHead === past.commit) {
+            this.applyTxn();
+            return { kind: 'unchanged' };
+        }
 
         const env = input.commitEnv;
         const body = serializeCommit({
@@ -485,7 +582,7 @@ export class FastMicroCommitter {
             if (parentFlat.get(p) !== v) { changed.push([p, v.split(' ')[1]]); }
         }
         this.phase('flat');
-        const commit = writeLooseObject(this.gitDir, 'commit', body, { fsync: this.fsync(), cache: this.objCache });
+        const commit = this.stageObject('commit', body);
         this.phase('commitObject');
         this.setRef(BRANCH, commit, now, r.branch);
         r.branch = commit;
@@ -502,12 +599,10 @@ export class FastMicroCommitter {
             }
             tag = `mb-${max + 1}`;
         }
-        const tagDir = path.join(this.gitDir, 'refs', 'tags');
-        writeRef(this.gitDir, `refs/tags/${tag}`, commit, { fsync: this.fsync(), old: tags.get(tag) ?? null, dirExists: this.objCache.dirs.has(tagDir) });
-        this.objCache.dirs.add(tagDir);
+        this.txn.refs.push({ name: `refs/tags/${tag}`, old: tags.get(tag) ?? null, new: commit, headPointsHere: false });
         tags.set(tag, commit);
-        this.restampRefs();
         this.phase('refs');
+        this.applyTxn();
 
         // 索引を足す
         this.commitTree.set(commit, tree);

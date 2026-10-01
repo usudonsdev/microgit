@@ -2,7 +2,7 @@
 /**
  * マイクロコミット（保存 1 回の記録）の速さを、履歴を伸ばしながら測る（#32）。
  *
- * 使い方: npm run compile && node scripts/bench-micro-commit.mjs [--impls cli,fast,git] [--durability power|process] [--files 200] [--saves 1000] [--checkpoints 10,100,300,1000] [--window 20] [--json out.json]
+ * 使い方: npm run compile && node scripts/bench-micro-commit.mjs [--impls cli,fast,fast-nojournal,git] [--idle 20] [--durability power|process] [--files 200] [--saves 1000] [--checkpoints 10,100,300,1000] [--window 20] [--json out.json]
  *
  * 同じ「保存の列」を 3 つに流す。
  *   cli  : src/microCommit.ts の recordMicroCommitViaGitCli（5.0.0 までの拡張機能の保存と同じ Git の手順。永続性は ADR-0002 の既定 power）
@@ -40,6 +40,8 @@ const CHECKPOINTS = arg('--checkpoints', '10,100,300,1000').split(',').map(Numbe
 const WINDOW = Number(arg('--window', '20'));
 const JSON_OUT = arg('--json', '');
 const IMPLS = arg('--impls', 'cli,fast,git').split(',');
+// 拡張機能は保存が 300 ms 途切れたらジャーナルをチェックポイントする（ADR-0014）。ここでは IDLE 回ごとに、計測の外で行う
+const IDLE = Number(arg('--idle', '20'));
 const DURABILITY = arg('--durability', 'power');
 setDurability(DURABILITY);
 
@@ -108,7 +110,7 @@ function seedTree(dir) {
 const pct = (xs, p) => { const s = [...xs].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.floor((s.length - 1) * p))]; };
 const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
 
-function run(name, record, prepare) {
+async function run(name, record, prepare) {
     const dir = makeRepo(name);
     seedTree(dir);
     const ctx = prepare?.(dir);
@@ -125,9 +127,10 @@ function run(name, record, prepare) {
         const ms = Number(process.hrtime.bigint() - t) / 1e6;
         if (r.tag) { tag = r.tag; }
         kinds[r.kind] = (kinds[r.kind] ?? 0) + 1;
-        samples.push({ ms, spawns: ctx?.stats ? ctx.stats.gitSpawns - (ctx.lastSpawns ?? 0) : spawns });
+        samples.push({ ms, spawns: ctx?.stats ? ctx.stats.gitSpawns - (ctx.lastSpawns ?? 0) : spawns, fsyncs: ctx?.stats?.lastPhases?.fsyncCount });
         if (ctx?.stats) { ctx.lastSpawns = ctx.stats.gitSpawns; }
         const done = n + 1;
+        if (ctx?.checkpoint && done % IDLE === 0) { await ctx.checkpoint(); }
         if (CHECKPOINTS.includes(done)) {
             const w = samples.slice(-WINDOW);
             const ms = w.map((s) => s.ms);
@@ -136,6 +139,7 @@ function run(name, record, prepare) {
                 p50: +pct(ms, 0.5).toFixed(1), p95: +pct(ms, 0.95).toFixed(1),
                 spawnsMean: +mean(w.map((s) => s.spawns)).toFixed(1),
                 savesPerSec: +(1000 / mean(ms)).toFixed(1),
+                ...(w[0].fsyncs !== undefined ? { fsyncsMean: +mean(w.map((s) => s.fsyncs ?? 0)).toFixed(2) } : {}),
             };
             results.push(row);
             console.log(JSON.stringify(row));
@@ -152,7 +156,7 @@ function run(name, record, prepare) {
 console.log(`durability=${DURABILITY} files=${FILES} saves=${SAVES} checkpoints=${CHECKPOINTS.join(',')} window=${WINDOW} git=${execFileSync('git', ['--version'], { encoding: 'utf8' }).trim()} ${os.platform()} ${os.arch()} ${os.cpus()[0]?.model ?? ''}`);
 
 const all = [];
-if (IMPLS.includes('cli')) all.push(...run('cli', (dir, rel, n, tag) => {
+if (IMPLS.includes('cli')) all.push(...await run('cli', (dir, rel, n, tag) => {
     const out = recordMicroCommitViaGitCli(gitRunner, {
         shadowRepoPath: dir,
         relativeFilePath: rel,
@@ -163,7 +167,7 @@ if (IMPLS.includes('cli')) all.push(...run('cli', (dir, rel, n, tag) => {
     return out;
 }));
 
-if (IMPLS.includes('fast')) all.push(...run('fast', (dir, rel, n, tag, fc) => fc.record({
+if (IMPLS.includes('fast')) all.push(...await run('fast', (dir, rel, n, tag, fc) => fc.record({
     shadowRepoPath: dir,
     relativeFilePath: rel,
     currentTag: tag,
@@ -171,7 +175,16 @@ if (IMPLS.includes('fast')) all.push(...run('fast', (dir, rel, n, tag, fc) => fc
     commitEnv: COMMIT_ENV,
 }), (dir) => new FastMicroCommitter(dir, () => DURABILITY === 'power')));
 
-if (IMPLS.includes('git')) all.push(...run('git', (dir, rel, n) => {
+// ジャーナルを使わない速い実装（ADR-0014 の前：ファイルごとに fsync）。比べるため
+if (IMPLS.includes('fast-nojournal')) all.push(...await run('fast-nojournal', (dir, rel, n, tag, fc) => fc.record({
+    shadowRepoPath: dir,
+    relativeFilePath: rel,
+    currentTag: tag,
+    message: () => `micro: saved ${rel} at save ${n}`,
+    commitEnv: COMMIT_ENV,
+}), (dir) => new FastMicroCommitter(dir, () => DURABILITY === 'power', { journal: false })));
+
+if (IMPLS.includes('git')) all.push(...await run('git', (dir, rel, n) => {
     execFileSync('git', [...durabilityGitArgs(), 'add', '--', rel], { cwd: dir, stdio: 'ignore' });
     try {
         execFileSync('git', [...durabilityGitArgs(), 'commit', '-q', '-m', `saved ${rel} at save ${n}`], { cwd: dir, stdio: 'ignore', env: COMMIT_ENV });

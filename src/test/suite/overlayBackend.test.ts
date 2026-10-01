@@ -171,6 +171,12 @@ suite('MicroGit Overlay backend (save → jump)', function () {
         table('最後の区間', all.slice(-windowSize));
         console.log(`[save-bench] 過去に戻る操作 10 回：p50 ${pct(travels, 0.5).toFixed(1)}  p95 ${pct(travels, 0.95).toFixed(1)}  最初 ${travels[0].toFixed(1)} ms`);
         assert.strictEqual(all.length, benchSaves);
+        // 既定の永続性では、速い記録の保存 1 回の fsync はジャーナルへの 1 回だけ（ADR-0014）。起動して最初の記録だけは
+        // ジャーナルのファイルを作るので、ディレクトリの fsync が 1 回増える（Linux・macOS）。中央値で見る
+        // （保存のたびの処理がジャーナルを閉じていたとき、CI の Linux・macOS で 2 回になった）
+        const fsyncs = all.filter((i) => i.result === 'created' && i.recorder === 'fast' && i.commitPhases?.fsyncCount !== undefined)
+            .map((i) => i.commitPhases!.fsyncCount);
+        if (fsyncs.length > 0) { assert.strictEqual(pct(fsyncs, 0.5), 1, `保存 1 回の fsync の回数の中央値が 1 でない: ${JSON.stringify(fsyncs.slice(0, 10))}`); }
     });
 
     test('Overlay Status で、使ったバックエンドが分かる', async () => {
