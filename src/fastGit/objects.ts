@@ -33,7 +33,7 @@ export function writeLooseObject(
     gitDir: string,
     type: ObjectType,
     body: Buffer,
-    options: { fsync: boolean; cache?: ObjectWriteCache },
+    options: { fsync: boolean; cache?: ObjectWriteCache; /** ファイルのモード（既定 0o444。ジャーナルを使うときは後で確定させるため 0o644、ADR-0014） */ mode?: number },
 ): string {
     const hash = hashObject(type, body);
     const cache = options.cache;
@@ -50,7 +50,7 @@ export function writeLooseObject(
     }
     const data = zlib.deflateSync(Buffer.concat([objectHeader(type, body.length), body]));
     const tmp = path.join(dir, `tmp_obj_${process.pid}_${crypto.randomBytes(6).toString('hex')}`);
-    const fd = fs.openSync(tmp, 'wx', 0o444);
+    const fd = fs.openSync(tmp, 'wx', options.mode ?? 0o444);
     try {
         fs.writeSync(fd, data);
         if (options.fsync) { timedFsync(fd); }
