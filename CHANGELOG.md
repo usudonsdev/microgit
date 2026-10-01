@@ -31,7 +31,7 @@ All notable changes to the "MicroGit" extension will be documented in this file.
 - 設定 `microgit.durability`（`power` が既定）。マイクロ履歴の Git のオブジェクトと ref を fsync し、電源断や OS の異常終了でも記録済みの履歴を失わないようにする。`process` で従来どおり（Git の既定）に戻せる（#11、docs/adr/0002-durability.md）
 
 ### Changed
-- **既定の永続性（`microgit.durability=power`）での記録を、fsync 1 回で確定させる**（#38、ADR-0014）。保存 1 回の記録をジャーナル（`<shadow の Git のディレクトリ>/microgit-journal/`）に追記して fsync し、Git のファイルは確定を待たずに書く。停電などのあとは、次に shadow を開いたときにジャーナルから作り直す。保存 1 回の fsync は 7 → 1 回、手元の Windows で記録が約 8 ms（25〜27%）短い
+- **既定の永続性（`microgit.durability=power`）での記録を、fsync 1 回で確定させる**（#38、ADR-0014）。保存 1 回の記録をジャーナル（`<shadow の Git のディレクトリ>/microgit-journal/`）に追記して fsync し、Git のファイルは確定を待たずに書く。停電などのあとは、次に shadow を開いたときにジャーナルから作り直す。保存 1 回の fsync は 7 → 1 回。記録は CI の Windows で 70.4 → 20.6 ms、macOS で 19.0 → 12.3 ms、Ubuntu で約半分
 - **保存 1 回の処理を短くした**（#37、#41）。画面の更新とログは保存が落ち着いてから 1 回だけ行う。カーネル版の層は、記録で分かっている変化から Git を起動せずに作る。Node.js 版は、保存のたびに過去の姿のビューを作り直さない。保存 1 回の処理全体は、手元の Windows（カーネル版）で 405 → 57 ms、Linux（カーネル版）で 12〜17 ms、Node.js 版で 512 → 18 ms（Ubuntu）
 - Overlay のレイヤ形式を v2 にした。whiteout を層の中の `.wh.*` ファイルではなく、層の外のメタデータ（`layers/<hash>.json`）に持つ。古い形式のキャッシュ（`.microgit_overlay/layers`・`views`・`write`）は初回に自動で捨てて作り直す。履歴（shadow の Git）は変わらない
 
