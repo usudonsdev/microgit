@@ -20,3 +20,4 @@ Cursor と併用する。指示の正本は [AGENTS.md](AGENTS.md)。内容が�
 - 設計方針: [docs/design-policy.md](docs/design-policy.md)
 - 利用者向け: [README.md](README.md)
 - 卒業研究（ビルド検証エンジン・計画段階）: [docs/build-verification-engine.md](docs/build-verification-engine.md)
+- 次期メジャー（カーネル機能ポータブル化・要件確定）: [要件定義書](docs/microgit-kernel-feature-portability-requirements.md) / [初期設計](docs/microgit-kernel-feature-portability-design.md) / [補足](docs/microgit-kernel-feature-portability-supplement.md)。進捗は Issue #8（Epic）、ブランチ `feature/kernel-portability`

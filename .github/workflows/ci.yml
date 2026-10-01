@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - master   # 💡 masterブランチにpush（マージ）されたとき
+      - feature/kernel-portability   # 次期メジャー（カーネル機能ポータブル化）の統合ブランチ
   pull_request:
     branches:
       - master   # 💡 masterブランチへのプルリクエストが作られたとき
+      - feature/kernel-portability   # Issue ごとのブランチ（issue/*）から統合ブランチへのプルリクエスト
 
 jobs:
   test:
@@ -35,9 +37,57 @@ jobs:
           npm run compile
           npm run lint
 
+      # 4.5 OverlayFS ゴールデンテスト（Node 実装とカーネルの食い違いが既知の一覧どおりか）
+      # 期待値は記録済みのファイルを読むだけなので、ここでは mount しない（docs/overlayfs-golden-test.md）
+      - name: OverlayFS Golden Test (Node fallback)
+        run: node scripts/golden/check-node.mjs
+
+      # 4.55 VS Code を起動しない単体テスト（src/test/unit、node:test）
+      - name: Unit Tests
+        run: node scripts/run-unit-tests.mjs
+
+      # 4.58 マイクロコミットの差分テスト（#32）：Git のコマンドでの記録と速い記録に同じ保存の列を流し、
+      # 結果・HEAD・ref・index が一致するか。--crlf は改行の変換を止めた shadow（ADR-0012）で CRLF の中身
+      - name: Micro-commit differential test
+        run: |
+          node scripts/test/micro-commit-diff.mjs --saves 300
+          node scripts/test/micro-commit-diff.mjs --saves 150 --crlf
+
+      # 4.59 停電を模した試験（ADR-0014、#38）：ジャーナルつきの速い記録で Git のファイルを失わせ、
+      # 起動時の作り直しで期待どおりの履歴に戻り、git fsck --strict が通るか。乱数の種を変えて 3 回
+      - name: Micro-commit crash recovery test
+        run: |
+          node scripts/test/micro-commit-crash.mjs --seed 1
+          node scripts/test/micro-commit-crash.mjs --seed 2 --saves 120
+          node scripts/test/micro-commit-crash.mjs --seed 3
+
+      # 4.6 Node 版 Overlay のスモークテスト（レイヤ形式 v2、#21 で直した N-3〜N-6 の回帰テスト）
+      - name: Node Overlay Smoke Test
+        run: node scripts/overlay-smoke.mjs
+
       # 5. 【超重要】仮想画面（Xvfb）を使ってテストを実行
       # Linuxサーバーには画面がないため、xvfb-run を噛ませてVS Code（GUIアプリ）を騙して起動します
       - name: Run Tests
         run: xvfb-run $CHROME_HEADLESS_FLAGS npm test
         env:
           CXXFLAGS: -Wno-ignored-attributes
+
+  # OverlayFS ゴールデンテストの期待値を、ランナーのカーネルで取り直して記録済みのものと比べる（Issue #10、補足 S-4）。
+  # 22.04 と 24.04 のランナーはカーネルのバージョンが違うので、バージョン差で結果が変わらないかを毎回確かめる。
+  # GitHub の Ubuntu では非特権のユーザー名前空間が AppArmor で止められているので（補足 S-3）、sudo で root として mount する。
+  golden-kernel:
+    name: OverlayFS golden on ${{ matrix.os }} kernel
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Kernel version
+        run: uname -r
+      - name: Re-record on this kernel and compare
+        run: node scripts/golden/record-kernel.mjs --check --sudo

@@ -1,0 +1,7 @@
+{
+  "kernel": "6.6.87.2-microsoft-standard-WSL2",
+  "writeMountOptions": "rw,relatime,redirect_dir=nofollow,uuid=on,userxattr",
+  "viewMountOptions": "ro,relatime,redirect_dir=nofollow,userxattr",
+  "requestedMountOptions": "userxattr,redirect_dir=nofollow,index=off,metacopy=off,xino=off",
+  "model": "upper を凍結して次の lower にする（FR-2 初期案）"
+}

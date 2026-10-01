@@ -1,0 +1,198 @@
+name: Package VSIX (platform-specific)
+
+# MicroGit のプラットフォーム別 VSIX を作り（#19）、VS Code 自身のインストーラーで一時的な場所に入れてから、
+# 拡張機能テストを流す（Marketplace から入れたときと同じ形で動くか）。
+# Marketplace への公開（vsce publish）はしない。v* のタグを push したときだけ、VSIX と GPL・LGPL の部品の
+# ソースを付けた GitHub Release の「下書き」を作る（公開するかは人が確かめてから決める。docs/release.md）。
+#
+# ゲストと QEMU は、このワークフローの中で guest.yml・qemu-windows.yml を呼んでビルド・テストしたものを使う
+# （別の実行の成果物を拾うと、テストしたものと配るものがずれうる）。
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+  pull_request:
+    paths:
+      - 'scripts/package-vsix.mjs'
+      - '.github/workflows/package.yml'
+      - '.vscodeignore'
+      - 'THIRD_PARTY_NOTICES.md'
+      - 'src/test/runTest.ts'
+      - 'src/test/suite/**'
+      - 'src/kernel/**'
+      - 'guest/**'
+      - 'mac/**'
+      - 'windows/qemu/**'
+      - 'package.json'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  guest:
+    uses: ./.github/workflows/guest.yml
+
+  qemu:
+    uses: ./.github/workflows/qemu-windows.yml
+
+  mac-helper:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and ad-hoc sign microgit-vm
+        run: mac/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: microgit-mac-helper
+          path: mac/.build/microgit-vm
+
+  package:
+    needs: [guest, qemu, mac-helper]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read pinned versions
+        id: pinned
+        run: echo "go=$(grep '^GO_VERSION=' guest/kernel/version.env | cut -d= -f2)" >> "$GITHUB_OUTPUT"
+      # agent（Go の静的バイナリ）に入る Go の標準ライブラリとランタイムのライセンスを、VSIX に入れるため
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ steps.pinned.outputs.go }}
+          cache: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # 成果物はリポジトリの外に落とす。リポジトリの中（artifacts/）に落としたら、GCC のソース RPM などが VSIX に入った（#19）
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: microgit-*
+          path: ${{ runner.temp }}/artifacts
+      - name: Artifacts
+        run: find "$RUNNER_TEMP/artifacts" -maxdepth 3 | sort
+      # VSIX は Linux で作る（Windows で作ると実行ビットが落ちる。vsce の文書）
+      - name: Package each target
+        run: node scripts/package-vsix.mjs --artifacts "$RUNNER_TEMP/artifacts" --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vsix
+          path: |
+            dist/*.vsix
+            dist/vsix.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: third-party-sources
+          path: dist/sources
+
+  # できた VSIX を、VS Code の CLI（--install-extension）で一時的な拡張機能フォルダに入れ、入ったフォルダに対して
+  # 拡張機能テスト（保存 → 過去に戻る、Overlay Status）を流す。使われたバックエンドも確かめる。
+  verify:
+    needs: package
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 同梱の QEMU と x86_64 のゲスト（#18）
+          - os: windows-latest
+            vsix: win32-x64
+            expect: kernel
+          # Ubuntu 22.04 は非特権のユーザー名前空間が使える → 同梱の agent を unshare -Urm で起動する
+          - os: ubuntu-22.04
+            vsix: linux-x64
+            expect: kernel
+          # Ubuntu 24.04 は AppArmor で止められている（補足 S-3）→ 公開版でも Node.js 版に切り替わるか（NFR-5）
+          - os: ubuntu-24.04
+            vsix: linux-x64
+            expect: nodejs
+          # arm64 の agent を確かめるため、止めている設定を外す
+          - os: ubuntu-24.04-arm
+            vsix: linux-arm64
+            expect: kernel
+            allow_userns: true
+          # GitHub-hosted の Mac runner は Apple silicon でも Virtualization.framework を利用できない。
+          # darwin-arm64 VSIX の同梱物・インストール・安全なフォールバックは CI で確認し、
+          # kernel 経路そのものは Apple silicon 実機で release.md の手順どおり確認する。
+          - os: macos-14
+            vsix: darwin-arm64
+            expect: nodejs
+    name: verify (${{ matrix.vsix }} on ${{ matrix.os }}, expect ${{ matrix.expect }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install and compile (for the test runner and the tests only)
+        run: |
+          npm ci
+          npm run compile
+      - uses: actions/download-artifact@v4
+        with:
+          name: vsix
+          path: dist
+      - name: Allow unprivileged user namespaces
+        if: matrix.allow_userns
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Xvfb
+        if: runner.os == 'Linux'
+        run: command -v xvfb-run || (sudo apt-get update && sudo apt-get install -y --no-install-recommends xvfb)
+      - name: Install the VSIX and run the extension tests
+        shell: bash
+        env:
+          MICROGIT_TEST_EXPECT_BACKEND: ${{ matrix.expect }}
+          # 保存 1 回の処理の段階ごとの時間も、同じ公開版の形で計る（#37）。1 回ごとの記録を成果物に残す
+          MICROGIT_TEST_SAVE_BENCH: 100
+          MICROGIT_TEST_SAVE_BENCH_OUT: ${{ runner.temp }}/save-bench.json
+        run: |
+          vsix=$(ls dist/*-${{ matrix.vsix }}.vsix)
+          echo "VSIX: $vsix ($(wc -c < "$vsix") bytes)"
+          if [ "$RUNNER_OS" = Linux ]; then
+            MICROGIT_TEST_VSIX="$vsix" xvfb-run -a node ./out/test/runTest.js
+          else
+            MICROGIT_TEST_VSIX="$vsix" node ./out/test/runTest.js
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: save-bench-${{ matrix.vsix }}-${{ matrix.os }}
+          path: ${{ runner.temp }}/save-bench.json
+          if-no-files-found: warn
+
+  # v* のタグのときだけ、GitHub Release の下書きを作る（公開はしない）
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [package, verify]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: vsix
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: third-party-sources
+          path: sources
+      - name: Draft a GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          tar -C sources -cf "third-party-sources-$tag.tar" .
+          cat > notes.md <<EOF
+          MicroGit $tag のプラットフォーム別 VSIX（下書き。Marketplace への公開は別の手順、docs/release.md）。
+
+          - microgit-*-win32-x64.vsix / linux-x64 / linux-arm64：カーネル版の部品入り
+          - microgit-*-darwin-arm64.vsix：Apple silicon Mac（Virtualization.framework）
+          - microgit-*-universal.vsix：Intel Mac など、それ以外の環境（Node.js 版だけ）
+          - third-party-sources-$tag.tar：同梱した GPL・LGPL の部品（Linux カーネル、QEMU、DLL）のソースと、ビルドの設定・手順（THIRD_PARTY_NOTICES.md）
+          - vsix.json：各 VSIX の大きさと sha256
+          EOF
+          gh release create "$tag" -R "$GITHUB_REPOSITORY" --draft --title "MicroGit $tag" --notes-file notes.md \
+            dist/*.vsix dist/vsix.json "third-party-sources-$tag.tar"

@@ -1,7 +1,7 @@
 {
   "name": "microgit",
   "displayName": "MicroGit",
-  "version": "4.0.0",
+  "version": "5.0.0",
   "publisher": "usudonsdev",
   "description": "個人開発向け。ブランチ専属マイクロ履歴・メインコミット区間 UI・Overlay checkout・refs/microgit 共有",
   "license": "SEE LICENSE IN LICENCE.md",
@@ -89,6 +89,66 @@
           "type": "boolean",
           "default": true,
           "description": "Node.js ユーザー空間 Overlay checkout を有効化（兄弟ブランチのファイル隔離）。オフで従来の git show 同期に戻す。"
+        },
+        "microgit.durability": {
+          "type": "string",
+          "enum": [
+            "power",
+            "process"
+          ],
+          "enumDescriptions": [
+            "電源断や OS の異常終了でも、記録済みのマイクロ履歴を失わない（Git のオブジェクトと ref を fsync する）。保存 1 回あたり数 ms 遅くなる",
+            "VS Code や拡張機能が落ちても失わないが、電源断や OS の異常終了では直前の記録を失うことがある（Git の既定のまま）"
+          ],
+          "default": "power",
+          "description": "マイクロ履歴をどこまで確実にディスクへ書くか（docs/adr/0002-durability.md）"
+        },
+        "microgit.fastMicroCommit": {
+          "type": "boolean",
+          "default": true,
+          "description": "保存の記録を、Git のコマンドを起動せずに拡張機能の中で書く（#32）。Git の保存形式はそのまま。使えない設定のリポジトリでは自動で Git のコマンドを使う。false で常に Git のコマンドを使う"
+        },
+        "microgit.overlayBackend": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "kernel",
+            "nodejs"
+          ],
+          "enumDescriptions": [
+            "カーネルの OverlayFS（Linux は仮想マシンなし、Windows は QEMU、macOS は Virtualization.framework）を試し、使えなければ Node.js 版を使う",
+            "カーネルの OverlayFS を使う。使えなければ Node.js 版にして、理由を知らせる",
+            "Node.js 版だけを使う（仮想マシンも agent も起動しない）"
+          ],
+          "default": "auto",
+          "description": "Overlay checkout のバックエンド（docs/kernel-backend.md）。カーネル版は最初の保存か、過去に戻る操作のときに起動する"
+        },
+        "microgit.kernel.qemuPath": {
+          "type": "string",
+          "default": "",
+          "description": "Windows でカーネル版に使う qemu-system-x86_64.exe の場所。空なら同梱のものを使う"
+        },
+        "microgit.kernel.accel": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "whpx",
+            "tcg"
+          ],
+          "enumDescriptions": [
+            "Windows ハイパーバイザー プラットフォーム（WHPX）を試し、使えなければ CPU のエミュレーション（TCG）",
+            "WHPX だけ（速い。Windows の機能で「Windows ハイパーバイザー プラットフォーム」を有効にする必要がある）",
+            "TCG だけ（遅いが、仮想化機能も管理者権限も要らない）"
+          ],
+          "default": "auto",
+          "description": "Windows の QEMU で最小ゲストを動かす方法"
+        },
+        "microgit.kernel.memoryMb": {
+          "type": "number",
+          "default": 256,
+          "minimum": 128,
+          "maximum": 4096,
+          "description": "最小ゲスト（仮想マシン）のメモリ（MB）。層はゲストのメモリに置くので、記録するファイルが大きい場合は増やす"
         }
       }
     }
@@ -102,7 +162,11 @@
     "test": "node ./out/test/runTest.js",
     "package": "vsce package",
     "publish": "vsce publish",
-    "bench": "npm run compile && node scripts/speed-bench.mjs"
+    "bench": "npm run compile && node scripts/speed-bench.mjs",
+    "test:unit": "npm run compile && node scripts/run-unit-tests.mjs",
+    "test:overlay": "npm run compile && node scripts/overlay-smoke.mjs",
+    "golden:record": "node scripts/golden/record-kernel.mjs",
+    "golden:check": "npm run compile && node scripts/golden/check-node.mjs"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",

@@ -4,8 +4,20 @@ import * as path from 'path';
 
 export const OVERLAY_DIR = '.microgit_overlay';
 
-/** OverlayFS 互換の whiteout プレフィックス（同ディレクトリに `.wh.<name>`） */
-export const WHITEOUT_PREFIX = '.wh.';
+/**
+ * レイヤの形式（#21）。
+ * v1: whiteout を層の中に `.wh.<名前>` という空ファイルで置いていた（AUFS／OCI 方式）。
+ *     利用者の `.wh.` で始まるファイルと区別できず、そのファイルが消えた（N-5）。
+ * v2: whiteout を層の外のメタデータ `<層のディレクトリ>.json` に持つ。層の中は利用者のファイルだけになる。
+ *     メタデータは書き出しの最後に置くので、「メタデータがある＝書き出しが最後まで終わった層」でもある。
+ */
+export const LAYER_FORMAT_VERSION = 2;
+
+type LayerMeta = {
+    version: number;
+    /** この層で消えたパス（`/` 区切りの相対パス）。下の層のファイルやディレクトリを隠す */
+    whiteouts: string[];
+};
 
 /** 展開済みビューの完成マーカー（list / sync 対象外） */
 const VIEW_OK_MARKER = '.microgit_view_ok';
@@ -85,7 +97,35 @@ export function ensureOverlayDirs(workspaceRoot: string): OverlayPaths {
     if (!fs.existsSync(paths.dagFile)) {
         writeDag(paths, { nodes: {}, managedFiles: [] });
     }
+    migrateLayerFormat(paths);
     return paths;
+}
+
+function formatFile(paths: OverlayPaths): string {
+    return path.join(paths.meta, 'format.json');
+}
+
+/**
+ * 古い形式のキャッシュを捨てる。レイヤとビューは shadow の Git から作り直せるキャッシュなので（#11: Git が正本）、
+ * 捨てても履歴は失わない。ensureLayerExists / ensureExpandedView が必要になった時点で作り直す。
+ * dag.json の managedFiles は、ワークスペースから消すべきファイルの判定に使うので残す。
+ */
+function migrateLayerFormat(paths: OverlayPaths): void {
+    let version = 0;
+    try {
+        version = (JSON.parse(fs.readFileSync(formatFile(paths), 'utf8')) as { layerFormat?: number }).layerFormat ?? 0;
+    } catch { /* 無ければ v1 以前として扱う */ }
+    if (version >= LAYER_FORMAT_VERSION) { return; }
+
+    for (const dir of [paths.layers, paths.views, paths.write]) {
+        clearDirContents(dir);
+    }
+    resetMergeDir(paths);
+    fs.mkdirSync(paths.merge, { recursive: true });
+    fs.rmSync(path.join(paths.meta, 'checkout.json'), { force: true });
+    const dag = readDag(paths);
+    writeDag(paths, { ...dag, nodes: {} });
+    fs.writeFileSync(formatFile(paths), JSON.stringify({ layerFormat: LAYER_FORMAT_VERSION }, null, 2), 'utf8');
 }
 
 export function readDag(paths: OverlayPaths): OverlayDag {
@@ -124,26 +164,40 @@ export function viewDir(paths: OverlayPaths, commitHash: string): string {
     return path.join(paths.views, commitHash);
 }
 
-export function isWhiteoutName(name: string): boolean {
-    return name.startsWith(WHITEOUT_PREFIX) && name.length > WHITEOUT_PREFIX.length;
+/** 層のディレクトリ（layers/<hash> や write/<tag>）に対応するメタデータのパス（層の外に置く） */
+export function layerMetaPath(layerDirPath: string): string {
+    return `${layerDirPath.replace(/[\\/]+$/, '')}.json`;
 }
 
-export function whiteoutNameFor(basename: string): string {
-    return `${WHITEOUT_PREFIX}${basename}`;
+export function readLayerMeta(layerDirPath: string): LayerMeta | undefined {
+    try {
+        const parsed = JSON.parse(fs.readFileSync(layerMetaPath(layerDirPath), 'utf8')) as Partial<LayerMeta>;
+        return {
+            version: typeof parsed.version === 'number' ? parsed.version : LAYER_FORMAT_VERSION,
+            whiteouts: Array.isArray(parsed.whiteouts) ? parsed.whiteouts.filter((w): w is string => typeof w === 'string') : [],
+        };
+    } catch {
+        return undefined;
+    }
 }
 
-export function targetNameFromWhiteout(name: string): string | undefined {
-    if (!isWhiteoutName(name)) { return undefined; }
-    return name.slice(WHITEOUT_PREFIX.length);
+export function writeLayerMeta(layerDirPath: string, whiteouts: Iterable<string>): void {
+    const meta: LayerMeta = { version: LAYER_FORMAT_VERSION, whiteouts: Array.from(new Set(whiteouts)).sort() };
+    fs.mkdirSync(path.dirname(layerMetaPath(layerDirPath)), { recursive: true });
+    fs.writeFileSync(layerMetaPath(layerDirPath), JSON.stringify(meta, null, 2), 'utf8');
 }
 
-/** `dir/file.txt` → `dir/.wh.file.txt` */
-export function whiteoutRelPath(fileRel: string): string {
-    const parts = fileRel.split('/');
-    const base = parts.pop();
-    if (!base) { return whiteoutNameFor(fileRel); }
-    parts.push(whiteoutNameFor(base));
-    return parts.join('/');
+/** 層に「rel は消えた」という whiteout を足す */
+export function addWhiteout(layerDirPath: string, rel: string): void {
+    const meta = readLayerMeta(layerDirPath);
+    writeLayerMeta(layerDirPath, [...(meta?.whiteouts ?? []), rel]);
+}
+
+/** 層から rel の whiteout を外す */
+export function removeWhiteout(layerDirPath: string, rel: string): void {
+    const meta = readLayerMeta(layerDirPath);
+    if (!meta || !meta.whiteouts.includes(rel)) { return; }
+    writeLayerMeta(layerDirPath, meta.whiteouts.filter((w) => w !== rel));
 }
 
 function isSkippedName(name: string): boolean {
@@ -307,16 +361,18 @@ export function expandViewAfterExport(
 
 function writeLayerHasFiles(paths: OverlayPaths, writeBranchTag: string): boolean {
     const writeSrc = writeLayerDir(paths, writeBranchTag);
-    return listFilesRecursive(writeSrc).length > 0;
+    // whiteout だけの書き込みレイヤも「空ではない」（v1 では whiteout だけだと空扱いになり、削除が無視されていた）
+    return listFilesRecursive(writeSrc).length > 0 || (readLayerMeta(writeSrc)?.whiteouts.length ?? 0) > 0;
 }
 
 /** merge を消して（symlink/junction/実体いずれも）作り直せるようにする */
 export function resetMergeDir(paths: OverlayPaths): void {
-    if (!fs.existsSync(paths.merge)) {
+    // existsSync はリンク先を見るので、リンク先が消えたジャンクションを見落とす。lstat で判定する
+    if (!lstatOrUndefined(paths.merge)) {
         return;
     }
     try {
-        fs.rmSync(paths.merge, { recursive: true, force: true });
+        removeTree(paths.merge);
     } catch {
         clearDirContents(paths.merge);
         try { fs.rmdirSync(paths.merge); } catch { /* keep */ }
@@ -489,10 +545,21 @@ export function copyTree(srcDir: string, destDir: string): void {
 }
 
 /**
- * レイヤを merge/view に適用（通常ファイル + whiteout）。
- * ハードリンク先を壊さないよう、上書き前に必ず unlink する。
+ * レイヤを merge/view に適用する（whiteout ＋ 通常ファイル）。
+ *
+ * 順番が大事（#21 の N-3・N-4）:
+ *   1. whiteout を先に全部当てる。ファイル `p` がディレクトリ `p/` に置き換わった層では、
+ *      whiteout `p` と新しい `p/q.txt` が同じ層にある。`p/q.txt` を先に置こうとすると、
+ *      下の層のファイル `p` が邪魔で失敗する。v1 は readdir の順番（NTFS では名前順、ext4 ではハッシュ順）に
+ *      任せていたので、OS によって成否が変わりえた。
+ *   2. ファイルを置く。置き先にディレクトリがあれば丸ごと消し、途中にファイルがあれば消す。
+ *      上の層の非ディレクトリは下の層のディレクトリを丸ごと隠す、という OverlayFS の考え方に合わせる。
+ * ハードリンク先を壊さないよう、上書き前に必ず unlink する（ビューはハードリンクで載せ替えることがある）。
  */
 export function applyLayerOntoMerge(srcDir: string, mergeDir: string): void {
+    for (const rel of readLayerMeta(srcDir)?.whiteouts ?? []) {
+        removeMergePath(mergeDir, rel);
+    }
     if (!fs.existsSync(srcDir)) { return; }
 
     const walk = (dir: string, relPrefix: string) => {
@@ -502,23 +569,19 @@ export function applyLayerOntoMerge(srcDir: string, mergeDir: string): void {
             const abs = path.join(dir, entry.name);
 
             if (entry.isDirectory()) {
+                ensureDirectoryPath(mergeDir, rel);
                 walk(abs, rel);
                 continue;
             }
             if (!entry.isFile()) { continue; }
 
-            if (isWhiteoutName(entry.name)) {
-                const targetName = targetNameFromWhiteout(entry.name);
-                if (!targetName) { continue; }
-                const parentRel = relPrefix;
-                const targetRel = parentRel ? `${parentRel}/${targetName}` : targetName;
-                removeMergePath(mergeDir, targetRel);
-                continue;
-            }
-
+            const parentRel = relPrefix;
+            if (parentRel) { ensureDirectoryPath(mergeDir, parentRel); }
             const to = path.join(mergeDir, ...rel.split('/'));
-            fs.mkdirSync(path.dirname(to), { recursive: true });
-            if (fs.existsSync(to)) {
+            const existing = lstatOrUndefined(to);
+            if (existing?.isDirectory()) {
+                removeTree(to);
+            } else if (existing) {
                 fs.unlinkSync(to);
             }
             // レイヤ実体は view と共有しない（後でレイヤを消しても merge/view が残るようコピー）
@@ -529,10 +592,62 @@ export function applyLayerOntoMerge(srcDir: string, mergeDir: string): void {
     walk(srcDir, '');
 }
 
+function lstatOrUndefined(p: string): fs.Stats | undefined {
+    try {
+        return fs.lstatSync(p);
+    } catch {
+        return undefined;
+    }
+}
+
+/**
+ * p がディレクトリなら中身ごと、それ以外ならそれだけを消す。無ければ何もしない。
+ *
+ * fs.rmSync({ recursive: true }) を使わない理由（#21 の作業中に見つけた）: Windows 版の Node 25.1.0 では、
+ * 日本語など ASCII 以外の名前のディレクトリを再帰削除すると、例外も出さずにプロセスが終了コード 127 で落ちる
+ * （22.23.3・24.21.0 では起きない。2026-09-26 に確認）。拡張機能は VS Code の Electron の Node（22 系）で
+ * 動くので今は影響しないが、層・ビュー・merge には利用者のディレクトリ名がそのまま入るので、Node の
+ * バージョンに依存しない削除にしておく。
+ * ジャンクションとシンボリックリンクはリンク自体を消し、リンク先には入らない（lstat で判定）。
+ */
+export function removeTree(p: string): void {
+    const st = lstatOrUndefined(p);
+    if (!st) { return; }
+    if (st.isDirectory()) {
+        for (const name of fs.readdirSync(p)) {
+            removeTree(path.join(p, name));
+        }
+        fs.rmdirSync(p);
+        return;
+    }
+    try {
+        fs.unlinkSync(p);
+    } catch (err) {
+        // ディレクトリを指すリンクは、環境によって rmdir でないと消せない
+        if (st.isSymbolicLink()) {
+            fs.rmdirSync(p);
+            return;
+        }
+        throw err;
+    }
+}
+
+/** mergeDir の下に relDir までのディレクトリを作る。途中にファイルがあれば消してディレクトリにする */
+function ensureDirectoryPath(mergeDir: string, relDir: string): void {
+    let current = mergeDir;
+    for (const part of relDir.split('/')) {
+        current = path.join(current, part);
+        const st = lstatOrUndefined(current);
+        if (st?.isDirectory()) { continue; }
+        if (st) { removeTree(current); }
+        fs.mkdirSync(current);
+    }
+}
+
 function removeMergePath(mergeDir: string, rel: string): void {
     const target = path.join(mergeDir, ...rel.split('/'));
-    if (!fs.existsSync(target)) { return; }
-    fs.rmSync(target, { recursive: true, force: true });
+    if (!lstatOrUndefined(target)) { return; }
+    removeTree(target);
 }
 
 export function listFilesRecursive(rootDir: string): string[] {
@@ -541,7 +656,8 @@ export function listFilesRecursive(rootDir: string): string[] {
 
     const walk = (dir: string, prefix: string) => {
         for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-            if (isSkippedName(entry.name) || isWhiteoutName(entry.name)) { continue; }
+            // v2 では `.wh.` で始まる名前も利用者の普通のファイル（#21 の N-5）
+            if (isSkippedName(entry.name)) { continue; }
             const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
             const abs = path.join(dir, entry.name);
             if (entry.isDirectory()) {
@@ -561,7 +677,7 @@ export function clearDirContents(dir: string): void {
         return;
     }
     for (const entry of fs.readdirSync(dir)) {
-        fs.rmSync(path.join(dir, entry), { recursive: true, force: true });
+        removeTree(path.join(dir, entry));
     }
 }
 
@@ -605,7 +721,98 @@ function writeSyncCache(paths: OverlayPaths, cache: WorkspaceSyncCache): void {
     fs.writeFileSync(syncCachePath(paths), JSON.stringify(cache), 'utf8');
 }
 
-/** commit の変更ファイルを layers/<hash>/ にフル実体（または whiteout）で書き出す */
+/** Git のツリーの 1 エントリの変化（`git diff-tree --raw` の 1 行に当たる） */
+export type TreeChange = {
+    status: 'A' | 'M' | 'T' | 'D';
+    /** 変化後のモード（D のときは変化前）。100644 / 100755 / 120000（シンボリックリンク）/ 160000（サブモジュール） */
+    mode: string;
+    /** 変化後のオブジェクト（D のときは変化前） */
+    sha: string;
+    path: string;
+};
+
+/** `git cat-file blob` で読むファイルの大きさの上限。execFileSync の既定（1 MiB）では足りない */
+const MAX_BLOB_BYTES = 512 * 1024 * 1024;
+
+/** Git のパスとして層に書いてよいか（空・絶対パス・`.`・`..` の段を拒否） */
+function isSafeLayerPath(rel: string): boolean {
+    if (!rel || rel.startsWith('/') || /^[A-Za-z]:/.test(rel)) { return false; }
+    return rel.split('/').every((seg) => seg !== '' && seg !== '.' && seg !== '..');
+}
+
+function hasAncestorIn(rel: string, set: Set<string>): boolean {
+    const parts = rel.split('/');
+    for (let i = 1; i < parts.length; i++) {
+        if (set.has(parts.slice(0, i).join('/'))) { return true; }
+    }
+    return false;
+}
+
+/**
+ * コミットが親から何を変えたかを読む（#21）。
+ *
+ * `-z` を使う理由（N-6）: `--name-only` などの普通の出力は、Git の既定設定（core.quotepath=true）では
+ * 日本語など ASCII 以外のパスを `"\343\203\241..."` のようにエスケープする。それを本物のパスとして
+ * `git show` に渡すと失敗し、v1 ではそのファイルを「削除された」ことにしていた。`-z` の出力は NUL 区切りで、
+ * パスはエスケープされない。
+ *
+ * `--raw` を使う理由（N-3）: v1 は `git show <commit>:<path>` が成功したらファイルとみなしていたが、
+ * パスがディレクトリ（tree）でも成功する。`--raw` ならモードと状態（A/M/T/D）が分かり、`-r` で
+ * ツリーの中まで降りるので、出てくるのはファイル（blob）とサブモジュールだけになる。
+ *
+ * 親が無いコミットは、ツリーの全ファイルを「追加」として返す。
+ */
+export function listCommitChanges(
+    shadowRepoPath: string,
+    commitHash: string,
+    parentHash: string | undefined,
+    tryRunGit: GitTryRunner,
+): TreeChange[] {
+    const changes: TreeChange[] = [];
+    if (!parentHash) {
+        // 1 レコード = "<mode> <type> <sha>\t<path>"
+        const out = tryRunGit(shadowRepoPath, ['ls-tree', '-r', '-z', commitHash]) ?? '';
+        for (const rec of out.split('\0')) {
+            const tab = rec.indexOf('\t');
+            if (tab < 0) { continue; }
+            const [mode, type, sha] = rec.slice(0, tab).split(' ');
+            if (type !== 'blob') { continue; }
+            changes.push({ status: 'A', mode, sha, path: rec.slice(tab + 1) });
+        }
+        return changes;
+    }
+    // 1 レコード = ":<旧mode> <新mode> <旧sha> <新sha> <状態>\0<path>\0"
+    const out = tryRunGit(shadowRepoPath, [
+        'diff-tree', '-r', '-z', '--raw', '--no-renames', '--no-commit-id', parentHash, commitHash,
+    ]) ?? '';
+    const tokens = out.split('\0');
+    let i = 0;
+    while (i < tokens.length) {
+        const head = tokens[i];
+        if (!head.startsWith(':') || i + 1 >= tokens.length) { i++; continue; }
+        const rel = tokens[i + 1];
+        i += 2;
+        const [oldMode, newMode, oldSha, newSha, statusField] = head.slice(1).split(' ');
+        const status = statusField?.charAt(0);
+        if (status === 'D') {
+            changes.push({ status: 'D', mode: oldMode, sha: oldSha, path: rel });
+        } else if (status === 'A' || status === 'M' || status === 'T') {
+            changes.push({ status, mode: newMode, sha: newSha, path: rel });
+        }
+    }
+    return changes;
+}
+
+/**
+ * コミットの変化を layers/<hash>/ に書き出す（レイヤ形式 v2）。
+ * - 追加・変更・種類の変化（A/M/T）: ファイルの中身を丸ごと書く。シンボリックリンク（120000）はリンク先の文字列を
+ *   中身とするファイルになる（Node 版はファイルしか作らない。Git の core.symlinks=false と同じ）。
+ * - 削除（D）: whiteout をメタデータに記録する。ただし、祖先がこのコミットでファイルになったパスは記録しない。
+ *   上の層のファイルが下の層のディレクトリを丸ごと隠すので不要で、書こうとするとファイルの下に
+ *   ディレクトリを作ることになる（N-4）。
+ * - サブモジュール（160000）と、層の外を指すパスは無視する。
+ * メタデータは最後に書く。途中で止まった書き出しはメタデータが無いので、ensureLayerExists が作り直す。
+ */
 export function exportCommitLayer(
     shadowRepoPath: string,
     paths: OverlayPaths,
@@ -620,44 +827,36 @@ export function exportCommitLayer(
     fs.mkdirSync(paths.views, { recursive: true });
 
     const dest = layerDir(paths, commitHash);
+    fs.rmSync(layerMetaPath(dest), { force: true });
+    removeTree(dest);
     fs.mkdirSync(dest, { recursive: true });
 
-    let changedFiles: string[] = [];
-    if (parentHash) {
-        const diff = tryRunGit(shadowRepoPath, [
-            'diff-tree', '--no-commit-id', '--name-only', '-r', parentHash, commitHash,
-        ])?.trim();
-        changedFiles = diff ? diff.split('\n').filter(Boolean) : [];
-    }
-    if (changedFiles.length === 0) {
-        const all = tryRunGit(shadowRepoPath, ['ls-tree', '--name-only', '-r', commitHash])?.trim();
-        changedFiles = all ? all.split('\n').filter(Boolean) : [];
-    }
+    const changes = listCommitChanges(shadowRepoPath, commitHash, parentHash, tryRunGit)
+        .filter((c) => c.mode !== '160000' && isSafeLayerPath(c.path));
+    const writtenPaths = new Set(changes.filter((c) => c.status !== 'D').map((c) => c.path));
+    const whiteouts: string[] = [];
 
-    for (const relPath of changedFiles) {
-        if (!relPath || relPath.includes('..')) { continue; }
-        try {
-            const content = execFileSync('git', ['show', `${commitHash}:${relPath}`], {
-                cwd: shadowRepoPath,
-                stdio: ['pipe', 'pipe', 'pipe'],
-                windowsHide: true,
-            });
-            const outFile = path.join(dest, ...relPath.split('/'));
-            fs.mkdirSync(path.dirname(outFile), { recursive: true });
-            fs.writeFileSync(outFile, content);
-            const wo = path.join(dest, ...whiteoutRelPath(relPath).split('/'));
-            if (fs.existsSync(wo)) { fs.unlinkSync(wo); }
-        } catch {
-            const outFile = path.join(dest, ...relPath.split('/'));
-            if (fs.existsSync(outFile)) {
-                fs.rmSync(outFile, { recursive: true, force: true });
+    for (const change of changes) {
+        if (change.status === 'D') {
+            if (!hasAncestorIn(change.path, writtenPaths)) {
+                whiteouts.push(change.path);
             }
-            const wo = path.join(dest, ...whiteoutRelPath(relPath).split('/'));
-            fs.mkdirSync(path.dirname(wo), { recursive: true });
-            fs.writeFileSync(wo, '');
+            continue;
         }
+        // maxBuffer の既定は 1 MiB。v1 はそれより大きいファイルで ENOBUFS になり、「削除」扱いにしていた
+        const content = execFileSync('git', ['cat-file', 'blob', change.sha], {
+            cwd: shadowRepoPath,
+            stdio: ['pipe', 'pipe', 'pipe'],
+            windowsHide: true,
+            maxBuffer: MAX_BLOB_BYTES,
+        });
+        const outFile = path.join(dest, ...change.path.split('/'));
+        fs.mkdirSync(path.dirname(outFile), { recursive: true });
+        fs.writeFileSync(outFile, content);
     }
+    writeLayerMeta(dest, whiteouts);
 
+    const changedFiles = changes.map((c) => c.path);
     const dag = readDag(paths);
     const parents = parentHash ? [parentHash] : [];
     dag.nodes[commitHash] = {
@@ -679,7 +878,7 @@ export function exportCommitLayer(
     return changedFiles;
 }
 
-/** レイヤが無ければ shadow から書き出す（既存履歴の遅延バックフィル） */
+/** レイヤが無ければ shadow から書き出す（既存履歴の遅延バックフィル、古い形式を捨てた後の作り直し） */
 export function ensureLayerExists(
     shadowRepoPath: string,
     paths: OverlayPaths,
@@ -689,8 +888,8 @@ export function ensureLayerExists(
 ): void {
     const dag = readDag(paths);
     const dest = layerDir(paths, commitHash);
-    const hasContent = fs.existsSync(dest) && fs.readdirSync(dest).some((n) => !isSkippedName(n));
-    if (dag.nodes[commitHash] && hasContent) {
+    // メタデータは書き出しの最後に置くので、あれば完成した層（whiteout だけの層もここで判定できる）
+    if (dag.nodes[commitHash] && readLayerMeta(dest)) {
         return;
     }
 
@@ -706,14 +905,12 @@ export function removeFromWriteLayer(
     branchTag: string,
     relativeFilePath: string,
 ): void {
-    const filePath = path.join(paths.write, branchTag, ...relativeFilePath.split('/'));
+    const layer = path.join(paths.write, branchTag);
+    const filePath = path.join(layer, ...relativeFilePath.split('/'));
     if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
     }
-    const wo = path.join(paths.write, branchTag, ...whiteoutRelPath(relativeFilePath).split('/'));
-    if (fs.existsSync(wo)) {
-        fs.unlinkSync(wo);
-    }
+    removeWhiteout(layer, relativeFilePath);
 }
 
 /** 書き込みレイヤに whiteout を置いて「削除」を表現 */
@@ -723,28 +920,69 @@ export function whiteoutInWriteLayer(
     relativeFilePath: string,
 ): void {
     removeFromWriteLayer(paths, branchTag, relativeFilePath);
-    const wo = path.join(paths.write, branchTag, ...whiteoutRelPath(relativeFilePath).split('/'));
-    fs.mkdirSync(path.dirname(wo), { recursive: true });
-    fs.writeFileSync(wo, '');
+    addWhiteout(path.join(paths.write, branchTag), relativeFilePath);
 }
 
-/** shadow 履歴に登場した全パスを収集（兄弟枝の取り残し削除用） */
+/**
+ * shadow 履歴に登場した全パスを収集（兄弟枝の取り残し削除用）。
+ * `-z` でエスケープの無いパスを読む（#21 の N-6。v1 は日本語などのパスがエスケープされたまま入っていた）。
+ */
 export function collectShadowTrackedFiles(
     shadowRepoPath: string,
     tryRunGit: GitTryRunner,
 ): string[] {
     const out = tryRunGit(shadowRepoPath, [
-        'log', '--all', '--pretty=format:', '--name-only',
-    ])?.trim();
+        'log', '--all', '-z', '--pretty=format:', '--name-only',
+    ]);
     if (!out) { return []; }
     return Array.from(new Set(
-        out.split('\n').map((l) => l.trim()).filter((l) => l && !l.includes('..'))
+        out.split('\0').map((l) => l.replace(/^\n+/, '')).filter((l) => l && isSafeLayerPath(l))
     ));
+}
+
+/** ディレクトリの中に（下の階層も含めて）ファイルが 1 つも無いか。ディレクトリだけなら true */
+function directoryHasNoFiles(dir: string): boolean {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (!entry.isDirectory()) { return false; }
+        if (!directoryHasNoFiles(path.join(dir, entry.name))) { return false; }
+    }
+    return true;
+}
+
+/**
+ * ワークスペースの rel にファイルを置けるようにする。
+ * - 途中のディレクトリが無ければ作る。途中にファイルがあれば置けない（false）
+ * - rel にディレクトリがあれば、中にファイルが 1 つも無いときだけ消す（ディレクトリ p/ → ファイル p）。
+ *   ファイルが残っていれば（利用者のファイル）置けない（false）
+ */
+function prepareWorkspaceTarget(workspaceRoot: string, rel: string): boolean {
+    const parts = rel.split('/');
+    let current = workspaceRoot;
+    for (const part of parts.slice(0, -1)) {
+        current = path.join(current, part);
+        const st = lstatOrUndefined(current);
+        if (st?.isDirectory()) { continue; }
+        if (st) { return false; }
+        fs.mkdirSync(current);
+    }
+    const target = path.join(workspaceRoot, ...parts);
+    const st = lstatOrUndefined(target);
+    if (st?.isDirectory()) {
+        if (!directoryHasNoFiles(target)) { return false; }
+        removeTree(target);
+    }
+    return true;
 }
 
 /**
  * merge/ の内容をワークスペースへ同期する。
  * size+mtime キャッシュと inode 一致でフルリード比較を避ける。
+ *
+ * 順番は「消す → 書く」（#14 の差分テストで見つけた N-7）。以前は「書く → 消す」で、
+ * ファイル p がディレクトリ p/ に置き換わった時点へ戻ると、まだ残っている古い p のせいで
+ * mkdir が EEXIST になり、例外で止まっていた。逆向き（ディレクトリ p/ → ファイル p）は、
+ * 中身を消したあとの空のディレクトリ p/ が邪魔で書けなかった。
+ * 置けないもの（利用者のファイルやディレクトリとぶつかる）は書かずに conflicts で返す。
  */
 export function syncMergeToWorkspace(
     workspaceRoot: string,
@@ -752,7 +990,7 @@ export function syncMergeToWorkspace(
     isSafeRepoRelativePath: (relPath: string, rootPath: string) => boolean,
     isMicroGitArtifactPath: (filePath: string, rootPath: string) => boolean,
     extraManagedFiles?: string[],
-): { written: string[]; deleted: string[]; skipped: number } {
+): { written: string[]; deleted: string[]; skipped: number; conflicts: string[] } {
     const dag = readDag(paths);
     const mergeFiles = new Set(listFilesRecursive(paths.merge));
     const managed = new Set(dag.managedFiles);
@@ -763,8 +1001,22 @@ export function syncMergeToWorkspace(
     const nextCache: WorkspaceSyncCache = {};
     const written: string[] = [];
     const deleted: string[] = [];
+    const conflicts: string[] = [];
     let skipped = 0;
 
+    // 1. 消す
+    for (const rel of managed) {
+        if (mergeFiles.has(rel)) { continue; }
+        if (!isSafeRepoRelativePath(rel, workspaceRoot)) { continue; }
+        const to = path.join(workspaceRoot, ...rel.split('/'));
+        if (isMicroGitArtifactPath(to, workspaceRoot)) { continue; }
+        if (fs.existsSync(to) && fs.statSync(to).isFile()) {
+            fs.unlinkSync(to);
+            deleted.push(rel);
+        }
+    }
+
+    // 2. 書く
     for (const rel of mergeFiles) {
         if (!isSafeRepoRelativePath(rel, workspaceRoot)) { continue; }
         const from = path.join(paths.merge, ...rel.split('/'));
@@ -802,27 +1054,19 @@ export function syncMergeToWorkspace(
             continue;
         }
 
-        fs.mkdirSync(path.dirname(to), { recursive: true });
+        if (!prepareWorkspaceTarget(workspaceRoot, rel)) {
+            conflicts.push(rel);
+            continue;
+        }
         fs.copyFileSync(from, to);
         written.push(rel);
         nextCache[rel] = { size: srcStat.size, mtimeMs: srcStat.mtimeMs };
     }
 
-    for (const rel of managed) {
-        if (mergeFiles.has(rel)) { continue; }
-        if (!isSafeRepoRelativePath(rel, workspaceRoot)) { continue; }
-        const to = path.join(workspaceRoot, ...rel.split('/'));
-        if (isMicroGitArtifactPath(to, workspaceRoot)) { continue; }
-        if (fs.existsSync(to) && fs.statSync(to).isFile()) {
-            fs.unlinkSync(to);
-            deleted.push(rel);
-        }
-    }
-
     dag.managedFiles = Array.from(managed).sort();
     writeDag(paths, dag);
     writeSyncCache(paths, nextCache);
-    return { written, deleted, skipped };
+    return { written, deleted, skipped, conflicts };
 }
 
 export function updateDagCurrent(

@@ -1,0 +1,127 @@
+name: QEMU for Windows (minimal)
+
+# MicroGit に同梱する、Windows 用の小さい QEMU をクロスビルドし（#18）、Windows のランナーで最小ゲストを起動して確かめる。
+# できた qemu-win は成果物として残し、Windows 用の VSIX（#19）に入れる。
+# package.yml からも呼ばれる（workflow_call）。同じ実行の中でビルド・テストしたものを VSIX に入れるため。
+on:
+  push:
+    branches: [feature/kernel-portability]
+    paths:
+      - 'windows/qemu/**'
+      - '.github/workflows/qemu-windows.yml'
+  pull_request:
+    paths:
+      - 'windows/qemu/**'
+      - '.github/workflows/qemu-windows.yml'
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    # QEMU 自身の CI（fedora-win64-cross）と同じく、Fedora の MinGW のパッケージでクロスビルドする。
+    # Fedora 42 の MinGW のヘッダーには QEMU 11.1 の WHPX が使う WHvCapabilityCodeVmx* が無く、コンパイルに失敗した（2026-09-26）
+    container: fedora:44
+    timeout-minutes: 90
+    steps:
+      - name: Install build tools
+        run: |
+          dnf install -y --setopt=install_weak_deps=False \
+            git make gcc python3 ninja-build bzip2 xz tar diffutils findutils perl curl \
+            mingw64-gcc mingw64-glib2 mingw64-pixman mingw64-zlib mingw64-pkg-config mingw64-binutils
+      - uses: actions/checkout@v4
+      - name: Toolchain versions
+        run: |
+          cat /etc/fedora-release
+          rpm -q mingw64-headers mingw64-gcc mingw64-glib2
+      - name: Cache QEMU source
+        uses: actions/cache@v4
+        with:
+          path: windows/qemu/.cache/*.tar.xz
+          key: qemu-src-${{ hashFiles('windows/qemu/version.env') }}
+      # ライセンスを集めるスクリプトを、偽の rpm で先に試す（ビルドの 20 分を待たずに間違いが分かる。#19）
+      - name: Test collect-licenses.sh
+        run: bash windows/qemu/test-collect-licenses.sh
+      - name: Build
+        run: windows/qemu/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: microgit-qemu-win32-x64
+          path: |
+            windows/qemu/out/qemu-win
+            windows/qemu/out/sizes.txt
+      # 同梱する DLL（glib は LGPL など）のソース（#19、NFR-7）。ビルドしたこのコンテナに入っている版と同じものを取る
+      # （あとで取り直すと、Fedora の更新で版がずれる）。build.sh が書いた packages.tsv の source_rpm と照らす
+      - name: Source RPMs of the bundled DLLs
+        run: |
+          dnf download --help >/dev/null 2>&1 || dnf install -y 'dnf-command(download)'
+          out=windows/qemu/out/sources
+          mkdir -p "$out"
+          tail -n +2 windows/qemu/out/qemu-win/licenses/packages.tsv | while IFS=$'\t' read -r name version license srpm dlls; do
+            echo "$name $version ($license) -> $srpm : $dlls"
+            dnf download --srpm --destdir "$out" "$(rpm -q "$name")"
+            test -f "$out/$srpm"
+          done
+          ls -l "$out"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: microgit-qemu-win32-x64-sources
+          path: windows/qemu/out/sources
+
+  test:
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install and compile the extension
+        run: |
+          npm ci
+          npm run compile
+      - uses: actions/download-artifact@v4
+        with:
+          name: microgit-qemu-win32-x64
+          path: qemu-artifact
+      # 最小ゲスト（x86_64）は guest.yml の成果物を使う。この PR のブランチで成功した実行があればそれ、無ければ統合ブランチの最新
+      - name: Download the x86_64 guest
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          branch="${{ github.head_ref || github.ref_name }}"
+          run_id=$(gh run list -R "${{ github.repository }}" -w guest.yml -b "$branch" -s success -L 1 --json databaseId -q '.[0].databaseId')
+          if [ -z "$run_id" ]; then
+            run_id=$(gh run list -R "${{ github.repository }}" -w guest.yml -b feature/kernel-portability -s success -L 1 --json databaseId -q '.[0].databaseId')
+          fi
+          echo "guest from run $run_id"
+          gh run download "$run_id" -R "${{ github.repository }}" -n microgit-guest-x86_64 -D guest/out/x86_64
+      - name: Place QEMU where the extension looks in development
+        shell: bash
+        run: |
+          mkdir -p guest/.cache
+          cp -r qemu-artifact/qemu-win guest/.cache/qemu-win
+          cat qemu-artifact/sizes.txt
+      # 既定（-accel whpx -accel tcg）で起動できるか
+      - name: Start the kernel backend with the bundled QEMU (auto)
+        run: node scripts/test/native-fallback.mjs --expect kernel
+      # WHPX だけで起動できるか（ランナーで WHPX が使えるかの記録。使えなくても失敗にしない）
+      - name: Probe WHPX only (informational)
+        continue-on-error: true
+        run: node scripts/test/native-fallback.mjs --accel whpx
+      # 先頭のアクセラレータが使えないとき TCG に切り替わるか（ランナーでは WHPX が使えるので、Windows に無い KVM で代わりに確かめる）
+      - name: Accelerator fallback (kvm → tcg)
+        run: node scripts/test/qemu-accel-fallback.mjs
+      # TCG だけ（仮想化機能も管理者権限も要らない動かし方、NFR-1）で起動でき、差分テストが通るか
+      - name: TCG only
+        run: |
+          node scripts/test/native-fallback.mjs --accel tcg --expect kernel
+          node scripts/test/kernel-backend-e2e.mjs --plan --accel tcg --max-depth 2
+      - name: Kernel vs Node.js backend (e2e, named pipe)
+        run: node scripts/test/kernel-backend-e2e.mjs --plan --max-depth 2

@@ -1,0 +1,25 @@
+# scripts/golden/check-node.mjs --update-known が生成。
+# 現行の Node.js 仮想 Overlay がカーネルの期待値と食い違う点（- は期待値にだけある行、+ は Node にだけある行）。
+# 各項目の原因と扱いは docs/overlayfs-golden-test.md を参照。
+[delete-dir] commit 2 (saved)
++ d	d
++ d	d/sub
+[delete-dir] commit 2 (rebuilt)
++ d	d
++ d	d/sub
+[rename-dir] commit 2 (saved)
++ d	d
++ d	d/sub
+[rename-dir] commit 2 (rebuilt)
++ d	d
++ d	d/sub
+[rename-dir] commit 3 (saved)
++ d	d
++ d	d/sub
+[rename-dir] commit 3 (rebuilt)
++ d	d
++ d	d/sub
+[empty-dir] commit 1 (saved)
+- d	empty
+[empty-dir] commit 1 (rebuilt)
+- d	empty

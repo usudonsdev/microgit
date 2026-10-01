@@ -1,0 +1,187 @@
+name: Guest (minimal Linux)
+
+# 最小ゲスト（カーネル＋agent）をビルドし、QEMU で起動してゴールデンテストを流す（Issue #15, #17, #18）。
+# できた Image は成果物として残す。arm64 は Mac（mac/run-golden.sh）、x86_64 は Windows（windows/run-golden.ps1）で使う。
+on:
+  push:
+    branches: [feature/kernel-portability]
+    paths:
+      - 'guest/**'
+      - 'scripts/golden/**'
+      - 'test/golden/**'
+      - 'src/**'
+      - 'scripts/test/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/guest.yml'
+  pull_request:
+    paths:
+      - 'guest/**'
+      - 'scripts/golden/**'
+      - 'test/golden/**'
+      - 'src/**'
+      - 'scripts/test/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/guest.yml'
+  workflow_dispatch:
+  # package.yml からも呼ばれる（#19）。同じ実行の中でビルド・テストしたゲストを VSIX に入れるため
+  workflow_call:
+
+jobs:
+  # agent の命令の形 v1 の単体テスト（guest/agent/agent_test.go、#12）。本物の OverlayFS を mount するので root で流す。
+  # GitHub の Ubuntu では非特権のユーザー名前空間が AppArmor で止められているため、テストの実行ファイルを作って sudo で動かす。
+  agent-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      # agent をビルドする Go は guest/kernel/version.env の GO_VERSION に固定（#15、再現可能なビルド）
+      - name: Read pinned versions
+        id: pinned
+        run: echo "go=$(grep '^GO_VERSION=' guest/kernel/version.env | cut -d= -f2)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ steps.pinned.outputs.go }}
+          cache: false
+      - name: Vet
+        working-directory: guest/agent
+        run: go vet ./...
+      - name: Test as root (mounts OverlayFS)
+        working-directory: guest/agent
+        run: |
+          go test -c -o "$RUNNER_TEMP/agent.test" .
+          sudo "$RUNNER_TEMP/agent.test" -test.v
+
+  guest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            packages: gcc-aarch64-linux-gnu qemu-system-arm
+            # hvc0（カーネルのログ）はファイルへ、名前付きポート "microgit" は QEMU の stdin/stdout へ
+            qemu: >-
+              qemu-system-aarch64 -M virt -cpu max -smp 1 -m 256
+          - arch: x86_64
+            packages: qemu-system-x86
+            qemu: >-
+              qemu-system-x86_64 -M q35 -cpu max -smp 1 -m 256
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read pinned versions
+        id: pinned
+        run: echo "go=$(grep '^GO_VERSION=' guest/kernel/version.env | cut -d= -f2)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ steps.pinned.outputs.go }}
+          cache: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential flex bison bc libelf-dev xz-utils ${{ matrix.packages }}
+
+      - name: Cache kernel tarball
+        uses: actions/cache@v4
+        with:
+          path: guest/.cache/*.tar.xz
+          key: linux-${{ hashFiles('guest/kernel/version.env') }}
+
+      - name: Build guest
+        run: STRICT_TOOLCHAIN=1 ARCH=${{ matrix.arch }} guest/build.sh
+
+      - name: Boot in QEMU and run golden scenarios
+        run: |
+          out=guest/out/${{ matrix.arch }}
+          node scripts/golden/check-guest.mjs --json $out/guest-result.json -- \
+            ${{ matrix.qemu }} \
+              -nodefaults -display none -no-reboot \
+              -kernel $out/Image -append "console=hvc0" \
+              -device virtio-serial-pci \
+              -chardev file,id=con,path=$out/console.log \
+              -device virtconsole,chardev=con \
+              -chardev stdio,id=proto,signal=off \
+              -device virtserialport,chardev=proto,name=microgit
+
+      # ここからは拡張機能のコード（src/kernel/）を使うので、コンパイルする
+      - name: Install and compile the extension
+        run: |
+          npm ci
+          npm run compile
+
+      # カーネル版と Node 版の差分テスト（#14）: 同じ Git の履歴から各コミットに戻り、どちらのワークスペースも
+      # Git のツリーと一致するか。層の深さの上限を 2 にして、写しの層への切り替えとキャッシュが空の状態からの作り直しも通る
+      - name: Kernel vs Node.js backend (e2e over QEMU)
+        run: |
+          out=guest/out/${{ matrix.arch }}
+          node scripts/test/kernel-backend-e2e.mjs --max-depth 2 -- \
+            ${{ matrix.qemu }} \
+              -nodefaults -display none -no-reboot \
+              -kernel $out/Image -append "console=hvc0" \
+              -device virtio-serial-pci \
+              -chardev file,id=con,path=$out/console-e2e.log \
+              -device virtconsole,chardev=con \
+              -chardev stdio,id=proto,signal=off \
+              -device virtserialport,chardev=proto,name=microgit
+
+      # 補足 S-3 の受け入れ条件（#14）: GitHub の Ubuntu 24.04 は非特権のユーザー名前空間を AppArmor で止めているので、
+      # Linux の VM なしの経路（unshare -Urm）は起動に失敗し、Node.js 版に切り替わるはず。理由に uid_map が出る
+      - name: Linux native falls back on AppArmor-restricted runner (S-3)
+        if: matrix.arch == 'x86_64'
+        run: node scripts/test/native-fallback.mjs --expect fallback --reason uid_map
+
+      # 再現可能なビルドの確認（#15、NFR-6）: 別の出力先にもう一度ビルドし、Image と init のバイト列が一致するか。
+      # カーネルは O= の出力先が違っても同じバイト列になるはず（KBUILD_BUILD_* と SOURCE_DATE_EPOCH を固定）
+      - name: Rebuild in another directory and compare (reproducibility)
+        run: |
+          first=guest/out/${{ matrix.arch }}
+          second="$RUNNER_TEMP/rebuild-${{ matrix.arch }}"
+          OUT="$second" STRICT_TOOLCHAIN=1 ARCH=${{ matrix.arch }} guest/build.sh > /dev/null
+          ok=1
+          for f in Image init; do
+            a=$(sha256sum "$first/$f" | cut -d' ' -f1)
+            b=$(sha256sum "$second/$f" | cut -d' ' -f1)
+            echo "$f  first=$a  second=$b"
+            if [ "$a" != "$b" ]; then
+              ok=0
+              echo "::error::$f のバイト列が 2 回のビルドで違う"
+              cmp -l "$first/$f" "$second/$f" | head -20 || true
+            fi
+          done
+          [ "$ok" = 1 ] && echo "reproducible: Image と init が 2 回のビルドで一致"
+          [ "$ok" = 1 ]
+
+      - name: Guest console log
+        if: always()
+        run: cat guest/out/${{ matrix.arch }}/console.log || true
+
+      # 補足 S-3 の確認: GitHub の Ubuntu 24.04 で非特権ユーザー名前空間が使えるか（失敗しても止めない）
+      - name: Probe unprivileged user namespaces (S-3)
+        if: always() && matrix.arch == 'arm64'
+        continue-on-error: true
+        run: |
+          sysctl kernel.apparmor_restrict_unprivileged_userns || true
+          if unshare -Urm true; then echo "unprivileged userns: allowed"; else echo "unprivileged userns: blocked"; fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: microgit-guest-${{ matrix.arch }}
+          path: |
+            guest/out/${{ matrix.arch }}/Image
+            guest/out/${{ matrix.arch }}/config
+            guest/out/${{ matrix.arch }}/sizes.txt
+            guest/out/${{ matrix.arch }}/console.log
+            guest/out/${{ matrix.arch }}/guest-result.json
+            guest/out/${{ matrix.arch }}/init
+          if-no-files-found: warn

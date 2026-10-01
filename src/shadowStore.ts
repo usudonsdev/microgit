@@ -1,6 +1,7 @@
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import { durabilityGitArgs } from './durability';
 
 export function sanitizeBranchKey(branch: string): string {
     return branch.replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -19,7 +20,8 @@ export function parentMicroRefPrefix(mainBranch: string): string {
 }
 
 function runGitDir(gitDir: string, args: string[], workTree?: string): string {
-    const fullArgs = ['--git-dir', gitDir, ...(workTree ? ['--work-tree', workTree] : []), ...args];
+    // shadow の bare への書き込み（update-ref など）も、設定した永続性の水準で行う（#11 の O-11）
+    const fullArgs = [...durabilityGitArgs(), '--git-dir', gitDir, ...(workTree ? ['--work-tree', workTree] : []), ...args];
     return execFileSync('git', fullArgs, {
         encoding: 'utf8',
         stdio: ['pipe', 'pipe', 'pipe'],
@@ -36,6 +38,18 @@ function tryGitDir(gitDir: string, args: string[], workTree?: string): string | 
 }
 
 /**
+ * shadow の info/attributes に書く内容（#32、ADR-0012）。マイクロ履歴は、保存した中身をそのまま記録する。
+ * 改行の変換（text・eol）、フィルタ（Git LFS など）、$Id$ の展開（ident）、文字コードの変換（working-tree-encoding）を、
+ * ワークスペースの .gitattributes や利用者の Git の設定に関係なく止める（info/attributes がいちばん強い）。
+ * これが無いと、Windows 版 Git の既定（core.autocrlf=true）で CRLF のファイルが LF に変えて記録され、
+ * 過去に戻ると改行コードが変わってしまう。
+ */
+export const SHADOW_ATTRIBUTES = '* -text -eol -filter -ident -working-tree-encoding\n';
+
+/** この実行の中で準備を済ませた shadow（保存のたびに Git を起動しないため。#32） */
+const ensured = new Set<string>();
+
+/**
  * 作業ツリー内にネスト .git ディレクトリを置かず、
  * `.git/microgit/repos/<branch>.git`（bare）+ `.microgit_shadow/.git`（gitfile）で運用する。
  * Overlay の軽量 checkout はそのまま利用可能。
@@ -47,6 +61,18 @@ export function ensureShadowRepoForBranch(
 ): string {
     const workTree = shadowWorkTreePath(mainRepoPath);
     const bare = bareGitDirPath(mainRepoPath, mainBranch);
+    const gitMarkerPath = path.join(workTree, '.git');
+    const rel0 = path.relative(workTree, bare).split(path.sep).join('/');
+    // 2 回目からは、ファイルを見て確かめるだけ（Git を起動しない）
+    if (
+        ensured.has(bare) &&
+        fs.existsSync(bare) &&
+        fs.existsSync(gitMarkerPath) &&
+        fs.statSync(gitMarkerPath).isFile() &&
+        fs.readFileSync(gitMarkerPath, 'utf8') === `gitdir: ${rel0}\n`
+    ) {
+        return workTree;
+    }
     fs.mkdirSync(workTree, { recursive: true });
     fs.mkdirSync(path.dirname(bare), { recursive: true });
 
@@ -81,10 +107,19 @@ export function ensureShadowRepoForBranch(
     runGitDir(bare, ['config', 'core.bare', 'false']);
     runGitDir(bare, ['config', 'core.worktree', workTree]);
 
+    // 保存した中身をそのまま記録する（ADR-0012）。利用者の Git の設定より shadow の設定が優先される
+    runGitDir(bare, ['config', 'core.autocrlf', 'false']);
+    const infoAttributes = path.join(bare, 'info', 'attributes');
+    if (!fs.existsSync(infoAttributes) || fs.readFileSync(infoAttributes, 'utf8') !== SHADOW_ATTRIBUTES) {
+        fs.mkdirSync(path.dirname(infoAttributes), { recursive: true });
+        fs.writeFileSync(infoAttributes, SHADOW_ATTRIBUTES, 'utf8');
+    }
+
     if (tryGitDir(bare, ['rev-parse', '--verify', 'refs/heads/micro-history']) === undefined) {
         runGitDir(bare, ['symbolic-ref', 'HEAD', 'refs/heads/micro-history']);
     }
 
+    ensured.add(bare);
     return workTree;
 }
 

@@ -25,7 +25,7 @@ const {
   layerDir,
   isViewReady,
   syncMergeToWorkspace,
-  whiteoutRelPath,
+  addWhiteout,
 } = require(path.join(ROOT, 'out', 'overlay.js'));
 
 const FILES = Number(process.env.FILES || 200);
@@ -75,9 +75,8 @@ function writeLayer(paths, hash, files) {
   fs.mkdirSync(dir, { recursive: true });
   for (const [rel, body] of Object.entries(files)) {
     if (body === null) {
-      const wo = path.join(dir, ...whiteoutRelPath(rel).split('/'));
-      fs.mkdirSync(path.dirname(wo), { recursive: true });
-      fs.writeFileSync(wo, '');
+      // レイヤ形式 v2: whiteout は層の外のメタデータ（layers/<hash>.json）に持つ
+      addWhiteout(dir, rel);
       continue;
     }
     const out = path.join(dir, ...rel.split('/'));

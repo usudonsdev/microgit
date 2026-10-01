@@ -1,0 +1,6 @@
+# scripts/golden/record-kernel.mjs が生成。手で直さない
+## commit 1
+f	p	3b9c358f36f0a31b6ad3e14f309c7cf198ac9246e8316f9ce543d5b19ac02b80
+## commit 2
+d	p
+f	p/q.txt	4ae81572f06e1b88fd5ced7a1a000945432e83e1551e6f721ee9c00b8cc33260

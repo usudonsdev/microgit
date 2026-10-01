@@ -7,3 +7,12 @@ node_modules
 .microgit_shadow/
 .microgit_logs/
 .microgit_overlay/
+guest/out/
+guest/.cache/
+mac/.build/
+windows/qemu/out/
+windows/qemu/.cache/
+
+# VSIX を作るときの一時的な置き場所（scripts/package-vsix.mjs）
+resources/kernel/
+.cache/

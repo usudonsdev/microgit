@@ -33,6 +33,23 @@
 6. **グラフの表示**: パネルの「グラフを開く」、または `MicroGit: Show Graph` を実行します。開いたまま保存やジャンプ・区間フィルタに追従します。
 7. **ブランチ切替**: メインブランチを切り替えると、そのブランチ専属のマイクロ空間へ載せ替わります。
 
+## カーネル版の Overlay（5.0.0〜）
+
+過去に戻る操作を、本物の Linux カーネルの OverlayFS で行います。追加で入れるものはありません。使えない環境では、利用者の操作なしに従来の Node.js 版で動きます。
+
+| 環境 | 動かし方 | 過去に戻る操作（計測の中央値の例） |
+|---|---|---|
+| Linux x64 / arm64（カーネル 5.11 以降） | 仮想マシンなし（`unshare -Urm`） | 127 ms → 22 ms |
+| Windows x64 | 同梱の QEMU で最小の Linux を起動（Windows ハイパーバイザー プラットフォームが有効ならそれを、無効なら CPU のエミュレーションを使う。管理者権限は不要） | 1,426 ms → 170 ms |
+| Apple silicon Mac | macOS 標準の Virtualization.framework で最小の Linux を起動 | 15シナリオ・126回の過去移動がGitのツリーと一致 |
+| Intel Mac、Windows on Arm など | Node.js 版 | — |
+
+Ubuntu 23.10 以降の既定や、一部のコンテナの中など、非特権のユーザー名前空間が止められた Linux では Node.js 版になります。
+
+- どちらで動いているか：コマンド `MicroGit: Overlay Status` の先頭（`active=kernel` / `active=nodejs`）
+- 設定：`microgit.overlayBackend`（`auto` が既定、`kernel`、`nodejs`）。カーネル版を使いたくない場合は `nodejs` にしてください
+- 同梱している第三者のソフトウェアとライセンスは [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) を見てください
+
 ## 免責事項
 
 本拡張機能は研究・開発段階のプロトタイプです。重要なプロジェクトで利用する際は、事前に通常の Git でコミットを行ってからご使用ください。

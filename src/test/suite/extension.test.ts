@@ -1,6 +1,7 @@
 import * as assert from 'assert';
 import { execSync } from 'child_process';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
@@ -15,7 +16,11 @@ suite('MicroGit Head Travel Test Suite', function () {
         const workspaceFolders = vscode.workspace.workspaceFolders;
         assert.ok(workspaceFolders, 'ワークスペースが開かれていません。');
         rootPath = workspaceFolders[0].uri.fsPath;
-        shadowRepoPath = path.join(rootPath, '.microgit_shadow');
+        // このテストは Git を直接操作して「過去に戻る」を再現するもので、MicroGit のコマンドは呼ばない。
+        // 以前はワークスペースの .microgit_shadow に Git を直接作っていたが、それは MicroGit の本物の shadow の場所と
+        // ぶつかる（overlayBackend.test.ts が MicroGit を有効にしたとき、古い形式として移し替えられてしまう）。
+        // そこで一時フォルダに作る（#14）
+        shadowRepoPath = fs.mkdtempSync(path.join(os.tmpdir(), 'microgit-head-travel-'));
 
         // フォルダ内のクリア（.gitフォルダ自体は残してロック競合を回避）
         if (fs.existsSync(shadowRepoPath)) {

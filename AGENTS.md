@@ -2,7 +2,7 @@
 
 このリポジトリでは **Cursor と Claude Code を併用**する。チャットはセッションをまたいで失われやすく、トークン限界後の再投入コストも高い。会話で生まれた成果物は、なるべく詳細に **リポジトリ内ドキュメントとして残す**。
 
-設計の本体は [docs/design-policy.md](docs/design-policy.md)（§8 も参照）。卒業研究（ビルド検証エンジン）の設計は [docs/build-verification-engine.md](docs/build-verification-engine.md)。
+設計の本体は [docs/design-policy.md](docs/design-policy.md)（§8 も参照）。卒業研究（ビルド検証エンジン）の設計は [docs/build-verification-engine.md](docs/build-verification-engine.md)。次期メジャー（Linux カーネル機能ポータブル化）は `docs/microgit-kernel-feature-portability-*.md` の 3 本と Issue #8（Epic、未決事項 O-1〜O-14 と Issue の対応表あり）。作業ブランチは `feature/kernel-portability`。
 
 ## 必須: 知見の永続化
 

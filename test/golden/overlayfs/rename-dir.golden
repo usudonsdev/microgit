@@ -1,0 +1,17 @@
+# scripts/golden/record-kernel.mjs が生成。手で直さない
+## commit 1
+d	d
+d	d/sub
+f	d/sub/y.txt	18f5384d58bcb1bba0bcd9e6a6781d1a6ac2cc280c330ecbab6cb7931b721552
+f	d/x.txt	4b68ab3847feda7d6c62c1fbcbeebfa35eab7351ed5e78f4ddadea5df64b8015
+## commit 2
+d	e
+d	e/sub
+f	e/sub/y.txt	18f5384d58bcb1bba0bcd9e6a6781d1a6ac2cc280c330ecbab6cb7931b721552
+f	e/x.txt	4b68ab3847feda7d6c62c1fbcbeebfa35eab7351ed5e78f4ddadea5df64b8015
+## commit 3
+d	e
+d	e/sub
+f	e/sub/y.txt	18f5384d58bcb1bba0bcd9e6a6781d1a6ac2cc280c330ecbab6cb7931b721552
+f	e/sub/z.txt	bbeebd879e1dff6918546dc0c179fdde505f2a21591c9a9c96e36b054ec5af83
+f	e/x.txt	4b68ab3847feda7d6c62c1fbcbeebfa35eab7351ed5e78f4ddadea5df64b8015
