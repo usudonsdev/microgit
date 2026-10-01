@@ -14,4 +14,16 @@
 | `micro-commit-fast-vs-git-linux-wsl2-power.json` | 同上（WSL2） | 両方 power | 条件をそろえた比較 |
 | `micro-commit-fast-vs-git-linux-wsl2-process.json` | 同上（WSL2） | 両方 fsync なし | 条件をそろえた比較 |
 
+## 保存 1 回の処理全体（#37）
+
+VS Code の中で保存を繰り返して計った、1 回ごとの段階ごとの時間（`src/test/suite/overlayBackend.test.ts`、`MICROGIT_TEST_SAVE_BENCH`）。
+
+| ファイル | 内容 |
+|---|---|
+| `save-pipeline-win32-before.json` | 手元の Windows、#37 の前（保存 200 回） |
+| `save-pipeline-win32-offqueue.json` | 画面の更新などを列の外へ出した後 |
+| `save-pipeline-win32-policy.json` | ブランチの確認で Git を起動しなくした後 |
+| `save-pipeline-win32-delta.json` | 層の作成で Git を起動しなくした後 |
+| `ci-36807397421/save-bench-*.json` | CI の 5 つの環境（公開版と同じ形、保存 100 回）。Ubuntu 22.04・24.04 arm・Windows はカーネル版、Ubuntu 24.04・macOS は Node.js 版 |
+
 論文や記事に使うときは、条件をそろえた 4 つ（`fast-vs-git-*`）と、5.0.0 までの記録の伸び方（`baseline-win32` と `linux-wsl2` の `cli`）を分けて書く。

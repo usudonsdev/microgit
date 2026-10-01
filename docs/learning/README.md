@@ -20,6 +20,7 @@ Issue を 1 つ進めるたびに、その Issue で使った技術の解説を 
 | [08](./08-cross-compiling-qemu.md) | 別の OS 向けにビルドする（クロスコンパイル）／実行ファイルが頼る部品を集める | #18 | `windows/qemu/`、`.github/workflows/qemu-windows.yml` |
 | [09](./09-requirements-traceability.md) | 要件と実装をつなぐ（追跡）／決めたことを残す（ADR）／レビューの指摘を閉じる | #9 | 要件定義書（第 2 版）、`docs/adr/` |
 | [10](./10-packaging-and-licenses.md) | 配る形にする：プラットフォーム別の VSIX／zip とファイルのモード／配るものをテストする／ライセンスの義務 | #19 | `scripts/package-vsix.mjs`、`.github/workflows/package.yml`、`THIRD_PARTY_NOTICES.md` |
+| [12](./12-measure-the-whole-path.md) | 全体を計ってからボトルネックを決める：段階ごとの計測・後片付けを列の外へ・知っていることを捨てない | #37 | `src/saveTiming.ts`、`src/kernel/layerFeeder.ts` |
 | [11](./11-writing-git-from-inside.md) | Git を内側から書く：保存形式・プロセスの起動の費用・キャッシュの無効化・fsync | #32 | `src/fastGit/`、`src/fastMicroCommit.ts` |
 
 各回の構成：
