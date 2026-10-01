@@ -145,6 +145,9 @@ jobs:
         shell: bash
         env:
           MICROGIT_TEST_EXPECT_BACKEND: ${{ matrix.expect }}
+          # 保存 1 回の処理の段階ごとの時間も、同じ公開版の形で計る（#37）。1 回ごとの記録を成果物に残す
+          MICROGIT_TEST_SAVE_BENCH: 100
+          MICROGIT_TEST_SAVE_BENCH_OUT: ${{ runner.temp }}/save-bench.json
         run: |
           vsix=$(ls dist/*-${{ matrix.vsix }}.vsix)
           echo "VSIX: $vsix ($(wc -c < "$vsix") bytes)"
@@ -153,6 +156,12 @@ jobs:
           else
             MICROGIT_TEST_VSIX="$vsix" node ./out/test/runTest.js
           fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: save-bench-${{ matrix.vsix }}-${{ matrix.os }}
+          path: ${{ runner.temp }}/save-bench.json
+          if-no-files-found: warn
 
   # v* のタグのときだけ、GitHub Release の下書きを作る（公開はしない）
   release:

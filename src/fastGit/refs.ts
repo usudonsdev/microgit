@@ -64,6 +64,15 @@ export function listTags(gitDir: string, prefix = 'mb-'): Map<string, string> {
 }
 
 /**
+ * git tag --points-at HEAD -l '<prefix>*' の最初（名前の順）と同じ答え。HEAD がどのタグにも指されていなければ undefined（#37）
+ */
+export function firstTagAtHead(gitDir: string, prefix = 'mb-'): string | undefined {
+    const head = readRef(gitDir, 'HEAD');
+    if (!head) { return undefined; }
+    return [...listTags(gitDir, prefix)].filter(([, h]) => h === head).map(([n]) => n).sort()[0];
+}
+
+/**
  * ref を書く（<名前>.lock を排他で作り、書いて、名前を変える）。git update-ref と同じ手順。
  * reflog（logs/<名前>）は、そのファイルがもうあるときだけ 1 行足す（Git は core.logAllRefUpdates で決める）
  */

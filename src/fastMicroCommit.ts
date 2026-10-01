@@ -19,7 +19,7 @@ import * as path from 'path';
 import { GitIndex, IndexEntry, compareIndexEntries, entryFromStat, indexPath, readIndex, writeIndex } from './fastGit/gitIndex';
 import { Ident, hashObject, ObjectWriteCache, parseGitDate, serializeCommit, serializeTree, TreeEntry, writeLooseObject } from './fastGit/objects';
 import { listTags, readRef, readSymbolicHead, resolveGitDir, writeRef, writeSymbolicRef } from './fastGit/refs';
-import { isSafeGitRef, MicroCommitInput, MicroCommitOutcome } from './microCommit';
+import { isSafeGitRef, MicroCommitDelta, MicroCommitInput, MicroCommitOutcome } from './microCommit';
 import { SHADOW_ATTRIBUTES } from './shadowStore';
 
 export class FastPathUnsupported extends Error { }
@@ -48,7 +48,13 @@ function stamp(file: string): FileStamp {
 const sameStamp = (a: FileStamp, b: FileStamp) =>
     a === b || (!!a && !!b && a.mtimeMs === b.mtimeMs && a.size === b.size && a.ino === b.ino);
 
-export type FastCommitStats = { reloads: number; indexReloads: number; gitSpawns: number };
+export type FastCommitStats = {
+    reloads: number;
+    indexReloads: number;
+    gitSpawns: number;
+    /** 直近の record の段階ごとの時間（ms）。遅い段階を切り分けるため（#37） */
+    lastPhases: Record<string, number>;
+};
 
 export class FastMicroCommitter {
     readonly gitDir: string;
@@ -65,7 +71,14 @@ export class FastMicroCommitter {
     private attributesNeutral = false;
     /** HEAD のコミットの中身（パス → モードと blob）。新しいコミットが親から何を変えたかを出すのに使う */
     private headFlat: { commit: string; files: Map<string, string> } | undefined;
-    readonly stats: FastCommitStats = { reloads: 0, indexReloads: 0, gitSpawns: 0 };
+    readonly stats: FastCommitStats = { reloads: 0, indexReloads: 0, gitSpawns: 0, lastPhases: {} };
+    private phaseAt = 0;
+    /** 直前の印からここまでを、その段階の時間として記録する */
+    private phase(name: string): void {
+        const t = performance.now();
+        this.stats.lastPhases[name] = (this.stats.lastPhases[name] ?? 0) + (t - this.phaseAt);
+        this.phaseAt = t;
+    }
     private objCache: ObjectWriteCache = { present: new Set(), dirs: new Set() };
     private refState: RefState | undefined;
     /** あると分かった reflog のファイル */
@@ -340,7 +353,10 @@ export class FastMicroCommitter {
 
     /** 1 回の保存を記録する。前提から外れたら FastPathUnsupported（何も書く前に判断できるものは書く前に投げる） */
     record(input: MicroCommitInput): MicroCommitOutcome {
+        this.stats.lastPhases = {};
+        this.phaseAt = performance.now();
         this.ensureLoaded();
+        this.phase('load');
         const now = new Date();
         const rel = input.relativeFilePath;
         let tag = input.currentTag;
@@ -360,6 +376,7 @@ export class FastMicroCommitter {
         }
 
         this.reloadIndexIfChanged();
+        this.phase('refsAndIndex');
 
         // git add -- <rel>
         const abs = path.join(this.workTree, ...rel.split('/'));
@@ -380,7 +397,9 @@ export class FastMicroCommitter {
             throw new FastPathUnsupported('ファイルとディレクトリの置き換え');
         }
         const content = fs.readFileSync(abs);
+        this.phase('readFile');
         const blob = writeLooseObject(this.gitDir, 'blob', content, { fsync: this.fsync(), cache: this.objCache });
+        this.phase('blob');
         const filemode = !/^(false|no|off|0)$/i.test(this.config.get('core.filemode') ?? 'true');
         const prev = d.files.get(base);
         const mode = filemode ? ((st.mode & 0o100) ? '100755' : '100644') : (prev?.mode === '100755' ? '100755' : '100644');
@@ -400,9 +419,11 @@ export class FastMicroCommitter {
             throw new FastPathUnsupported(`index を書けない: ${e instanceof Error ? e.message : String(e)}`);
         }
         this.indexStamp = stamp(indexPath(this.gitDir));
+        this.phase('index');
 
         // git write-tree
         const tree = this.treeHash(this.root, true);
+        this.phase('tree');
 
         r = this.refs();
         const currentHead = r.head ?? '';
@@ -444,13 +465,16 @@ export class FastMicroCommitter {
         });
         // 親から変わったパス（git log -- <パス> が「そのパスを変えた」と数えるもの）。同じ中身に戻したあとは
         // 作業ツリーと index が HEAD とずれているので、保存したファイル以外も変わっていることがある
+        this.phase('past');
         const flat = this.flatIndex();
         const parentFlat = currentHead ? this.flatOfCommit(currentHead) : new Map<string, string>();
         const changed: Array<[string, string]> = [];
         for (const [p, v] of flat) {
             if (parentFlat.get(p) !== v) { changed.push([p, v.split(' ')[1]]); }
         }
+        this.phase('flat');
         const commit = writeLooseObject(this.gitDir, 'commit', body, { fsync: this.fsync(), cache: this.objCache });
+        this.phase('commitObject');
         this.setRef(BRANCH, commit, now, r.branch);
         r.branch = commit;
         this.pointHeadAtBranch();
@@ -471,6 +495,7 @@ export class FastMicroCommitter {
         this.objCache.dirs.add(tagDir);
         tags.set(tag, commit);
         this.restampRefs();
+        this.phase('refs');
 
         // 索引を足す
         this.commitTree.set(commit, tree);
@@ -481,6 +506,18 @@ export class FastMicroCommitter {
             fm.set(h, commit);
         }
         this.headFlat = { commit, files: flat };
-        return { kind: 'created', commit, parent: currentHead || undefined, tag };
+
+        // 親から変わったのが保存したファイル 1 つだけで、消えたファイルが無いなら、その中身を結果に載せる。
+        // 層の作成で Git を起動して読み直さずに済む（#37）
+        this.phase('historyIndex');
+        let delta: MicroCommitDelta | undefined;
+        if (currentHead && changed.length === 1 && changed[0][0] === rel && parentFlat.size <= flat.size) {
+            let removed = false;
+            for (const k of parentFlat.keys()) {
+                if (!flat.has(k)) { removed = true; break; }
+            }
+            if (!removed) { delta = { parent: currentHead, files: [{ path: rel, mode: mode as '100644' | '100755', content }] }; }
+        }
+        return { kind: 'created', commit, parent: currentHead || undefined, tag, delta };
     }
 }

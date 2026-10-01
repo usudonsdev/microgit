@@ -12,6 +12,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { hostTraitsFor, HostTraits, Rejection, syncWorkspaceFromGuest, WorkspaceHashCache } from '../boundaryGuard';
 import { AgentConnection, AgentError, AgentReady, LaunchSpec } from './agentConnection';
+import { MicroCommitDelta } from '../microCommit';
 import { DEFAULT_FEEDER_OPTIONS, EnsureResult, FeederOptions, LayerFeeder } from './layerFeeder';
 
 type GitTryRunner = (cwd: string, args: string[]) => string | undefined;
@@ -94,12 +95,20 @@ export class KernelOverlayBackend {
         return this.agent.ready;
     }
 
-    /** 保存でできたコミットの層を作っておく */
-    async recordCommit(shadowRepo: string, hash: string): Promise<EnsureResult> {
-        const r = await this.feeder.ensure(shadowRepo, hash);
+    /**
+     * 保存でできたコミットの層を作っておく。速い記録が「親からの変化」を渡したら、Git を起動せずにそれで作る（#37）。
+     * 使えなければ（親の層が無いなど）今までどおり Git から作る
+     */
+    async recordCommit(shadowRepo: string, hash: string, delta?: MicroCommitDelta): Promise<EnsureResult & { fromDelta: boolean }> {
+        const fast = delta ? await this.feeder.ensureFromDelta(hash, delta) : undefined;
+        const r = fast ?? await this.feeder.ensure(shadowRepo, hash);
         this.commits++;
-        return r;
+        if (fast) { this.deltaLayers++; }
+        return { ...r, fromDelta: fast !== undefined };
     }
+
+    /** 速い記録の変化から作った層の数（Overlay Status） */
+    private deltaLayers = 0;
 
     /** agent の層を全部捨てる（テストや、層の置き場所が一杯のとき） */
     async resetLayers(): Promise<void> {
@@ -205,7 +214,7 @@ export class KernelOverlayBackend {
             `agent=${this.info?.agent ?? '?'} protocol=${this.info?.protocol ?? '?'} kernel=${this.info?.kernel ?? '?'}`,
             `mountOptions=${this.info?.mountOptions ?? '?'}`,
             `launch=${this.agent.spec.description}`,
-            `boot=${this.bootMs}ms uptime=${Math.round((Date.now() - this.startedAt) / 1000)}s commitsRecorded=${this.commits}`,
+            `boot=${this.bootMs}ms uptime=${Math.round((Date.now() - this.startedAt) / 1000)}s commitsRecorded=${this.commits} layersFromDelta=${this.deltaLayers}`,
             `layers(host view)=${this.feeder.layerCount}`,
         ];
         // QEMU などが stderr に出したこと（WHPX が使えず TCG に切り替わった理由など）を最後の数行だけ見せる
