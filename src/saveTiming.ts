@@ -29,6 +29,8 @@ export type SaveTiming = {
     restorableMs?: number;
     totalMs: number;
     result: string;
+    /** 速い記録の中の段階ごとの時間（ms）と、fsync の回数・時間（fsyncCount・fsyncMs）。#45 */
+    commitPhases?: Record<string, number>;
     /** 記録に使ったもの（fast / git）と、層を作ったもの（kernel / nodejs / none） */
     recorder?: string;
     layer?: string;

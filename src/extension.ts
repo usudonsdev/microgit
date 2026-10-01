@@ -867,6 +867,8 @@ const fastFallbackReasons = new Set<string>();
 const recorderStats = { fast: 0, git: 0, lastFallback: '', last: '' as '' | 'fast' | 'git' };
 /** 保存 1 回ごとの段階ごとの時間（#37）。Overlay Status に出す */
 const saveTimings = new SaveTimingLog(200);
+/** 直近の速い記録の段階ごとの時間（保存の計測の記録に載せる。#45） */
+let lastCommitPhases: Record<string, number> | undefined;
 
 /**
  * 1 回の保存を記録する。設定 microgit.fastMicroCommit（既定 true）なら、Git のプロセスを起動しない速い実装
@@ -883,6 +885,7 @@ function recordMicroCommit(input: MicroCommitInput): MicroCommitOutcome {
                 fastCommitters.set(gitDir, fc);
             }
             const out = fc.record(input);
+            lastCommitPhases = { ...fc.stats.lastPhases };
             recorderStats.fast++;
             recorderStats.last = 'fast';
             return out;
@@ -1268,7 +1271,10 @@ async function runShadowCommit(
         });
         timer?.mark('commit');
         timer?.recorded();
-        if (timer) { timer.timing.recorder = recorderStats.last; }
+        if (timer) {
+            timer.timing.recorder = recorderStats.last;
+            if (recorderStats.last === 'fast') { timer.timing.commitPhases = lastCommitPhases; }
+        }
         if (outcome.kind === 'unchanged') {
             return 'unchanged';
         }

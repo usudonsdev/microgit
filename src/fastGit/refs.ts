@@ -3,6 +3,7 @@
  * 扱うのは「ファイル」形式の ref（loose と packed-refs）だけ。reftable は扱わない（呼ぶ側が Git の CLI に任せる）。
  */
 import * as fs from 'fs';
+import { timedFsync } from './fsyncStats';
 import * as path from 'path';
 
 /** 作業ツリーから Git のディレクトリを探す（.git がディレクトリならそれ、gitfile なら書かれた場所） */
@@ -100,7 +101,7 @@ export function writeRef(
     try {
         try {
             fs.writeSync(fd, `${hash}\n`);
-            if (options.fsync) { fs.fsyncSync(fd); }
+            if (options.fsync) { timedFsync(fd); }
         } finally {
             fs.closeSync(fd);
         }
@@ -135,7 +136,7 @@ export function writeSymbolicRef(gitDir: string, name: string, target: string, o
     try {
         try {
             fs.writeSync(fd, want);
-            if (options.fsync) { fs.fsyncSync(fd); }
+            if (options.fsync) { timedFsync(fd); }
         } finally {
             fs.closeSync(fd);
         }
