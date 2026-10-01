@@ -224,31 +224,46 @@ async function fsyncDir(dir: string): Promise<void> {
 
 const isObjectFile = (f: string) => /[\\/]objects[\\/][0-9a-f]{2}[\\/][0-9a-f]{38}$/.test(f);
 
-/** ファイルを確定させる。loose object は確定させてから読み取り専用（Git と同じ 0444）にする */
+/**
+ * ファイルを確定させる。loose object は確定させてから読み取り専用（Git と同じ 0444）にする。
+ * もう読み取り専用のファイル（前のチェックポイントで確定させたオブジェクトや、Git のコマンドが作ったもの）は
+ * 書き込みで開けないので、読み取りで開いて確定させる（Linux・macOS はこれで fsync できる。Windows は
+ * 書き込みの権限が要るので、できなければ飛ばす：0444 にしたのは確定させたあとなので、もう確定している）
+ */
 async function flushFile(f: string): Promise<void> {
-    let h: fs.promises.FileHandle | undefined;
-    try {
-        h = await fs.promises.open(f, 'r+');
-        await h.datasync();
-    } catch (e) {
-        if ((e as NodeJS.ErrnoException).code !== 'ENOENT') { throw e; }
-        return;
-    } finally {
-        await h?.close();
+    for (const flags of ['r+', 'r']) {
+        let h: fs.promises.FileHandle | undefined;
+        try {
+            h = await fs.promises.open(f, flags);
+            await h.datasync();
+            break;
+        } catch (e) {
+            const code = (e as NodeJS.ErrnoException).code;
+            if (code === 'ENOENT') { return; }
+            if (code !== 'EACCES' && code !== 'EPERM') { throw e; }
+            if (flags === 'r') { return; }
+        } finally {
+            await h?.close();
+        }
     }
     if (isObjectFile(f)) { await fs.promises.chmod(f, 0o444).catch(() => undefined); }
 }
 
 function flushFileSync(f: string): void {
-    let fd = -1;
-    try {
-        fd = fs.openSync(f, 'r+');
-        fs.fdatasyncSync(fd);
-    } catch (e) {
-        if ((e as NodeJS.ErrnoException).code !== 'ENOENT') { throw e; }
-        return;
-    } finally {
-        if (fd >= 0) { fs.closeSync(fd); }
+    for (const flags of ['r+', 'r']) {
+        let fd = -1;
+        try {
+            fd = fs.openSync(f, flags);
+            fs.fdatasyncSync(fd);
+            break;
+        } catch (e) {
+            const code = (e as NodeJS.ErrnoException).code;
+            if (code === 'ENOENT') { return; }
+            if (code !== 'EACCES' && code !== 'EPERM') { throw e; }
+            if (flags === 'r') { return; }
+        } finally {
+            if (fd >= 0) { fs.closeSync(fd); }
+        }
     }
     if (isObjectFile(f)) { try { fs.chmodSync(f, 0o444); } catch { /* 読み取り専用にできなくても中身は確定している */ } }
 }

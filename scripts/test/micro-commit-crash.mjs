@@ -214,6 +214,20 @@ function verifyAfter(label, dir, expectedRefs, report) {
     // チェックポイントの最後に、次のジャーナルのファイルを空で作っておく（名前の確定を保存の外でするため）
     const left = fs.readdirSync(jdir).filter((f) => fs.statSync(path.join(jdir, f)).size > 0);
     check('checkpoint: チェックポイントしたジャーナルは消えた（次の空のファイルだけ残る）', left.length === 0 && fs.readdirSync(jdir).length === 1, fs.readdirSync(jdir).join(','));
+    // チェックポイントの前に、ほかの書き手（作り直し、Git のコマンド）が、控えたオブジェクトを読み取り専用（0444）で
+    // 書き直していても、チェックポイントが失敗しない（CI の Linux で、裏で始まったチェックポイントが、作り直しの
+    // あとで続きを走らせ、書き込みで開けずに EACCES になった）
+    {
+        const out = save(dir, fc);
+        const objects = execFileSync('git', ['-C', dir, 'ls-tree', '-r', out.commit ?? 'HEAD'], { encoding: 'utf8' });
+        for (const h of [git(dir, 'rev-parse', 'HEAD').trim(), ...objects.split('\n').filter(Boolean).map((l) => l.split(/\s+/)[2])]) {
+            const f = path.join(dir, '.git', 'objects', h.slice(0, 2), h.slice(2));
+            if (fs.existsSync(f)) { fs.chmodSync(f, 0o444); }
+        }
+        let err = '';
+        try { await fc.checkpoint(); } catch (e) { err = String(e); }
+        check('checkpoint: 控えたオブジェクトがほかの書き手に読み取り専用にされていても、チェックポイントが通る', err === '', err);
+    }
     const before = snapshot(dir);
     for (let i = 0; i < 20; i++) { save(dir, fc); }
     const expected = refsOf(dir);

@@ -426,7 +426,10 @@ export class FastMicroCommitter {
         this.phase('writeRefs');
         if (t.refs.length > 0 || t.head) { this.restampRefs(); }
         this.phase('restamp');
-        if (this.journal?.shouldCheckpoint()) { void this.journal.checkpoint(); }
+        if (this.journal?.shouldCheckpoint()) {
+            // 失敗しても記録は失われない（ジャーナルは消さずに残り、次の起動で作り直す）。待たないので、ここで受け止める
+            this.journal.checkpoint().catch(() => undefined);
+        }
     }
 
     /** ジャーナルのチェックポイント（保存が落ち着いたときに呼ぶ。保存を待たせない） */
