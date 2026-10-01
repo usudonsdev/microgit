@@ -21,6 +21,7 @@ import { Ident, hashObject, ObjectWriteCache, parseGitDate, serializeCommit, ser
 import { listTags, readRef, readSymbolicHead, resolveGitDir, writeRef, writeSymbolicRef } from './fastGit/refs';
 import { isSafeGitRef, MicroCommitDelta, MicroCommitInput, MicroCommitOutcome } from './microCommit';
 import { SHADOW_ATTRIBUTES } from './shadowStore';
+import { fsyncStats } from './fastGit/fsyncStats';
 
 export class FastPathUnsupported extends Error { }
 
@@ -353,6 +354,17 @@ export class FastMicroCommitter {
 
     /** 1 回の保存を記録する。前提から外れたら FastPathUnsupported（何も書く前に判断できるものは書く前に投げる） */
     record(input: MicroCommitInput): MicroCommitOutcome {
+        // fsync の回数と時間（#45）。段階ごとの時間には fsync も含まれるので、別に数えて見分ける
+        const fsyncBefore = { count: fsyncStats.count, ms: fsyncStats.ms };
+        try {
+            return this.recordInner(input);
+        } finally {
+            this.stats.lastPhases.fsyncCount = fsyncStats.count - fsyncBefore.count;
+            this.stats.lastPhases.fsyncMs = fsyncStats.ms - fsyncBefore.ms;
+        }
+    }
+
+    private recordInner(input: MicroCommitInput): MicroCommitOutcome {
         this.stats.lastPhases = {};
         this.phaseAt = performance.now();
         this.ensureLoaded();

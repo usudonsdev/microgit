@@ -6,6 +6,7 @@
  */
 import * as crypto from 'crypto';
 import * as fs from 'fs';
+import { timedFsync } from './fsyncStats';
 import * as path from 'path';
 import * as zlib from 'zlib';
 
@@ -52,7 +53,7 @@ export function writeLooseObject(
     const fd = fs.openSync(tmp, 'wx', 0o444);
     try {
         fs.writeSync(fd, data);
-        if (options.fsync) { fs.fsyncSync(fd); }
+        if (options.fsync) { timedFsync(fd); }
     } finally {
         fs.closeSync(fd);
     }

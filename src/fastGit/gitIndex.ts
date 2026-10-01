@@ -7,6 +7,7 @@
  */
 import * as crypto from 'crypto';
 import * as fs from 'fs';
+import { timedFsync } from './fsyncStats';
 import * as path from 'path';
 
 export type IndexEntry = {
@@ -112,7 +113,7 @@ export function writeIndex(file: string, index: GitIndex, options: { fsync: bool
     try {
         try {
             fs.writeSync(fd, serializeIndex(index));
-            if (options.fsync) { fs.fsyncSync(fd); }
+            if (options.fsync) { timedFsync(fd); }
         } finally {
             fs.closeSync(fd);
         }

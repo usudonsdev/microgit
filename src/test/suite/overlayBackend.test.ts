@@ -149,7 +149,7 @@ suite('MicroGit Overlay backend (save → jump)', function () {
         }
         // 最後の時点に戻して、ほかのテストに影響しないようにする
         if (shadowHead() !== last.head) { await vscode.commands.executeCommand('microgit.jumpToCommit', last.head); }
-        type T = { stages: Record<string, number>; recordedMs?: number; restorableMs?: number; totalMs: number; result: string; recorder?: string; layer?: string };
+        type T = { stages: Record<string, number>; commitPhases?: Record<string, number>; recordedMs?: number; restorableMs?: number; totalMs: number; result: string; recorder?: string; layer?: string };
         const all = await vscode.commands.executeCommand<T[]>('microgit.internal.saveTimings');
         const out = process.env.MICROGIT_TEST_SAVE_BENCH_OUT;
         if (out) { fs.writeFileSync(out, JSON.stringify({ platform: `${process.platform}-${process.arch}`, saves: all, travels }, null, 2)); }
@@ -163,6 +163,9 @@ suite('MicroGit Overlay backend (save → jump)', function () {
             console.log(row('recorded', items.map((i) => i.recordedMs ?? 0)));
             console.log(row('restorable', items.map((i) => i.restorableMs ?? 0)));
             console.log(row('total', items.map((i) => i.totalMs)));
+            // 記録（commit）の中の内訳（#45）
+            const phaseNames = [...new Set(items.flatMap((i) => Object.keys(i.commitPhases ?? {})))];
+            for (const n of phaseNames) { console.log(row(`  c.${n}`, items.map((i) => i.commitPhases?.[n] ?? 0))); }
         };
         table('最初の区間', all.slice(0, windowSize));
         table('最後の区間', all.slice(-windowSize));
