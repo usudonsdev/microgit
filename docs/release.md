@@ -95,7 +95,7 @@ agent 1.1.0を使うため、この混在を見逃した。公開判定では手
 
 | # | 事項 | 決定 |
 |---|---|---|
-| 1 | Marketplace のリポジトリURL | 実在する `https://github.com/usudonsdev/microgit-test` |
+| 1 | Marketplace のリポジトリURL | `https://github.com/usudonsdev/microgit`（2026-10-02、利用者の決定でリポジトリの名前を microgit-test から microgit に変えた。古い URL は GitHub が転送する）。Go の agent のモジュール名（`guest/agent/go.mod`）は、ゲストの部品を作り直さないように古い名前のまま |
 | 2 | 著作権者 | `usudonsdev` |
 | 3 | O-5：自作のOverlayFS部品 | MicroGit本体と同じMIT。別リポジトリへ分離する時点で再検討 |
 | 4 | GPL / LGPLのソース | 各GitHub Releaseに、対応する実行物と同時にソース一式を置く。書面による申し出方式は採らない |

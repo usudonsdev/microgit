@@ -283,6 +283,6 @@ Windows と Linux は GitHub Actions で、配布するパッケージそのも�
 
 MicroGit は研究・開発段階のプロトタイプです。大事なプロジェクトでは、普段どおり Git でコミットしてから使ってください。
 
-- リポジトリ：[usudonsdev/microgit-test](https://github.com/usudonsdev/microgit-test)
+- リポジトリ：[usudonsdev/microgit](https://github.com/usudonsdev/microgit)
 - VS Code Marketplace：[MicroGit](https://marketplace.visualstudio.com/items?itemName=usudonsdev.microgit)
 - Cursor / Open VSX（Cursor などが使う拡張機能のストア）：[microgit](https://open-vsx.org/extension/usudonsdev/microgit)

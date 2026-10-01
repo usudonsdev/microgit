@@ -38,11 +38,11 @@ if (-not (Test-Path $Qemu)) {
 
 if (-not (Test-Path $Image)) {
     $branch = (git -C $Root rev-parse --abbrev-ref HEAD).Trim()
-    $runId = (gh run list -R usudonsdev/microgit-test -w guest.yml -b $branch -s success -L 1 --json databaseId -q '.[0].databaseId')
+    $runId = (gh run list -R usudonsdev/microgit -w guest.yml -b $branch -s success -L 1 --json databaseId -q '.[0].databaseId')
     if (-not $runId) { throw "成功した Guest ワークフローが $branch にない" }
     Write-Host "downloading Image from run $runId"
     New-Item -ItemType Directory -Force $Out | Out-Null
-    gh run download $runId -R usudonsdev/microgit-test -n microgit-guest-x86_64 -D $Out
+    gh run download $runId -R usudonsdev/microgit -n microgit-guest-x86_64 -D $Out
     if ($LASTEXITCODE -ne 0) { throw "gh run download failed" }
 }
 

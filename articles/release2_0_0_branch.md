@@ -119,7 +119,7 @@ commits.forEach((c) => {
 
 拡張機能から `git commit-tree` を直接叩く構成に興味がある方の参考になれば幸いです。
 
-- リポジトリ: [usudonsdev/microgit-test](https://github.com/usudonsdev/microgit-test)
+- リポジトリ: [usudonsdev/microgit](https://github.com/usudonsdev/microgit)
 - VS Code 拡張: [MicroGit](https://marketplace.visualstudio.com/items?itemName=usudonsdev.microgit)
 
 > この記事は v2.0.0 時点の記録です。現行は v4.0.0 で、シャドウ領域は `.microgit_overlay` を使う構成に変わりました。最新の設計は「[Git 高速化の論文を読んで、保存ごとに履歴を残す拡張を作った](https://zenn.dev/usudonsdev/articles/article-zenn-microgit-overlaygit)」に書いています。

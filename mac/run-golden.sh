@@ -14,14 +14,14 @@ IMAGE="${IMAGE:-$OUT/Image}"
 
 if [[ ! -f "$IMAGE" ]]; then
     branch="$(git -C "$ROOT" rev-parse --abbrev-ref HEAD)"
-    run_id="$(gh run list -R usudonsdev/microgit-test -w guest.yml -b "$branch" -s success -L 1 --json databaseId -q '.[0].databaseId')"
+    run_id="$(gh run list -R usudonsdev/microgit -w guest.yml -b "$branch" -s success -L 1 --json databaseId -q '.[0].databaseId')"
     if [[ -z "$run_id" ]]; then
         echo "成功した Guest ワークフローが $branch にない。Actions の画面で確かめる" >&2
         exit 1
     fi
     echo "downloading Image from run $run_id"
     mkdir -p "$OUT"
-    gh run download "$run_id" -R usudonsdev/microgit-test -n microgit-guest-arm64 -D "$OUT"
+    gh run download "$run_id" -R usudonsdev/microgit -n microgit-guest-arm64 -D "$OUT"
 fi
 
 node "$ROOT/scripts/golden/check-guest.mjs" --json "$OUT/guest-result-mac.json" -- \
