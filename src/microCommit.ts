@@ -35,10 +35,19 @@ export type PastCommitMatch = {
     reason: 'tree' | 'file';
 };
 
+/**
+ * 新しいコミットが親から何を変えたか（速い記録だけが付ける。#37）。層の作成で Git を起動せずに済ませるため。
+ * 付けるのは「変わったのが保存したファイル 1 つだけで、消えたファイルが無い」ときだけ
+ */
+export type MicroCommitDelta = {
+    parent: string;
+    files: Array<{ path: string; mode: '100644' | '100755'; content: Buffer }>;
+};
+
 export type MicroCommitOutcome =
     | { kind: 'unchanged' }
     | { kind: 'rewound'; commit: string; reason: 'tree' | 'file'; tag: string }
-    | { kind: 'created'; commit: string; parent?: string; tag: string };
+    | { kind: 'created'; commit: string; parent?: string; tag: string; delta?: MicroCommitDelta };
 
 /** コミットハッシュまたは mb-* タグのみ許可 */
 export function isSafeGitRef(ref: string): boolean {

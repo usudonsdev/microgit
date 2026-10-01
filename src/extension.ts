@@ -448,7 +448,8 @@ export function activate(context: vscode.ExtensionContext) {
                 `useOverlayCheckout=${useOverlayCheckout()}\n` +
                 `durability=${getDurability()}\n` +
                 `microCommit=fast:${recorderStats.fast} git:${recorderStats.git}` +
-                `${recorderStats.lastFallback ? ` (Git のコマンドにした理由: ${recorderStats.lastFallback})` : ''}\n\n` +
+                `${recorderStats.lastFallback ? ` (Git のコマンドにした理由: ${recorderStats.lastFallback})` : ''}\n` +
+                `fastCommit: ${[...fastCommitters.values()].map((f) => `reloads=${f.stats.reloads} indexReloads=${f.stats.indexReloads} gitSpawns=${f.stats.gitSpawns} last=${Object.entries(f.stats.lastPhases).map(([k, v]) => `${k}:${v.toFixed(1)}`).join(",")}`).join(' / ') || '-'}\n\n` +
                 `${saveTimings.describe()}\n\n` +
                 `[kernel backend]\n${kernelText}\n\n` +
                 `[nodejs backend（フォールバック）]\n${describeOverlayEngine()}`;
@@ -1297,10 +1298,11 @@ async function runShadowCommit(
                 void backendSelector.ensureKernel();
             } else {
                 try {
-                    const r = await kernel.recordCommit(shadowRepoPath, commitHash);
+                    // 速い記録が「親からの変化」を知っていれば、それで層を作る（Git を起動しない。#37）
+                    const r = await kernel.recordCommit(shadowRepoPath, commitHash, outcome.kind === 'created' ? outcome.delta : undefined);
                     recordedByKernel = true;
                     ExtensionLogger.log(
-                        `[Overlay/kernel] 層を記録: ${commitHash.substring(0, 7)} ${r.snapshot ? '写しの層' : '差分の層'} ` +
+                        `[Overlay/kernel] 層を記録: ${commitHash.substring(0, 7)} ${r.snapshot ? '写しの層' : '差分の層'}${r.fromDelta ? '（記録の変化から）' : ''} ` +
                         `depth=${r.depth} bytes=${r.bytes} ${r.elapsedMs}ms (${relativeFilePath})`
                     );
                 } catch (kernelErr: unknown) {

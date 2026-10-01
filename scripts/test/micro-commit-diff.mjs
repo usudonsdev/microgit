@@ -82,9 +82,28 @@ const state = { tagA: 'mb-1', tagB: 'mb-1' };
 const counts = {};
 let lastEdit;
 
+let deltas = 0;
 function check(n, label, oa, ob) {
     const same = (x, y) => JSON.stringify(x) === JSON.stringify(y);
-    if (!same(oa, ob)) { throw new Error(`#${n} ${label}: 結果が違う\n cli : ${JSON.stringify(oa)}\n fast: ${JSON.stringify(ob)}`); }
+    // 速い記録だけが付ける「親からの変化」（delta、#37）は比べる前に外し、別に中身を確かめる
+    const { delta, ...obCore } = ob;
+    if (!same(oa, obCore)) { throw new Error(`#${n} ${label}: 結果が違う\n cli : ${JSON.stringify(oa)}\n fast: ${JSON.stringify(obCore)}`); }
+    if (delta) {
+        deltas++;
+        // git diff-tree で見た親からの変化が、delta の 1 ファイルだけで、中身とモードも同じか
+        const raw = cli.run(B, ['diff-tree', '-r', '--no-renames', '-z', delta.parent, ob.commit]).split('\0').filter(Boolean);
+        const changes = [];
+        for (let i = 0; i < raw.length; i += 2) { changes.push({ meta: raw[i], path: raw[i + 1] }); }
+        if (delta.parent !== oa.parent) { throw new Error(`#${n} ${label}: delta の親が違う`); }
+        if (changes.length !== 1 || delta.files.length !== 1 || changes[0].path !== delta.files[0].path) {
+            throw new Error(`#${n} ${label}: delta と diff-tree が違う: ${JSON.stringify(changes)} / ${delta.files.map((f) => f.path)}`);
+        }
+        const [, newMode, , newSha, status] = changes[0].meta.slice(1).split(' ');
+        const blob = execFileSync('git', ['cat-file', 'blob', newSha], { cwd: B });
+        if (!blob.equals(delta.files[0].content) || newMode !== delta.files[0].mode || !['A', 'M'].includes(status)) {
+            throw new Error(`#${n} ${label}: delta の中身・モードが違う（${newMode} ${status}）`);
+        }
+    }
     const snap = (d) => ({
         head: cli.tryRun(d, ['rev-parse', 'HEAD'])?.trim(),
         sym: cli.tryRun(d, ['symbolic-ref', '-q', 'HEAD'])?.trim(),
@@ -159,7 +178,7 @@ if (CRLF) {
     }
     console.log('CRLF のまま記録された（両方）');
 }
-console.log(JSON.stringify({ saves: SAVES, fallbacks, stats: fast.stats, counts }, null, 1));
+console.log(JSON.stringify({ saves: SAVES, fallbacks, deltas, stats: fast.stats, counts }, null, 1));
 console.log('OK: CLI の実装と速い実装で、毎回の結果と HEAD・ref・index が一致し、git fsck --strict も通った');
 fs.rmSync(A, { recursive: true, force: true });
 fs.rmSync(B, { recursive: true, force: true });

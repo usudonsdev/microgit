@@ -20,6 +20,7 @@
  */
 import { spawnSync } from 'child_process';
 import { listCommitChanges, TreeChange } from '../overlay';
+import { MicroCommitDelta } from '../microCommit';
 import { AgentConnection, AgentError } from './agentConnection';
 
 type GitTryRunner = (cwd: string, args: string[]) => string | undefined;
@@ -180,6 +181,50 @@ export class LayerFeeder {
             await this.agent.call(request);
         }
         return { op: 'commit', layer, parent, opsUpload: upload };
+    }
+
+    /**
+     * 速い記録が知っている「親からの変化」（変わったファイルと中身）で、差分の層を作る。Git を起動しない（#37）。
+     * 親の層が agent にあり、深さが上限未満で、層の数が上限未満のときだけ使える。使えなければ undefined を返す
+     * （呼ぶ側は ensure に任せる。ensure は Git から作り、必要なら写しの層や作り直しもする）
+     */
+    async ensureFromDelta(hash: string, delta: MicroCommitDelta): Promise<EnsureResult | undefined> {
+        const started = Date.now();
+        const existing = this.known.get(hash);
+        if (existing !== undefined) {
+            return { layer: hash, created: false, snapshot: false, depth: existing, bytes: 0, elapsedMs: 0 };
+        }
+        const parentDepth = this.known.get(delta.parent);
+        if (parentDepth === undefined || parentDepth >= this.options.maxDepth) { return undefined; }
+        if (this.known.size >= this.options.maxLayers) { return undefined; }
+        if (!delta.files.every((f) => isSafeGitPath(f.path))) { return undefined; }
+
+        let bytes = 0;
+        const uploads: Upload[] = [];
+        const ops = delta.files.map((f, index) => {
+            bytes += f.content.length;
+            const mode = f.mode === '100755' ? '755' : '644';
+            if (this.agent.spec.maxFrameBytes) {
+                const id = `d-${index}-${hash}`;
+                uploads.push({ id, data: f.content });
+                return ['writeupload', f.path, id, mode];
+            }
+            return ['writeb64', f.path, f.content.toString('base64'), mode];
+        });
+        if (bytes > this.options.maxCommitBytes) { return undefined; }
+
+        let res: Record<string, unknown>;
+        try {
+            await this.stageUploads(uploads);
+            res = await this.agent.call(await this.commitRequest(hash, delta.parent, ops));
+        } catch (e) {
+            // 親の層が消えていた・同じ名前の層があった・置き場所が一杯：ensure に任せる（作り直しまでする）
+            if (e instanceof AgentError && ['EEXIST', 'UNKNOWN_LAYER', 'ENOSPC'].includes(e.code)) { return undefined; }
+            throw e;
+        }
+        const depth = Number(res.depth ?? parentDepth + 1);
+        this.known.set(hash, depth);
+        return { layer: hash, created: res.existed !== true, snapshot: false, depth, bytes, elapsedMs: Date.now() - started };
     }
 
     /** コミット hash の層が agent にあるようにする */
