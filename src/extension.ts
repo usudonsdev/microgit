@@ -673,9 +673,12 @@ function syncBranchPolicy(rootPath: string): boolean {
 /** bare + gitfile を用意。importFromParent=true のとき親 refs/microgit から取り込む */
 function prepareShadowForBranch(rootPath: string, mainBranch: string, importFromParent: boolean): void {
     try {
-        checkpointShadowSync(path.join(rootPath, '.microgit_shadow')); // ブランチを切り替える前の shadow の分
+        // 保存のたびに（同じブランチで importFromParent=false）ここを通るので、ジャーナルのチェックポイントと作り直しは、
+        // shadow を付け替える・親から取り込むときだけにする（保存のたびにすると、毎回ジャーナルを閉じて確定させてしまい、
+        // 次の保存が新しいジャーナルを作る＝ディレクトリの fsync が 1 回増える。CI の Linux・macOS で fsync が 2 回になった）
+        if (importFromParent) { checkpointShadowSync(path.join(rootPath, '.microgit_shadow')); } // 付け替える前の shadow の分
         ensureShadowRepoForBranch(rootPath, mainBranch, (m, l) => ExtensionLogger.log(m, l));
-        recoverShadowJournals(path.join(rootPath, '.microgit_shadow'));
+        if (importFromParent) { recoverShadowJournals(path.join(rootPath, '.microgit_shadow')); }
         if (importFromParent) {
             importFromParentRefs(rootPath, mainBranch, (m, l) => ExtensionLogger.log(m, l));
         }
