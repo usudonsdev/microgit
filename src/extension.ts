@@ -243,10 +243,13 @@ export function activate(context: vscode.ExtensionContext) {
                     const result = await runShadowCommit(rootPath, absPath, snapshot, timer);
                     saveResult = result;
                     if ((result === 'created' || result === 'rewound') && useOverlayCheckout()) {
-                        // 新しいコミットの層をカーネル版で作れたなら、ワークスペースはもう保存した内容なので何もしない。
-                        // それ以外（Node.js 版、同じ中身に戻した）は今までどおり。HEAD は記録した結果から取る（#37）
+                        // 新しいコミットのときは何もしない。ワークスペースはもう保存した内容で、層は runShadowCommit で
+                        // 書き出してある（カーネル版は agent に、Node.js 版は .microgit_overlay/layers に）。
+                        // Node.js 版は以前ここで「過去の姿のビュー」を作り直していて、保存のたびに 0.5〜0.6 秒かかっていた（#41）。
+                        // ビューは、過去に戻るときに、いちばん近い展開済みのビューから必要な層だけ当てて作る。
+                        // 同じ中身に戻した（rewound）ときは、ワークスペースを合わせるので今までどおり。HEAD は記録した結果から取る（#37）
                         const outcome = lastSaveOutcome as { head: string; layerByKernel: boolean } | undefined;
-                        if (!(result === 'created' && outcome?.layerByKernel)) {
+                        if (result === 'rewound') {
                             const head = outcome?.head ?? tryRunGit(path.join(rootPath, '.microgit_shadow'), ['rev-parse', 'HEAD'])?.trim();
                             if (head) {
                                 await applyOverlayCheckout(rootPath, head, { syncWorkspace: result === 'rewound' });

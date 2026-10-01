@@ -129,15 +129,30 @@ suite('MicroGit Overlay backend (save → jump)', function () {
         await vscode.commands.executeCommand('microgit.internal.waitForSaves');
         await vscode.commands.executeCommand('microgit.internal.saveTimings', true);
         const files = Array.from({ length: 20 }, (_, i) => `bench/dir${i % 4}/file${i}.ts`);
+        const heads: Array<{ head: string; rel: string }> = [];
         for (let n = 0; n < benchSaves; n++) {
             const rel = files[n % files.length];
-            await editAndSave(rel, `// ${rel}\n${'x'.repeat(200)}\n// save ${n}\n`);
+            const head = await editAndSave(rel, `// ${rel}\n${'x'.repeat(200)}\n// save ${n}\n`);
+            heads.push({ head, rel });
             await vscode.commands.executeCommand('microgit.internal.waitForSaves');
         }
+        // 過去に戻る操作の時間（#41）：途中の時点と最後の時点を 5 回ずつ行き来し、戻った中身が保存したときと同じか確かめる
+        const travels: number[] = [];
+        const middle = heads[Math.floor(heads.length / 2)];
+        const last = heads[heads.length - 1];
+        for (let i = 0; i < 10; i++) {
+            const to = i % 2 === 0 ? middle : last;
+            const t0 = performance.now();
+            await vscode.commands.executeCommand('microgit.jumpToCommit', to.head);
+            travels.push(performance.now() - t0);
+            assertRestored(to.head, to.rel);
+        }
+        // 最後の時点に戻して、ほかのテストに影響しないようにする
+        if (shadowHead() !== last.head) { await vscode.commands.executeCommand('microgit.jumpToCommit', last.head); }
         type T = { stages: Record<string, number>; recordedMs?: number; restorableMs?: number; totalMs: number; result: string; recorder?: string; layer?: string };
         const all = await vscode.commands.executeCommand<T[]>('microgit.internal.saveTimings');
         const out = process.env.MICROGIT_TEST_SAVE_BENCH_OUT;
-        if (out) { fs.writeFileSync(out, JSON.stringify({ platform: `${process.platform}-${process.arch}`, saves: all }, null, 2)); }
+        if (out) { fs.writeFileSync(out, JSON.stringify({ platform: `${process.platform}-${process.arch}`, saves: all, travels }, null, 2)); }
         const pct = (xs: number[], p: number) => { const s = [...xs].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.floor((s.length - 1) * p))] ?? 0; };
         const names = ['queue', 'policy', 'write', 'ensure', 'commit', 'layer', 'fileLog', 'overlay', 'logFile', 'ui'];
         const windowSize = Math.min(20, all.length);
@@ -151,6 +166,7 @@ suite('MicroGit Overlay backend (save → jump)', function () {
         };
         table('最初の区間', all.slice(0, windowSize));
         table('最後の区間', all.slice(-windowSize));
+        console.log(`[save-bench] 過去に戻る操作 10 回：p50 ${pct(travels, 0.5).toFixed(1)}  p95 ${pct(travels, 0.95).toFixed(1)}  最初 ${travels[0].toFixed(1)} ms`);
         assert.strictEqual(all.length, benchSaves);
     });
 
