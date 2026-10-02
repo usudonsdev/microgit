@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<!-- 記事 articles/microgit-v5-kernel-overlay.md の図「保存したとき」。
+     PNG にする：node docs/diagrams/render.mjs（images/microgit-v5-save-flow.png ができる） -->
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    width: 1000px; background: #ffffff; color: #1f2937;
+    font-family: "Yu Gothic UI", "Yu Gothic", "Meiryo", "Hiragino Sans", sans-serif;
+    padding: 32px 40px 36px;
+  }
+  h1 { font-size: 30px; font-weight: 700; margin-bottom: 6px; }
+  .lead { font-size: 18px; color: #4b5563; margin-bottom: 26px; }
+  .box {
+    border: 2px solid #9ca3af; border-radius: 12px; padding: 14px 18px;
+    background: #f9fafb;
+  }
+  .box .title { font-size: 21px; font-weight: 700; margin-bottom: 4px; }
+  .box .text { font-size: 17px; line-height: 1.6; color: #374151; }
+  .you   { border-color: #2563eb; background: #eff6ff; }
+  .mg    { border-color: #059669; background: #ecfdf5; }
+  .store { border-color: #7c3aed; background: #f5f3ff; }
+  .later { border-color: #d97706; background: #fffbeb; border-style: dashed; }
+  .arrow { display: flex; justify-content: center; align-items: center; gap: 12px; padding: 10px 0; }
+  .arrow svg { display: block; }
+  .arrow .label { font-size: 16px; color: #4b5563; }
+  ul.items { list-style: none; }
+  ul.items li { font-size: 17px; line-height: 1.6; color: #374151; padding-left: 1.1em; text-indent: -1.1em; }
+  ul.items li::before { content: "・"; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+  .col { display: flex; flex-direction: column; }
+  .num {
+    display: inline-block; width: 30px; height: 30px; line-height: 30px; text-align: center;
+    border-radius: 50%; background: #059669; color: #fff; font-size: 17px; font-weight: 700; margin-right: 8px;
+  }
+  .time { font-size: 16px; color: #065f46; font-weight: 700; margin-top: 6px; }
+  .note { margin-top: 22px; }
+</style>
+</head>
+<body>
+  <h1>保存したとき（Ctrl+S）</h1>
+  <p class="lead">あなたが待つのは VS Code の保存だけ。MicroGit の記録は裏で順番に進みます。</p>
+
+  <div class="box you">
+    <div class="title">あなた：Ctrl+S で保存</div>
+    <div class="text">VS Code がファイルをディスクに書き、すぐに編集に戻れます。</div>
+  </div>
+
+  <div class="arrow"><svg width="24" height="34" viewBox="0 0 24 34"><line x1="12" y1="0" x2="12" y2="22" stroke="#6b7280" stroke-width="4"/><polygon points="2,20 22,20 12,34" fill="#6b7280"/></svg><div class="label">裏で MicroGit に知らせる</div></div>
+
+  <div class="box mg">
+    <div class="title">MicroGit：保存を 1 回ずつ順番に処理</div>
+    <div class="text">どのファイルが保存されたかを知っているので、そのファイルの分だけ処理します。</div>
+  </div>
+
+  <div class="two">
+    <div class="col">
+      <div class="arrow"><svg width="24" height="34" viewBox="0 0 24 34"><line x1="12" y1="0" x2="12" y2="22" stroke="#6b7280" stroke-width="4"/><polygon points="2,20 22,20 12,34" fill="#6b7280"/></svg></div>
+      <div class="box mg">
+        <div class="title"><span class="num">1</span>履歴に残す</div>
+        <ul class="items">
+          <li>停電に備えて、まず 1 か所に書く<br>（確定を待つのは、ここ 1 回だけ）</li>
+          <li>Git と同じ形式のファイルを<br>Git のプログラムを使わずに書く</li>
+        </ul>
+        <div class="time">Windows で約 25 ms（Git なら約 107 ms）</div>
+      </div>
+      <div class="arrow"><svg width="24" height="34" viewBox="0 0 24 34"><line x1="12" y1="0" x2="12" y2="22" stroke="#6b7280" stroke-width="4"/><polygon points="2,20 22,20 12,34" fill="#6b7280"/></svg></div>
+      <div class="box store">
+        <div class="title">隠しリポジトリ（Git の履歴）</div>
+        <div class="text">中身が変わった保存 1 回が、コミット 1 つに。<br>普通の Git でも読めます。<br>あなたのブランチやコミットは変わりません。</div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="arrow"><svg width="24" height="34" viewBox="0 0 24 34"><line x1="12" y1="0" x2="12" y2="22" stroke="#6b7280" stroke-width="4"/><polygon points="2,20 22,20 12,34" fill="#6b7280"/></svg></div>
+      <div class="box mg">
+        <div class="title"><span class="num">2</span>戻るための準備</div>
+        <div class="text">
+          変わったファイルだけを<br>OverlayFS に「1 枚の差分」として積む
+        </div>
+        <div class="time">次に過去へ戻るときに、すぐ組み立てられる</div>
+      </div>
+      <div class="arrow"><svg width="24" height="34" viewBox="0 0 24 34"><line x1="12" y1="0" x2="12" y2="22" stroke="#6b7280" stroke-width="4"/><polygon points="2,20 22,20 12,34" fill="#6b7280"/></svg></div>
+      <div class="box store">
+        <div class="title">OverlayFS（差分の重なり）</div>
+        <div class="text">Windows・Mac では、拡張機能に入った<br>小さな Linux の中にあります。<br>消えても、Git の履歴から作り直せます。</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="box later note">
+    <div class="title">保存が 0.3 秒落ち着いたら</div>
+    <div class="text">画面（履歴のグラフ）を更新し、書いたファイルをまとめてディスクに確定させます。保存の待ち時間には入りません。</div>
+  </div>
+<script>document.body.dataset.h = Math.ceil(document.body.getBoundingClientRect().height);</script>
+</body>
+</html>
