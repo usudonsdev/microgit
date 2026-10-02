@@ -8,7 +8,8 @@
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import { timedFsync } from './fsyncStats';
-import * as path from 'path';
+import * as path from 'path';
+import { renameReplaceSync } from './renameRetry';
 
 export type IndexEntry = {
     ctimeSec: number; ctimeNsec: number;
@@ -117,7 +118,7 @@ export function writeIndex(file: string, index: GitIndex, options: { fsync: bool
         } finally {
             fs.closeSync(fd);
         }
-        fs.renameSync(lock, file);
+        renameReplaceSync(lock, file);
     } catch (e) {
         fs.rmSync(lock, { force: true });
         throw e;

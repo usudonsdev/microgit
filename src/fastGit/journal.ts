@@ -181,7 +181,12 @@ export class Journal {
                 this.written = new Set();
                 // 3. 古いファイルの記録で書いた Git のファイルと、その名前（ディレクトリ）を確定させてから、古いファイルを消す
                 fs.closeSync(oldFd);
-                for (const f of files) { await flushFile(f); }
+                // オブジェクトは上書きされないので裏で確定させる。ref・HEAD・index など上書きされうるファイルは、
+                // 開いて確定させて閉じるまでを同期で一度に行う。裏で開いたままにすると、その間の保存の上書きの rename が
+                // Windows で EPERM になる（5.0.0 の公開前の確認、windows-latest で 105 回に 1 回）
+                for (const f of files) {
+                    if (isObjectFile(f)) { await flushFile(f); } else { flushFileSync(f); }
+                }
                 for (const d of parentDirs(files)) { await fsyncDir(d); }
                 await fs.promises.unlink(oldFile).catch(() => undefined);
             } finally {

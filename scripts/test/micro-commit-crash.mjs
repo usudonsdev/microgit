@@ -237,5 +237,31 @@ function verifyAfter(label, dir, expectedRefs, report) {
     verifyAfter('checkpoint', dir, expected, report);
 }
 
+// ---------------- 5. concurrent（停電ではなく、裏のチェックポイントと保存が重なる場面）
+// 5.0.0 の公開前の確認（run 36941251753、windows-latest）で、裏のチェックポイントがブランチのファイルを開いて
+// 確定させている間に保存がそのファイルを上書きし、Windows の rename が EPERM になった（その保存は Git のコマンドで
+// 記録された）。チェックポイントを始めてから、イベントループを回しつつ保存を重ねても、速い記録が失敗しないこと
+{
+    const dir = makeRepo();
+    const fc = new FastMicroCommitter(dir, () => true);
+    let errors = 0;
+    let first = '';
+    for (let round = 0; round < 4; round++) {
+        for (let i = 0; i < 3; i++) { save(dir, fc); }
+        let done = false;
+        const p = fc.checkpoint().then(() => { done = true; });
+        // チェックポイントが終わるまで（最大 100 回）、イベントループを 1 回回すごとに保存する。
+        // 保存がこれほど続くと、チェックポイントは追いつかない（実際の保存の間隔はもっと長い）ので、回数で止める。
+        // 直す前のコードでは、手元の Windows で 4 回のうち 2 回目から EPERM になった
+        for (let k = 0; k < 100 && !done; k++) {
+            await new Promise((r) => setImmediate(r));
+            try { save(dir, fc); } catch (e) { errors++; first ||= String(e); }
+        }
+        await p;
+    }
+    check('concurrent: チェックポイントと重なった保存も、速い記録で書ける', errors === 0, `errors=${errors} ${first.slice(0, 200)}`);
+    git(dir, 'fsck', '--strict', '--no-progress', '--no-dangling');
+}
+
 console.log(results.join('\n'));
-console.log(process.exitCode ? 'NG' : 'OK: 停電を模した 4 つの場面で、作り直したあとの履歴が期待どおりで、git fsck --strict が通った');
+console.log(process.exitCode ? 'NG' : 'OK: 停電を模した 4 つの場面で、作り直したあとの履歴が期待どおりで git fsck --strict が通り、チェックポイントと重なった保存も速い記録で書けた');

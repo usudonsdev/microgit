@@ -4,6 +4,7 @@
  */
 import * as fs from 'fs';
 import { timedFsync } from './fsyncStats';
+import { renameReplaceSync } from './renameRetry';
 import * as path from 'path';
 
 /** 作業ツリーから Git のディレクトリを探す（.git がディレクトリならそれ、gitfile なら書かれた場所） */
@@ -105,7 +106,7 @@ export function writeRef(
         } finally {
             fs.closeSync(fd);
         }
-        fs.renameSync(lock, file);
+        renameReplaceSync(lock, file);
     } catch (e) {
         fs.rmSync(lock, { force: true });
         throw e;
@@ -140,7 +141,7 @@ export function writeSymbolicRef(gitDir: string, name: string, target: string, o
         } finally {
             fs.closeSync(fd);
         }
-        fs.renameSync(lock, file);
+        renameReplaceSync(lock, file);
     } catch (e) {
         fs.rmSync(lock, { force: true });
         throw e;
