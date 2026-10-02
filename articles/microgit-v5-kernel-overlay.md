@@ -327,7 +327,7 @@ GitHub の自動テスト用の 5 台のパソコンでも、公開したもの�
 
 ## いまの状態
 
-5.0.0 は、2026 年 10 月 2 日に、Cursor などが使う拡張機能のストア **Open VSX** に公開しました。Cursor の拡張機能の画面で「MicroGit」を検索すると入れられます。VS Code Marketplace への公開は準備中です。
+5.0.0 は、2026 年 10 月 2 日に、**VS Code Marketplace** と、Cursor などが使う拡張機能のストア **Open VSX** の両方に公開しました。VS Code でも Cursor でも、拡張機能の画面で「MicroGit」を検索すると入れられます。
 
 公開の条件は「設計で対象にしたすべての OS（Linux x64・Linux arm64・Windows x64・Apple silicon Mac）で、新方式が実際に動くこと」と決めていて、旧方式への切り替えで動いただけでは合格にしていません。Windows と Linux は GitHub Actions で、配布するパッケージそのものを VS Code に入れて毎回確かめています。Mac は GitHub の実行環境では仮想化が使えないため、実機で確かめました（公開したパッケージとの関係は、上の「実機テストで、古い部品が混ざっていた」に書いたとおりです）。
 
@@ -347,4 +347,4 @@ MicroGit は研究・開発段階のプロトタイプです。大事なプロ�
 
 - リポジトリ：[usudonsdev/microgit](https://github.com/usudonsdev/microgit)
 - Cursor / Open VSX（Cursor などが使う拡張機能のストア）：[microgit](https://open-vsx.org/extension/usudonsdev/microgit)
-- VS Code Marketplace：[MicroGit](https://marketplace.visualstudio.com/items?itemName=usudonsdev.microgit)（5.0.0 は公開の準備中）
+- VS Code Marketplace：[MicroGit](https://marketplace.visualstudio.com/items?itemName=usudonsdev.microgit)
