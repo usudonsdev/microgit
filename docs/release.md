@@ -113,6 +113,9 @@ agent 1.1.0を使うため、この混在を見逃した。公開判定では手
 | 2026-10-02 | `master` に統合（#51、#53）。`v5.0.0` のタグで package.yml（run 36944669077）が 5 つの環境の確認を通り、リリースの下書きを作った |
 | 2026-10-02 | **Open VSX に公開**（`ovsx publish`、5 つの VSIX）。Open VSX から配られる VSIX のハッシュが、`vsix.json` と一致することを確かめた。GitHub Release `v5.0.0` を公開した（GPL・LGPL の部品のソースを同時に取れるようにするため） |
 | 2026-10-02 | VS Code Marketplace は、発行者のトークンの期限切れで未公開（新しいトークン待ち） |
+| 2026-10-02 | 利用者が Azure DevOps で新しいトークン（組織は All accessible organizations、範囲は Marketplace の Manage だけ）を作り、`vsce login usudonsdev` で登録した。**VS Code Marketplace に公開**（`vsce publish --packagePath` に GitHub Release `v5.0.0` の 5 つの VSIX を渡した。公開の前に `vsix.json` の sha256 と一致することを確かめた）。Marketplace から配られる 5 つの VSIX（`vspackage?targetPlatform=…`）を展開し、公開したファイルとバイト単位で一致することを確かめた |
+
+**次の版への宿題：Marketplace の認証を Microsoft Entra ID に移す。** Marketplace に公開できるトークン（「All accessible organizations」のグローバルなトークン）は、Azure DevOps で **2026-12-01 に廃止** される。それ以降は `vsce publish --azure-credential`（Microsoft Entra ID）で公開する必要がある（VS Code の文書「Publishing Extensions」）。今回のトークンの期限も 12 月 1 日までにした。次の版を出す前に、手元から `--azure-credential` で公開できるか（Azure CLI でのサインインと、そのアカウントが発行者 `usudonsdev` の一員であること）を確かめる。
 
 途中の失敗も残す。最初のマージが GitHub のエラーで止まったのに気づかず、古い master（4.0.0）に `v5.0.0` のタグを打って push した。数十秒で消し、それによるビルドもリリースも作られていない。その後、Windows の公開前の確認で EPERM の競合（#53）が見つかったため、まだ公開していなかった `v5.0.0` のタグを、直したあとのコミットに付け直した。
 

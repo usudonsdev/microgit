@@ -4,7 +4,7 @@ All notable changes to the "MicroGit" extension will be documented in this file.
 
 ## [Unreleased]
 
-## [5.0.0] - 未公開（Marketplace に出した日を入れる）
+## [5.0.0] - 2026-10-02
 
 ### Added
 - **プラットフォーム別の VSIX**（#19）。Windows x64 用には同梱の QEMU と最小の Linux、Linux x64 / arm64 用には agent、Apple silicon Mac 用には `microgit-vm` と arm64 の最小 Linux が入る。それ以外（Intel Mac、Windows on Arm など）には Node.js 版だけの universal が配られる
