@@ -13,6 +13,7 @@
 | `micro-commit-fast-vs-git-win32-process.json` | 同上 | 両方 fsync なし | 同上 |
 | `micro-commit-fast-vs-git-linux-wsl2-power.json` | 同上（WSL2） | 両方 power | 条件をそろえた比較 |
 | `micro-commit-fast-vs-git-linux-wsl2-process.json` | 同上（WSL2） | 両方 fsync なし | 条件をそろえた比較 |
+| `micro-commit-journal-vs-git-win32-power.json` | ジャーナル（ADR-0014）を入れた後の速い記録と、ふつうの Git（保存 300 回、2026-10-02） | 両方 power | 条件をそろえた比較。履歴 300 回の区間で、速い記録 24.5 ms、Git 107.2 ms（p50）。記事 `articles/microgit-v5-kernel-overlay.md` の表の出どころ |
 
 ## 保存 1 回の処理全体（#37）
 
