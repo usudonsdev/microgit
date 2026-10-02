@@ -52,9 +52,9 @@ Ctrl+Z で少し前のコードまで戻して、そこから別の書き方を�
 
 保存したときと、過去に戻るときに、裏で何が起きているかを図にしました。細かい仕組みは、このあとの節で順に説明します。
 
-![保存したときの流れ。Ctrl+S のあと、MicroGit が裏で「履歴に残す」と「戻るための準備」を行う](/images/microgit-v5-save-flow.png)
+![保存したときの流れ。Ctrl+S のあと、MicroGit が裏で「履歴に残す」と「戻るための準備」を行う](/images/microgit-v5-save-flow.png =680x)
 
-![過去に戻るときの流れ。その時点までの差分を重ねて姿を作り、確かめてから作業フォルダに書き戻す](/images/microgit-v5-restore-flow.png)
+![過去に戻るときの流れ。その時点までの差分を重ねて姿を作り、確かめてから作業フォルダに書き戻す](/images/microgit-v5-restore-flow.png =680x)
 
 ---
 
