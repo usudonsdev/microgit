@@ -83,11 +83,17 @@ const counts = {};
 let lastEdit;
 
 let deltas = 0;
+let diskChecks = 0;
 function check(n, label, oa, ob) {
     const same = (x, y) => JSON.stringify(x) === JSON.stringify(y);
     // 速い記録だけが付ける「親からの変化」（delta、#37）は比べる前に外し、別に中身を確かめる
     const { delta, ...obCore } = ob;
     if (!same(oa, obCore)) { throw new Error(`#${n} ${label}: 結果が違う\n cli : ${JSON.stringify(oa)}\n fast: ${JSON.stringify(obCore)}`); }
+    // 速い記録は Git のファイルの書き出しを遅らせる（ADR-0015）。ディスクの状態を比べるのは、書き出したときだけ。
+    // 毎回ではなく 4 回に 1 回くらいにして、何回分かを貯めてからまとめて書き出す場合も確かめる
+    if (rand() >= 0.25) { return; }
+    fast.flush();
+    diskChecks++;
     if (delta) {
         deltas++;
         // git diff-tree で見た親からの変化が、delta の 1 ファイルだけで、中身とモードも同じか
@@ -126,6 +132,7 @@ function save(n, rel, label) {
     } catch (e) {
         if (!(e instanceof FastPathUnsupported)) { throw e; }
         fallbacks++;
+        fast.flush(); // 拡張機能も、Git のコマンドで記録する前に書き出す
         ob = recordMicroCommitViaGitCli(cli, input(B, state.tagB));
         fast.invalidate();
     }
@@ -156,6 +163,7 @@ for (let n = 1; n < SAVES; n++) {
         // 過去に戻る操作（Git の CLI で。両方同じ操作）：少し前のコミットへ detached HEAD にして、作業ツリーと index も合わせる
         const log = cli.run(A, ['log', '--format=%H', '-n', '8']).trim().split('\n');
         const target = log[Math.min(log.length - 1, 1 + Math.floor(rand() * (log.length - 1)))];
+        fast.flush(); // 拡張機能も、過去に戻る前に書き出す（関所）
         for (const d of [A, B]) {
             git(d, ['checkout', '-q', '--detach', target]);
         }
@@ -170,6 +178,7 @@ for (let n = 1; n < SAVES; n++) {
     }
 }
 
+fast.flush();
 for (const d of [A, B]) { git(d, ['fsck', '--strict', '--no-progress']); }
 if (CRLF) {
     for (const d of [A, B]) {
@@ -178,7 +187,7 @@ if (CRLF) {
     }
     console.log('CRLF のまま記録された（両方）');
 }
-console.log(JSON.stringify({ saves: SAVES, fallbacks, deltas, stats: fast.stats, counts }, null, 1));
+console.log(JSON.stringify({ saves: SAVES, fallbacks, deltas, diskChecks, stats: fast.stats, counts }, null, 1));
 console.log('OK: CLI の実装と速い実装で、毎回の結果と HEAD・ref・index が一致し、git fsck --strict も通った');
 fs.rmSync(A, { recursive: true, force: true });
 fs.rmSync(B, { recursive: true, force: true });
