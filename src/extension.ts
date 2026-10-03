@@ -26,6 +26,7 @@ import { FastMicroCommitter } from './fastMicroCommit';
 import { SaveTimer, SaveTimingLog } from './saveTiming';
 import { firstTagAtHead, readRef, readSymbolicHead, resolveGitDir } from './fastGit/refs';
 import { recoverJournals } from './fastGit/journal';
+import { flushPendingGitWrites, registerPendingFlusher } from './fastGit/pendingWrites';
 import { GitRunner, isSafeGitRef, MicroCommitInput, MicroCommitOutcome, recordMicroCommitViaGitCli } from './microCommit';
 import { findInPath, KernelSettings, planLaunch } from './kernel/launchers';
 import {
@@ -453,7 +454,7 @@ export function activate(context: vscode.ExtensionContext) {
                 `durability=${getDurability()}\n` +
                 `microCommit=fast:${recorderStats.fast} git:${recorderStats.git}` +
                 `${recorderStats.lastFallback ? ` (Git のコマンドにした理由: ${recorderStats.lastFallback})` : ''}\n` +
-                `fastCommit: ${[...fastCommitters.values()].map((f) => `reloads=${f.stats.reloads} indexReloads=${f.stats.indexReloads} gitSpawns=${f.stats.gitSpawns} last=${Object.entries(f.stats.lastPhases).map(([k, v]) => `${k}:${v.toFixed(1)}`).join(",")}`).join(' / ') || '-'}\n\n` +
+                `fastCommit: ${[...fastCommitters.values()].map((f) => `reloads=${f.stats.reloads} indexReloads=${f.stats.indexReloads} gitSpawns=${f.stats.gitSpawns} materialized=${f.stats.materializations}/${f.stats.materializedSaves}saves externalWins=${f.stats.externalWins} last=${Object.entries(f.stats.lastPhases).map(([k, v]) => `${k}:${v.toFixed(1)}`).join(",")}`).join(' / ') || '-'}\n\n` +
                 `${saveTimings.describe()}\n\n` +
                 `[kernel backend]\n${kernelText}\n\n` +
                 `[nodejs backend（フォールバック）]\n${describeOverlayEngine()}`;
@@ -845,6 +846,8 @@ function runGit(
     args: string[],
     options?: { env?: NodeJS.ProcessEnv }
 ): string {
+    // 隠しリポジトリを読む前に、速い記録が貯めている Git のファイルを書き出させる（ADR-0015）
+    flushPendingGitWrites(cwd);
     // core.quotepath=false: 既定（true）では --name-only などが日本語などのパスを "\343\203\241..." のように
     // エスケープして出し、それをパスとして使うと別のファイルを指してしまう（#21 の N-6）
     // durabilityGitArgs: 保存の記録（commit-tree・update-ref など）を、設定した永続性の水準で書く（#11 の O-11）
@@ -870,6 +873,24 @@ const gitRunner: GitRunner = { run: runGit, tryRun: tryRunGit };
 
 /** shadow の Git のディレクトリごとの速い記録（#32）。ブランチを切り替えると shadow の指す bare が変わるので、bare で分ける */
 const fastCommitters = new Map<string, FastMicroCommitter>();
+/**
+ * 関所（ADR-0015）：隠しリポジトリを読む前に、その隠しリポジトリの速い記録が貯めている Git のファイルを書き出す。
+ * target が無ければ全部。ふつうのリポジトリ（隠しリポジトリの外）への Git の呼び出しでは書き出さない
+ */
+registerPendingFlusher((target) => {
+    const t = target ? path.resolve(target) : undefined;
+    const inside = (dir: string) => !!t && (t === dir || t.startsWith(dir + path.sep));
+    for (const fc of fastCommitters.values()) {
+        if (!fc.hasPending) { continue; }
+        if (!t || inside(path.resolve(fc.workTree)) || inside(path.resolve(fc.gitDir))) {
+            try {
+                fc.flush();
+            } catch (e) {
+                ExtensionLogger.log(`[記録] 貯めていた記録の書き出しに失敗（ジャーナルから次の起動で作り直します）: ${e instanceof Error ? e.message : String(e)}`, 'WARN');
+            }
+        }
+    }
+});
 /** 速い記録を使えなかった理由（同じ理由を何度も出さない） */
 const fastFallbackReasons = new Set<string>();
 /** Overlay Status に出す：どちらで何回記録したか、最後に Git のコマンドにした理由 */
@@ -1212,6 +1233,7 @@ async function sharedTimeTravel(target: string, rootPath: string): Promise<void>
                 }
                 const targetWorkspacePath = path.join(rootPath, relPath);
                 try {
+                    flushPendingGitWrites(shadowRepoPath); // ADR-0015
                     const fileContent = execFileSync('git', ['show', `HEAD:${relPath}`], {
                         cwd: shadowRepoPath,
                         stdio: ['pipe', 'pipe', 'pipe'],
@@ -1416,6 +1438,9 @@ function detectCurrentTag(shadowRepoPath: string): string {
     // （保存のたびに Git を起動しない。#37）。読めなければ Git に任せる
     try {
         const gitDir = resolveGitDir(shadowRepoPath);
+        // 速い記録が書き出しを待っているあいだは、ファイルは古い。メモリの状態から答える（ADR-0015）
+        const fromMemory = fastCommitters.get(gitDir)?.headTagFromMemory();
+        if (fromMemory) { return fromMemory; }
         if (readRef(gitDir, 'HEAD')) {
             return firstTagAtHead(gitDir) ?? 'mb-1';
         }

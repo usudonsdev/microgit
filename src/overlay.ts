@@ -1,6 +1,7 @@
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import { flushPendingGitWrites } from './fastGit/pendingWrites';
 
 export const OVERLAY_DIR = '.microgit_overlay';
 
@@ -844,6 +845,7 @@ export function exportCommitLayer(
             continue;
         }
         // maxBuffer の既定は 1 MiB。v1 はそれより大きいファイルで ENOBUFS になり、「削除」扱いにしていた
+        flushPendingGitWrites(shadowRepoPath); // 速い記録が貯めている分を書き出させる（ADR-0015）
         const content = execFileSync('git', ['cat-file', 'blob', change.sha], {
             cwd: shadowRepoPath,
             stdio: ['pipe', 'pipe', 'pipe'],
