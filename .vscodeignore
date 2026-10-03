@@ -21,6 +21,8 @@ assets/**
 
 .github/**
 articles/**
+# Zenn の記事の図（リポジトリの直下の images/ は Zenn の決まり）。配らない（#57 で足したのが VSIX に入った）
+images/**
 markdowns/**
 docs/**
 books/**
