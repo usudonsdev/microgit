@@ -280,7 +280,9 @@ function verifyAfter(label, dir, expectedRefs, report) {
     for (let i = 0; i < 30; i++) { save(dir, fc); }
     check('deferred: 30 回分の Git のファイルを、まだ書き出していない', fc.hasPending && fc.stats.materializations === 1);
     const crashed = fs.mkdtempSync(path.join(os.tmpdir(), 'microgit-crash-copy-'));
-    fs.cpSync(dir, crashed, { recursive: true }); // 停電した瞬間のディスク
+    // 停電した瞬間のディスク。更新時刻も保って写す（Linux の cpSync は保たない。作り直しは ref の更新時刻で
+    // ほかの処理の書き換えを見分けるので、写した時刻になると「書き換えられた」と判断してしまう。CI の Linux で失敗した）
+    fs.cpSync(dir, crashed, { recursive: true, preserveTimestamps: true });
     fc.flush();
     const expected = refsOf(dir); // 停電しなかった場合
     const report = recoverJournals(path.join(crashed, '.git'));
