@@ -1,7 +1,7 @@
 {
   "name": "microgit",
   "displayName": "MicroGit",
-  "version": "5.0.0",
+  "version": "5.1.0",
   "publisher": "usudonsdev",
   "description": "個人開発向け。ブランチ専属マイクロ履歴・メインコミット区間 UI・Overlay checkout・refs/microgit 共有",
   "license": "SEE LICENSE IN LICENCE.md",
