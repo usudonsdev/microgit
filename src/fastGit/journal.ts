@@ -148,6 +148,9 @@ export class Journal {
         this.written.add(file);
     }
 
+    /** チェックポイントが進んでいるところか（ADR-0015：その間は、たまっていても書き出し直さない） */
+    get checkpointInProgress(): boolean { return this.checkpointing !== undefined; }
+
     /** 記録が一定数たまったか（64 件か 8 MiB） */
     shouldCheckpoint(): boolean {
         return this.entries >= 64 || this.bytes >= 8 * 1024 * 1024;

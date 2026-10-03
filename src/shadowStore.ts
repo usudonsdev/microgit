@@ -2,6 +2,7 @@ import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { durabilityGitArgs } from './durability';
+import { flushPendingGitWrites } from './fastGit/pendingWrites';
 
 export function sanitizeBranchKey(branch: string): string {
     return branch.replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -22,6 +23,7 @@ export function parentMicroRefPrefix(mainBranch: string): string {
 function runGitDir(gitDir: string, args: string[], workTree?: string): string {
     // shadow の bare への書き込み（update-ref など）も、設定した永続性の水準で行う（#11 の O-11）
     const fullArgs = [...durabilityGitArgs(), '--git-dir', gitDir, ...(workTree ? ['--work-tree', workTree] : []), ...args];
+    flushPendingGitWrites(); // 速い記録が貯めている分を先に書き出させる（ADR-0015）
     return execFileSync('git', fullArgs, {
         encoding: 'utf8',
         stdio: ['pipe', 'pipe', 'pipe'],
@@ -90,6 +92,7 @@ export function ensureShadowRepoForBranch(
     }
 
     if (!fs.existsSync(bare)) {
+        flushPendingGitWrites(); // 速い記録が貯めている分を先に書き出させる（ADR-0015）
         execFileSync('git', ['init', '--bare', bare], {
             encoding: 'utf8',
             stdio: ['pipe', 'pipe', 'pipe'],
@@ -181,6 +184,7 @@ const STAGING_TAG_PREFIX = 'refs/microgit-remote/tags';
 /** a が b の祖先（a → b が fast-forward）なら true */
 function isAncestor(gitDir: string, ancestorRef: string, descendantRef: string): boolean {
     try {
+        flushPendingGitWrites(); // 速い記録が貯めている分を先に書き出させる（ADR-0015）
         execFileSync('git', ['--git-dir', gitDir, 'merge-base', '--is-ancestor', ancestorRef, descendantRef], {
             stdio: ['pipe', 'pipe', 'pipe'],
             windowsHide: true,
@@ -313,6 +317,7 @@ export function importFromParentRefs(
 
 function tryRunParent(mainRepoPath: string, args: string[]): string | undefined {
     try {
+        flushPendingGitWrites(); // 速い記録が貯めている分を先に書き出させる（ADR-0015）
         return execFileSync('git', args, {
             cwd: mainRepoPath,
             encoding: 'utf8',
@@ -335,6 +340,7 @@ export function pushMicrogitRefsToOrigin(
         return false;
     }
     try {
+        flushPendingGitWrites(); // 速い記録が貯めている分を先に書き出させる（ADR-0015）
         execFileSync('git', ['push', 'origin', 'refs/microgit/*'], {
             cwd: mainRepoPath,
             encoding: 'utf8',
@@ -361,6 +367,7 @@ export function fetchMicrogitRefsFromOrigin(
         return false;
     }
     try {
+        flushPendingGitWrites(); // 速い記録が貯めている分を先に書き出させる（ADR-0015）
         execFileSync('git', ['fetch', 'origin', '+refs/microgit/*:refs/microgit/*'], {
             cwd: mainRepoPath,
             encoding: 'utf8',

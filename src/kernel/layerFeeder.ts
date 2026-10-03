@@ -22,6 +22,7 @@ import { spawnSync } from 'child_process';
 import { listCommitChanges, TreeChange } from '../overlay';
 import { MicroCommitDelta } from '../microCommit';
 import { AgentConnection, AgentError } from './agentConnection';
+import { flushPendingGitWrites } from '../fastGit/pendingWrites';
 
 type GitTryRunner = (cwd: string, args: string[]) => string | undefined;
 
@@ -58,6 +59,7 @@ export function catFileBatch(repo: string, shas: string[]): Map<string, Buffer> 
     const out = new Map<string, Buffer>();
     const unique = Array.from(new Set(shas));
     if (!unique.length) { return out; }
+    flushPendingGitWrites(); // 速い記録が貯めている分を書き出させる（ADR-0015）
     const r = spawnSync('git', ['cat-file', '--batch'], {
         cwd: repo,
         input: unique.join('\n') + '\n',

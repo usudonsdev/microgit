@@ -138,6 +138,7 @@ function verifyAfter(label, dir, expectedRefs, report) {
     const filesBefore = git(dir, 'ls-tree', '-r', '--name-only', 'HEAD').trim().split('\n').sort();
     const fc = new FastMicroCommitter(dir, () => true);
     const out = save(dir, fc);
+    fc.flush(); // Git で読む前に書き出す（ADR-0015。拡張機能では関所がする）
     const filesAfter = git(dir, 'ls-tree', '-r', '--name-only', 'HEAD').trim().split('\n');
     check(`${label}: 作り直したあとも保存でき、ファイルが消えない`, out.kind !== undefined && filesBefore.every((f) => filesAfter.includes(f)), `${out.kind}`);
     git(dir, 'fsck', '--strict', '--no-progress', '--no-dangling');
@@ -156,6 +157,7 @@ function verifyAfter(label, dir, expectedRefs, report) {
         if (out.kind === 'created' && fc.stats.lastPhases.fsyncCount !== 1) { fsyncOk = false; }
     }
     check('lost-writes: 保存 1 回の fsync は 1 回（新しいコミットのとき）', fsyncOk);
+    fc.flush(); // 貯めていた分を書き出してから、それを停電で失わせる
     const expected = refsOf(dir);
     const damaged = simulateLoss(dir, before, {});
     const report = recoverJournals(path.join(dir, '.git'));
@@ -168,6 +170,7 @@ function verifyAfter(label, dir, expectedRefs, report) {
     const dir = makeRepo();
     const fc = new FastMicroCommitter(dir, () => true);
     for (let i = 0; i < 10; i++) { save(dir, fc); }
+    fc.flush();
     const expected = refsOf(dir); // 最後の保存の前
     const before = snapshot(dir);
     const jfile = path.join(journalDir(path.join(dir, '.git')), fs.readdirSync(journalDir(path.join(dir, '.git')))[0]);
@@ -195,6 +198,7 @@ function verifyAfter(label, dir, expectedRefs, report) {
     const before = snapshot(dir);
     for (let i = 0; i < 20; i++) { save(dir, fc); }
     // ほかの処理（過去に戻る操作など）が、ブランチを 5 つ前のコミットに戻した（Git のコマンドで、確定している）
+    fc.flush();
     const target = git(dir, 'rev-parse', 'HEAD~5').trim();
     git(dir, 'update-ref', 'refs/heads/micro-history', target);
     const expected = refsOf(dir);
@@ -219,6 +223,7 @@ function verifyAfter(label, dir, expectedRefs, report) {
     // あとで続きを走らせ、書き込みで開けずに EACCES になった）
     {
         const out = save(dir, fc);
+        fc.flush(); // 書き出して、ジャーナルに控えさせる（ADR-0015）
         const objects = execFileSync('git', ['-C', dir, 'ls-tree', '-r', out.commit ?? 'HEAD'], { encoding: 'utf8' });
         for (const h of [git(dir, 'rev-parse', 'HEAD').trim(), ...objects.split('\n').filter(Boolean).map((l) => l.split(/\s+/)[2])]) {
             const f = path.join(dir, '.git', 'objects', h.slice(0, 2), h.slice(2));
@@ -230,6 +235,7 @@ function verifyAfter(label, dir, expectedRefs, report) {
     }
     const before = snapshot(dir);
     for (let i = 0; i < 20; i++) { save(dir, fc); }
+    fc.flush();
     const expected = refsOf(dir);
     simulateLoss(dir, before, {});
     const report = recoverJournals(path.join(dir, '.git'));
@@ -263,5 +269,26 @@ function verifyAfter(label, dir, expectedRefs, report) {
     git(dir, 'fsck', '--strict', '--no-progress', '--no-dangling');
 }
 
+// ---------------- 6. deferred（ADR-0015：Git のファイルを書き出す前に停電した）
+// 保存のときはジャーナルに書くだけで、Git のファイルは貯めておく。書き出す前に停電すると、ディスクにはジャーナルしか無い。
+// 停電した瞬間の写し（dir を丸ごと写したもの）をジャーナルから作り直し、書き出した場合と同じ履歴になるかを確かめる
+{
+    const dir = makeRepo();
+    const fc = new FastMicroCommitter(dir, () => true);
+    save(dir, fc);
+    await fc.checkpoint(); // ここまでは書き出して確定済み
+    for (let i = 0; i < 30; i++) { save(dir, fc); }
+    check('deferred: 30 回分の Git のファイルを、まだ書き出していない', fc.hasPending && fc.stats.materializations === 1);
+    const crashed = fs.mkdtempSync(path.join(os.tmpdir(), 'microgit-crash-copy-'));
+    // 停電した瞬間のディスク。更新時刻も保って写す（Linux の cpSync は保たない。作り直しは ref の更新時刻で
+    // ほかの処理の書き換えを見分けるので、写した時刻になると「書き換えられた」と判断してしまう。CI の Linux で失敗した）
+    fs.cpSync(dir, crashed, { recursive: true, preserveTimestamps: true });
+    fc.flush();
+    const expected = refsOf(dir); // 停電しなかった場合
+    const report = recoverJournals(path.join(crashed, '.git'));
+    check('deferred: ジャーナルの 30 件から作り直した', report.entries === 30 && report.indexReset, JSON.stringify(report));
+    verifyAfter('deferred', crashed, expected, report);
+}
+
 console.log(results.join('\n'));
-console.log(process.exitCode ? 'NG' : 'OK: 停電を模した 4 つの場面で、作り直したあとの履歴が期待どおりで git fsck --strict が通り、チェックポイントと重なった保存も速い記録で書けた');
+console.log(process.exitCode ? 'NG' : 'OK: 停電を模した 5 つの場面で、作り直したあとの履歴が期待どおりで git fsck --strict が通り、チェックポイントと重なった保存も速い記録で書けた');

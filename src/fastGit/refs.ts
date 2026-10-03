@@ -112,13 +112,23 @@ export function writeRef(
         throw e;
     }
     if (options.reflogIdent) {
-        appendReflog(gitDir, name, old, hash, options.reflogIdent, options.message);
-        // HEAD がこの ref を指していれば、HEAD の reflog にも足す（git update-ref と同じ）
-        try {
-            const headHere = options.headPointsHere ?? readSymbolicHead(gitDir) === name;
-            if (headHere) { appendReflog(gitDir, 'HEAD', old, hash, options.reflogIdent, options.message); }
-        } catch { /* HEAD が読めなければ足さない */ }
+        logRefUpdate(gitDir, name, old, hash, options.reflogIdent, { message: options.message, headPointsHere: options.headPointsHere });
     }
+}
+
+/**
+ * ref の 1 回の更新を reflog に足す（ref のファイルは書かない）。HEAD がこの ref を指していれば、HEAD の reflog にも
+ * 足す（git update-ref と同じ）。書き出しを遅らせた記録（ADR-0015）で、途中の更新の行を順に足すのに使う
+ */
+export function logRefUpdate(
+    gitDir: string, name: string, oldHash: string, newHash: string, ident: string,
+    options?: { message?: string; headPointsHere?: boolean },
+): void {
+    appendReflog(gitDir, name, oldHash, newHash, ident, options?.message);
+    try {
+        const headHere = options?.headPointsHere ?? readSymbolicHead(gitDir) === name;
+        if (headHere) { appendReflog(gitDir, 'HEAD', oldHash, newHash, ident, options?.message); }
+    } catch { /* HEAD が読めなければ足さない */ }
 }
 
 function appendReflog(gitDir: string, name: string, oldHash: string, newHash: string, ident: string, message?: string): void {
