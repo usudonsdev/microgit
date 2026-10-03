@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<!-- docs/why-save-is-fast.md の図「保存 1 回でしていることの対比」。
+     PNG にする：node docs/diagrams/render.mjs（docs/images/save-compare.png ができる） -->
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    width: 1200px; background: #ffffff; color: #1f2937;
+    font-family: "Yu Gothic UI", "Yu Gothic", "Meiryo", "Hiragino Sans", sans-serif;
+    padding: 32px 40px 36px;
+  }
+  h1 { font-size: 30px; font-weight: 700; margin-bottom: 6px; }
+  .lead { font-size: 18px; color: #4b5563; margin-bottom: 22px; }
+  .grid { display: grid; grid-template-columns: 210px 1fr 1fr; column-gap: 16px; row-gap: 12px; }
+  .head { font-size: 20px; font-weight: 700; padding: 10px 14px; border-radius: 10px; text-align: center; }
+  .head.git { background: #fee2e2; color: #7f1d1d; }
+  .head.mg  { background: #d1fae5; color: #064e3b; }
+  .step { font-size: 17px; font-weight: 700; color: #374151; padding: 12px 6px; display: flex; align-items: center; }
+  .cell { border: 2px solid #d1d5db; border-radius: 10px; padding: 10px 14px; font-size: 16px; line-height: 1.55; background: #f9fafb; }
+  .cell .src { display: block; font-family: Consolas, "Courier New", monospace; font-size: 13.5px; color: #6b7280; margin-top: 4px; }
+  .cell.slow { border-color: #f87171; background: #fef2f2; }
+  .cell.fast { border-color: #34d399; background: #ecfdf5; }
+  .cell.same { border-color: #d1d5db; background: #f9fafb; }
+  .legend { display: flex; gap: 28px; margin-top: 20px; font-size: 16px; color: #374151; align-items: center; }
+  .legend span.sw { display: inline-block; width: 22px; height: 16px; border-radius: 4px; border: 2px solid; margin-right: 8px; vertical-align: -2px; }
+  .total { display: grid; grid-template-columns: 210px 1fr 1fr; column-gap: 16px; margin-top: 16px; }
+  .total .cell { font-size: 19px; font-weight: 700; text-align: center; }
+</style>
+</head>
+<body>
+  <h1>保存 1 回でしていることの対比</h1>
+  <p class="lead">同じ行は同じ仕事。赤は普通の Git だけがしていること（時間がかかる）、緑は MicroGit が省いたこと、灰色はどちらも同じ。</p>
+
+  <div class="grid">
+    <div></div>
+    <div class="head git">普通の Git（git add → git commit）</div>
+    <div class="head mg">MicroGit 5.0.0</div>
+
+    <div class="step">① 起動</div>
+    <div class="cell slow">Git のプログラムを起動し、リポジトリを探し、設定を読む。<br>git add と git commit で 2 回<span class="src">git.c → setup.c、config.c</span></div>
+    <div class="cell fast">起動しない。VS Code の中で、ずっと動いている<span class="src">src/extension.ts（fastCommitters）</span></div>
+
+    <div class="step">② 今の状態を知る</div>
+    <div class="cell slow">index（記録しているファイルの一覧）を、毎回ディスクから読む<span class="src">read-cache.c</span></div>
+    <div class="cell fast">メモリに持っている。<br>ほかの処理が変えていないかは、更新時刻だけ見る<span class="src">fastMicroCommit.ts：reloadIndexIfChanged</span></div>
+
+    <div class="step">③ 何が変わったか</div>
+    <div class="cell slow">git commit が、記録している全ファイルの<br>状態を 1 つずつ確かめる（lstat）<span class="src">read-cache.c：refresh_index（1515 行のループ）</span></div>
+    <div class="cell fast">VS Code が「保存されたのはこのファイル」と<br>教えてくれる。確かめるのは 1 つだけ<span class="src">fastMicroCommit.ts：recordInner（491 行）</span></div>
+
+    <div class="step">④ 中身を記録</div>
+    <div class="cell same">ファイルを読み、ハッシュを計算し、圧縮して書く<span class="src">object-file.c：write_loose_object</span></div>
+    <div class="cell same">同じ（同じ形式・同じハッシュ）<span class="src">fastGit/objects.ts：writeLooseObject</span></div>
+
+    <div class="step">⑤ フォルダの一覧</div>
+    <div class="cell same">変わったフォルダの一覧だけ作り直す<span class="src">cache-tree.c：cache_tree_update</span></div>
+    <div class="cell same">同じ（変わったファイルから一番上までのフォルダだけ）<span class="src">fastMicroCommit.ts：treeHash</span></div>
+
+    <div class="step">⑥ 付き添いの確認</div>
+    <div class="cell slow">フック（4 種類）を探す。<br>コミットするものがあるか、HEAD と比べる<span class="src">hook.c：find_hook、builtin/commit.c：index_differs_from</span></div>
+    <div class="cell fast">しない（要らない）。同じ中身かは、メモリの索引で調べる<span class="src">fastMicroCommit.ts：treeToCommit・fileIndex</span></div>
+
+    <div class="step">⑦ 停電への備え</div>
+    <div class="cell slow">設定（core.fsync）に従い、確定を待つ。<br>待つ回数は、設定と処理による<span class="src">object-file.c 701〜705 行、refs/files-backend.c</span></div>
+    <div class="cell fast">まず 1 か所（ジャーナル）に書き、<br>確定を待つのは 1 回だけ。ほかは落ち着いてから<span class="src">fastGit/journal.ts：Journal.append</span></div>
+
+    <div class="step">⑧ 後片付け</div>
+    <div class="cell slow">index を書き出す（最大 2 回）。<br>プログラムを終える（2 回）<span class="src">read-cache.c：write_locked_index</span></div>
+    <div class="cell fast">index を 1 回書く。終えるものは無い<span class="src">fastGit/gitIndex.ts：writeIndex</span></div>
+  </div>
+
+  <div class="total">
+    <div class="step">保存 1 回（Windows）</div>
+    <div class="cell slow">約 0.107 秒</div>
+    <div class="cell fast">約 0.025 秒</div>
+  </div>
+
+  <div class="legend">
+    <div><span class="sw" style="border-color:#f87171;background:#fef2f2"></span>普通の Git だけがしていること</div>
+    <div><span class="sw" style="border-color:#34d399;background:#ecfdf5"></span>MicroGit が省いた・まとめたこと</div>
+    <div><span class="sw" style="border-color:#d1d5db;background:#f9fafb"></span>どちらも同じ</div>
+  </div>
+<script>document.body.dataset.h = Math.ceil(document.body.getBoundingClientRect().height);</script>
+</body>
+</html>
