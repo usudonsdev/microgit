@@ -1,0 +1,43 @@
+{
+  "durability": "power",
+  "files": 200,
+  "saves": 300,
+  "window": 20,
+  "platform": "win32-x64",
+  "results": [
+    {
+      "impl": "fast",
+      "history": 100,
+      "p50": 9.8,
+      "p95": 13.2,
+      "spawnsMean": 0,
+      "savesPerSec": 96.6,
+      "fsyncsMean": 1
+    },
+    {
+      "impl": "fast",
+      "history": 300,
+      "p50": 10,
+      "p95": 16.9,
+      "spawnsMean": 0.1,
+      "savesPerSec": 77.4,
+      "fsyncsMean": 1
+    },
+    {
+      "impl": "git",
+      "history": 100,
+      "p50": 89.4,
+      "p95": 95.6,
+      "spawnsMean": 0,
+      "savesPerSec": 11.1
+    },
+    {
+      "impl": "git",
+      "history": 300,
+      "p50": 90.3,
+      "p95": 93.7,
+      "spawnsMean": 0,
+      "savesPerSec": 11
+    }
+  ]
+}

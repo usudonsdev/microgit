@@ -4,6 +4,11 @@ All notable changes to the "MicroGit" extension will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- **保存の記録で、Git の形式のファイルを保存が落ち着いてから書き出すようにした**（#49、ADR-0015）。保存のときはジャーナルに書いて確定させるだけにし、オブジェクト・index・ref は、保存が 0.3 秒落ち着いたときか、隠しリポジトリを読む処理の直前にまとめて書く。手元の Windows で、保存 1 回の記録が普通の Git の `git add` → `git commit` の 0.090 秒に対して 0.010 秒（停電対策の設定をそろえて比較）
+- 同じ中身に戻した保存の次の記録で、戻った先のコミットの中身を Git に読ませないようにした（最近作ったコミット 128 個の中身を覚えておく）
+- `MicroGit: Overlay Status` に、書き出しの回数（`materialized=<回数>/<保存の数>saves`）と、ほかの処理の書き換えを残した回数（`externalWins`）を表示
+
 ## [5.0.0] - 2026-10-02
 
 ### Added

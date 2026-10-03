@@ -24,6 +24,7 @@ Issue を 1 つ進めるたびに、その Issue で使った技術の解説を 
 | [12](./12-measure-the-whole-path.md) | 全体を計ってからボトルネックを決める：段階ごとの計測・後片付けを列の外へ・知っていることを捨てない | #37 | `src/saveTiming.ts`、`src/kernel/layerFeeder.ts` |
 | [11](./11-writing-git-from-inside.md) | Git を内側から書く：保存形式・プロセスの起動の費用・キャッシュの無効化・fsync | #32 | `src/fastGit/`、`src/fastMicroCommit.ts` |
 | [14](./14-write-ahead-journal.md) | 先に書く記録（ジャーナル）：fsync を 1 回にして、停電のあとで作り直す／値だけでは「誰が書いたか」が分からない | #38 | `src/fastGit/journal.ts`、`scripts/test/micro-commit-crash.mjs` |
+| [15](./15-write-later-with-a-gate.md) | あとで書く、ただし読む前には必ず書く：書き出しの遅延と「関所」／毎回通る道はメモリから答える | #49 | `src/fastGit/pendingWrites.ts`、`src/fastMicroCommit.ts` |
 
 各回の構成：
 
