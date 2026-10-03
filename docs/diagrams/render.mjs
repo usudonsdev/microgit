@@ -23,18 +23,21 @@ const browser = browsers.find((b) => fs.existsSync(b));
 if (!browser) { throw new Error('Chrome / Edge が見つからない'); }
 
 const pages = [
-    ['save-flow.html', 'microgit-v5-save-flow.png'],
-    ['restore-flow.html', 'microgit-v5-restore-flow.png'],
+    // [元の HTML, できる PNG（リポジトリの直下から）, 幅]
+    ['save-flow.html', 'images/microgit-v5-save-flow.png', 1000],
+    ['restore-flow.html', 'images/microgit-v5-restore-flow.png', 1000],
+    ['save-compare.html', 'docs/images/save-compare.png', 1200],
 ];
-const WIDTH = 1000;
-fs.mkdirSync(path.join(root, 'images'), { recursive: true });
-for (const [src, out] of pages) {
+const only = process.argv[2]; // 1 枚だけ撮り直すとき：node docs/diagrams/render.mjs save-compare.html
+for (const [src, out, WIDTH] of pages) {
+    if (only && only !== src) { continue; }
     const url = pathToFileURL(path.join(here, src)).href;
     const common = ['--headless=new', '--disable-gpu', '--hide-scrollbars', `--window-size=${WIDTH},4000`];
     const dom = execFileSync(browser, [...common, '--virtual-time-budget=2000', '--dump-dom', url], { encoding: 'utf8' });
     const h = Number(/data-h="(\d+)"/.exec(dom)?.[1]);
     if (!h) { throw new Error(`${src}: 高さを測れなかった`); }
-    const png = path.join(root, 'images', out);
+    const png = path.join(root, out);
+    fs.mkdirSync(path.dirname(png), { recursive: true });
     execFileSync(browser, ['--headless=new', '--disable-gpu', '--hide-scrollbars', '--force-device-scale-factor=2',
         `--window-size=${WIDTH},${h}`, '--virtual-time-budget=2000', `--screenshot=${png}`, url], { stdio: 'ignore' });
     console.log(`${out}: ${WIDTH}x${h}（2 倍で撮影）, ${fs.statSync(png).size} バイト`);
