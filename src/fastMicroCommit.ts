@@ -19,7 +19,7 @@ import * as path from 'path';
 import { GitIndex, IndexEntry, compareIndexEntries, entryFromStat, indexPath, readIndex, writeIndex } from './fastGit/gitIndex';
 import { Ident, hashObject, looseObjectPath, ObjectType, ObjectWriteCache, parseGitDate, serializeCommit, serializeTree, TreeEntry, writeLooseObject } from './fastGit/objects';
 import { Journal, RecoveryReport, recoverJournals } from './fastGit/journal';
-import { listTags, readRef, readSymbolicHead, resolveGitDir, writeRef, writeSymbolicRef } from './fastGit/refs';
+import { listTags, logRefUpdate, readRef, readSymbolicHead, resolveGitDir, writeRef, writeSymbolicRef } from './fastGit/refs';
 import { isSafeGitRef, MicroCommitDelta, MicroCommitInput, MicroCommitOutcome } from './microCommit';
 import { SHADOW_ATTRIBUTES } from './shadowStore';
 import { fsyncStats } from './fastGit/fsyncStats';
@@ -40,6 +40,19 @@ type Txn = {
     refs: Array<{ name: string; old: string | null; new: string; reflogIdent?: string; headPointsHere: boolean }>;
     head?: string;
     index: boolean;
+};
+
+/**
+ * まだ書き出していない Git のファイル（ADR-0015）。ジャーナルには確定済み。保存が落ち着いたとき・ジャーナルが
+ * たまったとき・隠しリポジトリを読む処理の前に materialize で書き出す。
+ * refs の base は、最初の更新の前の値（書き出すときに、ほかの処理が書き換えていないかを確かめるため）
+ */
+type Pending = {
+    objects: Map<string, { type: ObjectType; body: Buffer }>;
+    refs: Map<string, { base: string | null; updates: Array<{ old: string | null; new: string; reflogIdent?: string; headPointsHere: boolean }> }>;
+    head?: string;
+    index: boolean;
+    saves: number;
 };
 
 function newDir(): Dir { return { files: new Map(), dirs: new Map() }; }
@@ -65,6 +78,11 @@ export type FastCommitStats = {
     reloads: number;
     indexReloads: number;
     gitSpawns: number;
+    /** 書き出しを遅らせた分を書き出した回数と、書き出した保存の数（ADR-0015） */
+    materializations: number;
+    materializedSaves: number;
+    /** 書き出すまでの間に、ほかの処理が ref や index を書き換えていたので、そちらを残した回数 */
+    externalWins: number;
     /** 直近の record の段階ごとの時間（ms）。遅い段階を切り分けるため（#37） */
     lastPhases: Record<string, number>;
 };
@@ -84,7 +102,12 @@ export class FastMicroCommitter {
     private attributesNeutral = false;
     /** HEAD のコミットの中身（パス → モードと blob）。新しいコミットが親から何を変えたかを出すのに使う */
     private headFlat: { commit: string; files: Map<string, string> } | undefined;
-    readonly stats: FastCommitStats = { reloads: 0, indexReloads: 0, gitSpawns: 0, lastPhases: {} };
+    /**
+     * 最近作ったコミットの中身（パス → モードと blob）。同じ中身に戻した（rewound）あとの記録で、戻った先のコミットの
+     * 中身を Git に読ませずに済ませる（Git を起動すると、その前に貯めている分の書き出しも要る。ADR-0015）。新しい順に最大 128 個
+     */
+    private recentFlats = new Map<string, Map<string, string>>();
+    readonly stats: FastCommitStats = { reloads: 0, indexReloads: 0, gitSpawns: 0, materializations: 0, materializedSaves: 0, externalWins: 0, lastPhases: {} };
     private phaseAt = 0;
     /** 直前の印からここまでを、その段階の時間として記録する */
     private phase(name: string): void {
@@ -103,13 +126,22 @@ export class FastMicroCommitter {
     private refState: RefState | undefined;
     /** あると分かった reflog のファイル */
     private reflogs = new Set<string>();
+    /** まだ書き出していない Git のファイル（ADR-0015） */
+    private pending: Pending | undefined;
+    private readonly deferWrites: boolean;
 
-    constructor(readonly workTree: string, private readonly fsync: () => boolean, options?: { journal?: boolean }) {
+    constructor(readonly workTree: string, private readonly fsync: () => boolean, options?: { journal?: boolean; deferWrites?: boolean }) {
         this.useJournal = options?.journal !== false;
+        this.deferWrites = options?.deferWrites !== false;
         this.gitDir = resolveGitDir(workTree);
     }
 
+    /** まだ書き出していない Git のファイルがあるか */
+    get hasPending(): boolean { return this.pending !== undefined; }
+
     private git(args: string[]): string {
+        // Git に履歴を読ませる前に、貯めている分を書き出す（まだ書いていないコミットを Git は知らない）
+        this.materialize();
         this.stats.gitSpawns++;
         return execFileSync('git', ['-c', 'core.quotepath=false', ...args], {
             cwd: this.workTree, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, maxBuffer: 1 << 30,
@@ -230,6 +262,8 @@ export class FastMicroCommitter {
 
     /** 状態を捨てる（CLI の実装で記録したあとなど） */
     invalidate(): void {
+        // 状態を捨てる前に、貯めている分を書き出す（ジャーナルにはあるので、失敗しても次の起動で作り直せる）
+        try { this.materialize(); } catch { /* 次の起動で作り直す */ }
         this.loaded = false;
         this.indexStamp = undefined;
         this.headFlat = undefined;
@@ -260,6 +294,8 @@ export class FastMicroCommitter {
     /** ref の状態（変わっていなければメモリのもの） */
     private refs(): RefState {
         if (this.refState && this.refState.key === this.refKey(this.refState.tags.keys())) { return this.refState; }
+        // ほかの処理が ref を書き換えた。貯めている分を書き出してから（書き換えられた ref は、そちらを残す）読み直す
+        if (this.pending) { this.materialize(); }
         const tags = listTags(this.gitDir);
         this.refState = {
             key: this.refKey(tags.keys()),
@@ -290,6 +326,8 @@ export class FastMicroCommitter {
     /** あるコミットの中身。覚えていなければ git ls-tree を 1 回（同じ中身に戻したあとの最初の記録だけ） */
     private flatOfCommit(commit: string): Map<string, string> {
         if (this.headFlat?.commit === commit) { return this.headFlat.files; }
+        const remembered = this.recentFlats.get(commit);
+        if (remembered) { return remembered; }
         const m = new Map<string, string>();
         const out = this.git(['ls-tree', '-r', '-z', '--full-tree', commit]);
         for (const rec of out.split('\0').filter(Boolean)) {
@@ -348,7 +386,7 @@ export class FastMicroCommitter {
     /** オブジェクトをこの記録に集める（もうあれば何もしない） */
     private stageObject(type: ObjectType, body: Buffer): string {
         const hash = hashObject(type, body);
-        if (this.objCache.present.has(hash) || this.txn!.objects.has(hash)) { return hash; }
+        if (this.objCache.present.has(hash) || this.txn!.objects.has(hash) || this.pending?.objects.has(hash)) { return hash; }
         if (fs.existsSync(looseObjectPath(this.gitDir, hash))) {
             this.objCache.present.add(hash);
             return hash;
@@ -380,6 +418,16 @@ export class FastMicroCommitter {
                 head: t.head,
             });
             this.phase('journal');
+            if (this.deferWrites) {
+                this.stash(t);
+                if (this.journal.shouldCheckpoint() && !this.journal.checkpointInProgress) {
+                    // ジャーナルがたまった：書き出して、裏で確定させる（64 回に 1 回、この保存が書き出しの分だけ長くなる）
+                    this.materialize();
+                    this.phase('materialize');
+                    this.journal.checkpoint().catch(() => undefined);
+                }
+                return;
+            }
         }
         const fsyncEach = this.fsync() && !journalMode;
         for (const [hash, o] of t.objects) {
@@ -432,13 +480,117 @@ export class FastMicroCommitter {
         }
     }
 
-    /** ジャーナルのチェックポイント（保存が落ち着いたときに呼ぶ。保存を待たせない） */
+    /** 1 回の記録の分を、書き出し待ちに足す（ADR-0015） */
+    private stash(t: Txn): void {
+        const p: Pending = this.pending ??= { objects: new Map(), refs: new Map(), index: false, saves: 0 };
+        for (const [hash, o] of t.objects) { p.objects.set(hash, o); }
+        for (const r of t.refs) {
+            let e = p.refs.get(r.name);
+            if (!e) { e = { base: r.old, updates: [] }; p.refs.set(r.name, e); }
+            e.updates.push({ old: r.old, new: r.new, reflogIdent: r.reflogIdent, headPointsHere: r.headPointsHere });
+        }
+        if (t.head) { p.head = t.head; }
+        if (t.index) { p.index = true; }
+        p.saves++;
+    }
+
+    /**
+     * 貯めている Git のファイルを書き出す（ADR-0015）。確定（fsync）はしない。ジャーナルに確定済みで、チェックポイントで
+     * まとめて確定させる。ref は最後の値だけを書き、reflog には途中の更新も順に 1 行ずつ足す（Git で 1 回ずつ
+     * 更新したときと同じ行になる）。書き出すまでの間に、ほかの処理が ref・index を書き換えていたら、そちらを残す
+     */
+    materialize(): void {
+        const p = this.pending;
+        if (!p) { return; }
+        this.pending = undefined;
+        this.stats.materializations++;
+        this.stats.materializedSaves += p.saves;
+        for (const [hash, o] of p.objects) {
+            writeLooseObject(this.gitDir, o.type, o.body, { fsync: false, cache: this.objCache, mode: 0o644 });
+            this.journal?.noteWritten(looseObjectPath(this.gitDir, hash));
+        }
+        if (p.index) {
+            if (sameStamp(stamp(indexPath(this.gitDir)), this.indexStamp)) {
+                try {
+                    writeIndex(indexPath(this.gitDir), this.index, { fsync: false });
+                    this.indexStamp = stamp(indexPath(this.gitDir));
+                } catch (e) {
+                    this.loaded = false; // 次の記録で読み直す
+                    this.indexStamp = undefined;
+                    throw new FastPathUnsupported(`index を書けない: ${e instanceof Error ? e.message : String(e)}`);
+                }
+            } else {
+                // ほかの処理が index を書き換えた：そちらを残し、次の記録で読み直す
+                this.stats.externalWins++;
+                this.indexStamp = undefined;
+                this.loaded = false;
+            }
+        }
+        if (p.head) {
+            writeSymbolicRef(this.gitDir, 'HEAD', p.head, { fsync: false });
+            this.journal?.noteWritten(path.join(this.gitDir, 'HEAD'));
+        }
+        for (const [name, e] of p.refs) {
+            let current: string | null = null;
+            try { current = readRef(this.gitDir, name) ?? null; } catch { current = null; }
+            if (current !== e.base) {
+                // ほかの処理（過去に戻る操作など）が書き換えた：そちらを残す。コミットはオブジェクトとして残る
+                this.stats.externalWins++;
+                this.refState = undefined;
+                continue;
+            }
+            const last = e.updates[e.updates.length - 1];
+            const log = path.join(this.gitDir, 'logs', ...name.split('/'));
+            if (last.reflogIdent && !this.reflogs.has(log)) {
+                if (!fs.existsSync(log) && name.startsWith('refs/heads/')) {
+                    // git update-ref は、core.logAllRefUpdates が有効ならブランチの reflog を作る
+                    fs.mkdirSync(path.dirname(log), { recursive: true });
+                    fs.writeFileSync(log, '');
+                }
+                if (fs.existsSync(log)) { this.reflogs.add(log); }
+            }
+            for (const u of e.updates.slice(0, -1)) {
+                if (u.reflogIdent) { logRefUpdate(this.gitDir, name, u.old ?? ZERO, u.new, u.reflogIdent, { headPointsHere: u.headPointsHere }); }
+            }
+            const file = path.join(this.gitDir, ...name.split('/'));
+            const dir = path.dirname(file);
+            writeRef(this.gitDir, name, last.new, {
+                fsync: false,
+                reflogIdent: last.reflogIdent,
+                old: last.old,
+                headPointsHere: last.headPointsHere,
+                dirExists: this.objCache.dirs.has(dir),
+            });
+            this.objCache.dirs.add(dir);
+            this.journal?.noteWritten(file);
+        }
+        this.restampRefs();
+    }
+
+    /**
+     * HEAD に付いている mb-* のタグ（git tag --points-at HEAD -l 'mb-*' の最初）を、メモリの状態から答える。
+     * 書き出し待ちがあるあいだは、ファイルを読むと古い答えになるので、こちらを使う（ADR-0015）。分からなければ undefined
+     */
+    headTagFromMemory(): string | undefined {
+        const r = this.refState;
+        if (!this.pending || !r?.head) { return undefined; }
+        return [...r.tags].filter(([n, h]) => h === r.head && /^mb-/.test(n)).map(([n]) => n).sort()[0];
+    }
+
+    /** 貯めている分を書き出す（隠しリポジトリを読む処理の前に呼ぶ。ADR-0015） */
+    flush(): void {
+        this.materialize();
+    }
+
+    /** ジャーナルのチェックポイント（保存が落ち着いたときに呼ぶ。保存を待たせない）。先に貯めている分を書き出す */
     checkpoint(): Promise<void> {
+        this.materialize();
         return this.journal?.checkpoint() ?? Promise.resolve();
     }
 
-    /** ジャーナルのチェックポイントを同期で（拡張機能の終わり） */
+    /** ジャーナルのチェックポイントを同期で（拡張機能の終わり）。先に貯めている分を書き出す */
     checkpointSync(): void {
+        this.materialize();
         this.journal?.checkpointSync();
     }
 
@@ -613,6 +765,8 @@ export class FastMicroCommitter {
             fm.set(h, commit);
         }
         this.headFlat = { commit, files: flat };
+        this.recentFlats.set(commit, flat);
+        if (this.recentFlats.size > 128) { this.recentFlats.delete(this.recentFlats.keys().next().value!); }
 
         // 親から変わったのが保存したファイル 1 つだけで、消えたファイルが無いなら、その中身を結果に載せる。
         // 層の作成で Git を起動して読み直さずに済む（#37）
