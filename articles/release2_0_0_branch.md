@@ -105,7 +105,7 @@ commits.forEach((c) => {
 
 ファイルを何回か保存すると、Webview上にノードが縦に並び、線で繋がります。
 
-グラフ上の「丸（ノード）」をポチッとクリックすると、フロントからバックエンドへメッセージが飛び、一瞬でその瞬間のコードがエディタに復元されます。
+グラフ上の「丸（ノード）」をポチッとクリックすると、フロントからバックエンドへメッセージが飛び、その瞬間のコードがエディタに復元されます。
 
 過去に戻った状態でコードを書き換えて保存すると、古いノードから新しい線がパッと枝分かれして伸びていきます。
 
@@ -115,11 +115,11 @@ commits.forEach((c) => {
 
 上書きでしかなかった「保存」を分岐点として扱うことで、試行錯誤を消さずに残せるようになりました。
 
-今後は、分岐した歴史同士の差分（diff）をVS Code標準の差分ビューで一発確認できる機能や、この細かいマイクロ履歴をチームメンバー間で自動同期して「隣の席の人が2分前にやっていた試行錯誤」すら覗き見れるように拡張していきたいと考えています。
+今後は、分岐した歴史同士の差分（diff）をVS Code標準の差分ビューで確認できる機能や、このマイクロ履歴を別の端末と共有する仕組みを試したいと考えています。
 
 拡張機能から `git commit-tree` を直接叩く構成に興味がある方の参考になれば幸いです。
 
-- リポジトリ: [usudonsdev/microgit-test](https://github.com/usudonsdev/microgit-test)
+- リポジトリ: [usudonsdev/microgit](https://github.com/usudonsdev/microgit)
 - VS Code 拡張: [MicroGit](https://marketplace.visualstudio.com/items?itemName=usudonsdev.microgit)
 
-> この記事は v2.0.0 時点の記録です。現行は v4.0.0 で、シャドウ領域は `.microgit_overlay` を使う構成に変わりました。最新の設計は「[Git 高速化の論文を読んで、保存ごとに履歴を残す拡張を作った](https://zenn.dev/usudonsdev/articles/article-zenn-microgit-overlaygit)」に書いています。
+> この記事は v2.0.0 時点の記録です。現行は v5 系で、シャドウ領域は `.microgit_overlay` を使う構成に変わりました。その後の設計は「[Git 高速化の論文を読んで、保存ごとに履歴を残す拡張を作った](https://zenn.dev/usudonsdev/articles/article-zenn-microgit-overlaygit)」（v4）と「[保存ごとの自動コミットで、戻るときの待ち時間を縮めた](https://zenn.dev/usudonsdev/articles/microgit-v5-kernel-overlay)」（v5）に書いています。
