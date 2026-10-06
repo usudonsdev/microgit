@@ -12,7 +12,7 @@ published: true
 
 なので、機能より先にコスト防衛を作りました。この記事は、**月 $5 を上限に決めた個人開発で、誰でも叩ける API をどう守っているか** の話です。
 
-- リポジトリ: [GitHub — story-manga-learn](https://github.com/usudonsdev/story-manga-learn)
+- リポジトリ: 非公開
 
 :::message
 **この記事で書くこと**
@@ -263,7 +263,7 @@ v0.1.0 の設定はこうでした。
 
 そもそも「$0.1 ほど払って生成したものを 30 日で捨てるのが本当に安いのか」を計算し直すと、学習用途では同じ入力が数か月単位で再訪されるほうが支配的でした。PNG 数枚を 1 年寝かせるコストは、1 回の再生成よりはるかに小さい。保持を 365 日に延ばし、代わりにアクセス頻度で自動的に安い階層へ落ちる INTELLIGENT_TIERING に変えました。DynamoDB の TTL も、S3 の寿命より短いと意味がないので 90 日に合わせています。
 
-**キャッシュの寿命・署名 URL の寿命・ストレージの保持期間 — この 3 つは、どれか 1 つだけ短いと最悪の壊れ方をします。** 個別に「これくらいでいいか」と決めたのが間違いでした。
+**キャッシュの寿命・署名 URL の寿命・ストレージの保持期間 — この 3 つは、どれか 1 つだけ短いと、一番わかりにくい壊れ方をします。** 個別に「これくらいでいいか」と決めたのが間違いでした。
 
 あわせて `AppVersion` を SAM パラメータにして API レスポンスに含め、キャッシュのペイロード形状が変わったら `CACHE_SCHEMA_VERSION`（現在 4）を上げて古いキャッシュを自然に無効化するようにしています。
 
@@ -377,7 +377,7 @@ sam deploy --guided
 | Bedrock Haiku | $0.5〜1.5 |
 | Bedrock Stable Image Core（50 × 2 枚） | 約 $4.0 |
 | Lambda / API / S3 / DynamoDB | $1 未満 |
-| **合計** | **約 $4〜7** |
+| **合計** | **約 $5〜7** |
 
 上限に置いた $5 を、試算がすでにまたいでいます。だから「超えたら止まる」仕組みが要る、という順番です。キャッシュが効けば AI 部分は下がります。`PAGE_COUNT=4` にすると挿絵枚数が増え、画像コストはほぼ比例して増えます。
 
@@ -405,8 +405,6 @@ sam deploy --guided
 
 ## 参考リンク
 
-- リポジトリ README: [story-manga-learn/README.md](https://github.com/usudonsdev/story-manga-learn/blob/master/README.md)
-- キャッシュ設計: [docs/response-cache.md](https://github.com/usudonsdev/story-manga-learn/blob/master/docs/response-cache.md)
-- Lambda 実行ロールの整理: [sam/iam/runtime-notes.md](https://github.com/usudonsdev/story-manga-learn/blob/master/sam/iam/runtime-notes.md)
+- 記事中の `docs/` や `sam/` のパスは、非公開リポジトリ内のものです
 - [Amazon Bedrock Pricing](https://aws.amazon.com/bedrock/pricing/)
 - [AWS Budgets アクション](https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-controls.html)

@@ -9,7 +9,7 @@ published: true
 ブラウザのチャットに「壁に付ける本棚、幅30×奥行20×高さ40cm」と打つと、AI が 3D モデル（STL）と寸法付きの図面（SVG / PDF）を作って返す。そんな DIY 向けのサービス「**DIY-Agent**」を個人で作っています。AI（Amazon Bedrock）が CAD のプログラムを書き、それを実行して形を作る仕組みです。
 
 - デモ: [DIY-Agent](https://main.dvhn99ddh1wj.amplifyapp.com/)
-- リポジトリ: [usudonsdev/DIY_Agent](https://github.com/usudonsdev/DIY_Agent)
+- リポジトリ: 非公開
 
 最初は、その CAD の実行を自宅の Raspberry Pi 4 でやっていました。棚も箱もちゃんと生成できて、いい構成だと思っていました。
 
@@ -19,7 +19,7 @@ published: true
 
 :::message
 **この記事で書くこと**
-- 実行環境を 3 回引っ越しても、アプリ側の変更が 1 箇所で済んだ設計
+- CAD の実行環境を 3 回変えても、アプリ側の変更が 1 箇所で済んだ設計
 - CORS ヘッダーを「足す」方向にデバッグして半日溶かした話
 - 強度チェックが完全に失敗しているのに「安全です」と返していたバグ
 
@@ -32,7 +32,7 @@ published: true
 
 ---
 
-## 3 回引っ越した CAD 実行環境
+## CAD の実行環境は 3 回変わった
 
 先に全体像を出します。このプロジェクトで一番動いたのは、アプリのロジックではなく **CAD を実際に走らせる場所** でした。
 
@@ -141,7 +141,7 @@ Phase 1 の時点で、ジョブは DynamoDB に積み、成果物は S3 に置�
 
 さらに、**Pi 時代の `raspberry-pi/freecad/` のマクロは、そのまま Docker イメージにコピーしています。** 苦労して書いた TechDraw まわりのロジックを捨てず、実行場所だけをクラウドに移した形です。
 
-インフラを差し替えるときにコードまで書き直すことになったら、それは移行ではなく作り直しです。オーケストレーション層を先に固めておくと、実行基盤は消耗品として扱えるようになる — これが Pi で 2 回転んだ見返りでした。
+インフラを差し替えるときにコードまで書き直すことになったら、それは移行ではなく作り直しです。オーケストレーション層を先に固めておくと、実行基盤を差し替えやすくなる — これが Pi で 2 回転んだ見返りでした。
 
 ### なぜ最初から Fargate にしなかったか
 
@@ -490,7 +490,7 @@ Web 側は GitHub push → Amplify 自動デプロイです。
 
 最初のアーキテクチャ図を描いてから、ここまで約 2 か月。持ち帰ったものを 3 つに絞ります。
 
-**1. オーケストレーション層を先に固めると、実行基盤は消耗品になる**
+**1. オーケストレーション層を先に固めると、実行基盤を差し替えやすい**
 
 Pi → Fargate の引っ越しが Worker の dispatch だけで済んだのは、ジョブテーブルと S3 イベントによる非同期パターンを Phase 1 で作ってあったからです。逆に、ここが Lambda の中に溶けていたら、移行は作り直しになっていました。**変わりそうな部分（実行場所）と変わらない部分（ジョブの流れ）を最初に分けておく**、というだけの話ですが、効き方が大きい。
 
@@ -546,10 +546,4 @@ v2.2.0 で「単一の連結ソリッドを強制する」検証を入れたば�
 
 ## 参考リンク
 
-- リポジトリ: [usudonsdev/DIY_Agent](https://github.com/usudonsdev/DIY_Agent)
-- アーキテクチャ v2.1.0（本記事の前半）: [docs/awsArchitecture/v2.1.0/README.md](https://github.com/usudonsdev/DIY_Agent/blob/master/docs/awsArchitecture/v2.1.0/README.md)
-- アーキテクチャ v2.2.0: [docs/awsArchitecture/v2.2.0/README.md](https://github.com/usudonsdev/DIY_Agent/blob/master/docs/awsArchitecture/v2.2.0/README.md)
-- CAE 設計: [docs/awsArchitecture/v2.2.0-cae/concept.md](https://github.com/usudonsdev/DIY_Agent/blob/master/docs/awsArchitecture/v2.2.0-cae/concept.md)
-- Pi 4 → FreeCAD → Fargate の詳細: [docs/awsArchitecture/v2.1.0/cad-evolution.md](https://github.com/usudonsdev/DIY_Agent/blob/master/docs/awsArchitecture/v2.1.0/cad-evolution.md)
-- IAM・予算ブレーキ: [docs/awsArchitecture/v2.1.0/iam-design.md](https://github.com/usudonsdev/DIY_Agent/blob/master/docs/awsArchitecture/v2.1.0/iam-design.md)
-- Web フロント: [web/README.md](https://github.com/usudonsdev/DIY_Agent/blob/master/web/README.md)
+- ソースコードと設計ドキュメントのリポジトリは非公開です。記事の中の `docs/awsArchitecture/...` などのパスは、そのリポジトリ内のものです。
