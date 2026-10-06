@@ -23,6 +23,8 @@ published: true
 Git の内部の仕組みや、論文のアイデアを個人開発に取り込む話に興味がある人向けです。
 :::
 
+> この記事は v4.0.0 時点の記録です。その後 v5.0.0 で、OS の機能に頼らず Node.js だけにする方針を変え、仮想マシン上の本物の OverlayFS を使う方式を加えました（[続きの記事](https://zenn.dev/usudonsdev/articles/microgit-v5-kernel-overlay)）。
+
 本ツール・本記事は、論文の著者や所属機関とは**無関係の個人プロジェクト**です。公開されている研究を読んで着想した実装であり、公式の再実装や共同研究ではありません。
 
 MicroGit でできることは次のとおりです。
@@ -34,7 +36,7 @@ MicroGit でできることは次のとおりです。
 
 Cursor / Open VSX: [microgit](https://open-vsx.org/extension/usudonsdev/microgit)
 VS Code Marketplace: [microgit](https://marketplace.visualstudio.com/items?itemName=usudonsdev.microgit)
-リポジトリ: [GitHub — microgit-test](https://github.com/usudonsdev/microgit-test)
+リポジトリ: [GitHub — microgit](https://github.com/usudonsdev/microgit)
 参考にした論文: 三原公平, 柗本真佑, 楠本真二, [OverlayGit：OverlayFSを用いた高速なGitファイルシステム](https://sdl.ist.osaka-u.ac.jp/pman/pman3.cgi?D=882), 情報処理学会論文誌, 2025
 
 ---
@@ -57,7 +59,7 @@ OverlayFS は、複数のフォルダ（レイヤ）を重ねて 1 つのフォ�
 2. **統合**: OverlayFS でレイヤを重ね、あるリビジョンの作業ツリーを見せる
 3. **切替**: マウントするレイヤ集合を変えるだけで checkout する（都度 blob 展開しない）
 
-書き込みレイヤや `.git` レイヤも載せて、読み書き可能な Git ファイルシステムとして MSR 用途に寄せている、とのことです。評価では Git 比で最大 13 倍程度のチェックアウト高速化が報告されています。
+書き込みレイヤや `.git` レイヤも載せて、読み書き可能な Git ファイルシステムとして MSR 用途に寄せている、とのことです。評価では、チェックアウトが Git 比で最大 13 倍高速だったと報告されています（論文の概要より）。
 
 ```mermaid
 flowchart LR
@@ -269,5 +271,6 @@ OverlayGit の論文を読んで一番残ったのは、チェックアウト高
 
 ### 関連記事
 
+- [保存ごとの自動コミットで、戻るときの待ち時間を縮めた](https://zenn.dev/usudonsdev/articles/microgit-v5-kernel-overlay)（v5.0.0。この記事の続き）
 - [Ctrl+Z で消えるコードを残す VS Code 拡張を作った](https://zenn.dev/usudonsdev/articles/release2_0_0_branch)（v2.0.0 時点の設計）
 - [自動コミット拡張を作っていたら、自分の .git が消えた](https://zenn.dev/usudonsdev/articles/523b53216ae3b7)（v1.0.1 の失敗談）
