@@ -95,6 +95,8 @@ Summit で聞いた「粒度の小さい部分から組み直す」という話�
 - [ラズパイで CAD が OOM で落ちたので、Fargate に引っ越した](https://zenn.dev/usudonsdev/articles/article-zenn-diy-cad-aws-architecture)
 - [LINE で頼むと家具の 3D モデルが届く Bot を作った](https://zenn.dev/usudonsdev/articles/article-zenn-line-cad-bot)
 
----
+## 参考
+
+- [AWS Summit Japan 2026 ブース紹介 — 生成 AI 時代の製品設計開発（AWS 公式ブログ）](https://aws.amazon.com/jp/blogs/news/aws-summit-japan-2026-mfg-productengineering/) — Kiro による CAD / CAE デモ（実時間 4 分 28 秒）の紹介
 
 *この記事は AWS Summit Japan 2026 の展示内容・資料、および現地での対話を元に構成しました。9 月の追記部分は自身の実装に基づく記述です。*

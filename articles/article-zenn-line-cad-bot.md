@@ -235,6 +235,6 @@ Web 中心になったあとの構成は、別記事「[ラズパイで CAD が 
 
 ## 参考リンク
 
-- ソースコード: [usudonsdev/DIY_Agent](https://github.com/usudonsdev/DIY_Agent)
+- ソースコード: 非公開リポジトリのため、リンクはありません
 - build123d: https://build123d.readthedocs.io/
 - AWS SAM: https://docs.aws.amazon.com/serverless-application-model/
