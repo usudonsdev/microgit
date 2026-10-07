@@ -142,7 +142,8 @@ agent 1.1.0を使うため、この混在を見逃した。公開判定では手
 | 2026-10-07 | v5.1.0 からのソースの差分は、拡張機能の JavaScript（生成物の置き場所）と試験・文書だけ。`guest/`・`windows/`・`mac/` は変わっていない。darwin-arm64 VSIX の同梱部品を v5.1.0 の VSIX と比べると、違いは `arm64/Image` の 108 バイト（13 か所）だけで、内訳はカーネルの GNU build-id（20 バイト）と、Go が埋め込む `vcs.revision`（d249d52）・`vcs.time`（2 か所）だった。Mac の kernel の実機での確認し直しは、5.1.0 と同じ判断で省いた |
 | 2026-10-07 | **VS Code Marketplace に公開**（`vsce publish --packagePath`、5 つの VSIX）。手元に残っていた `vsce login usudonsdev` のトークンで公開できた。5.1.0 は Marketplace に出ていないので、ストア上は 5.0.0 の次が 5.1.1 である（5.1.0 の内容は 5.1.1 に含まれる）。linux-arm64 の 1 回目はギャラリー API のタイムアウトで失敗したので、linux-arm64・darwin-arm64・universal を出し直して通った。公開の前に `vsix.json` の sha256 と一致することを確かめた。Marketplace から取った 5 つの VSIX は gzip されていたので展開し、中身の sha256 が `vsix.json` と一致することを確かめた |
 | 2026-10-07 | GitHub Release `v5.1.1` を公開した（下書きをやめた） |
-| 2026-10-07 | Open VSX は未公開。この機械には名前空間 `usudonsdev` のトークンが残っていなかった（`ovsx verify-pat` がトークンの入力を求めた）。Open VSX に出ている最新は 5.1.0 のまま。トークンを `ovsx login usudonsdev` で登録すれば、同じ 5 つの VSIX を `ovsx publish --packagePath` で出せる |
+| 2026-10-07 | いったん Open VSX は未公開だった。この機械に名前空間 `usudonsdev` のトークンが無く、`ovsx verify-pat` が入力を求めた |
+| 2026-10-07 | 利用者が `ovsx login usudonsdev` したあと、**Open VSX に公開**（同じ 5 つの VSIX を `ovsx publish --packagePath`）。公開直後はレジストリが版を有効にするまで公開 API から見えず、linux-x64 が最後だった。見えるようになってから取り直した 5 つの VSIX の sha256 が `vsix.json` と一致した。無効のまま残った版を消すと、その版番号は二度と使えない（`ovsx unpublish`）ので、消さずに有効化を待った |
 
 ## 4. 公開方針（2026-09-28 確定）
 
