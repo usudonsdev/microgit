@@ -4,6 +4,11 @@ All notable changes to the "MicroGit" extension will be documented in this file.
 
 ## [Unreleased]
 
+## [5.1.1] - 2026-10-07
+
+### Changed
+- ワークスペースに出る生成物を `.microgit/` の1フォルダにまとめた。中は `shadow`・`logs`・`overlay`。以前の `.microgit_shadow`・`.microgit_logs`・`.microgit_overlay` は、起動時に新しい場所へ移す
+
 ## [5.1.0] - 2026-10-03
 
 ### Changed
