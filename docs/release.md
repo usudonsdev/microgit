@@ -132,6 +132,18 @@ agent 1.1.0を使うため、この混在を見逃した。公開判定では手
 | 2026-10-03 | **Open VSX に公開**（5 つの VSIX）。Open VSX から配られる 5 つの VSIX が、`vsix.json` のハッシュと一致することを確かめた。GitHub Release `v5.1.0` を公開した |
 | 2026-10-03 | VS Code Marketplace は、発行者のトークンの期限切れで未公開（新しいトークン待ち） |
 
+### 3.3 5.1.1 の公開の記録
+
+利用者の決定（2026-10-07）：生成物を `.microgit/` にまとめた変更を、パッチ 5.1.1 として公開する。
+
+| 日付 | できごと |
+|---|---|
+| 2026-10-07 | `master` に `v5.1.1`（d249d52）のタグを打って push した。package.yml（run 37587464687）が 5 つの環境の確認を通り、GitHub Release の下書きを作った |
+| 2026-10-07 | v5.1.0 からのソースの差分は、拡張機能の JavaScript（生成物の置き場所）と試験・文書だけ。`guest/`・`windows/`・`mac/` は変わっていない。darwin-arm64 VSIX の同梱部品を v5.1.0 の VSIX と比べると、違いは `arm64/Image` の 108 バイト（13 か所）だけで、内訳はカーネルの GNU build-id（20 バイト）と、Go が埋め込む `vcs.revision`（d249d52）・`vcs.time`（2 か所）だった。Mac の kernel の実機での確認し直しは、5.1.0 と同じ判断で省いた |
+| 2026-10-07 | **VS Code Marketplace に公開**（`vsce publish --packagePath`、5 つの VSIX）。手元に残っていた `vsce login usudonsdev` のトークンで公開できた。5.1.0 は Marketplace に出ていないので、ストア上は 5.0.0 の次が 5.1.1 である（5.1.0 の内容は 5.1.1 に含まれる）。linux-arm64 の 1 回目はギャラリー API のタイムアウトで失敗したので、linux-arm64・darwin-arm64・universal を出し直して通った。公開の前に `vsix.json` の sha256 と一致することを確かめた。Marketplace から取った 5 つの VSIX は gzip されていたので展開し、中身の sha256 が `vsix.json` と一致することを確かめた |
+| 2026-10-07 | GitHub Release `v5.1.1` を公開した（下書きをやめた） |
+| 2026-10-07 | Open VSX は未公開。この機械には名前空間 `usudonsdev` のトークンが残っていなかった（`ovsx verify-pat` がトークンの入力を求めた）。Open VSX に出ている最新は 5.1.0 のまま。トークンを `ovsx login usudonsdev` で登録すれば、同じ 5 つの VSIX を `ovsx publish --packagePath` で出せる |
+
 ## 4. 公開方針（2026-09-28 確定）
 
 | # | 事項 | 決定 |
