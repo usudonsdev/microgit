@@ -82,7 +82,7 @@ Windows 版 QEMU の stdio の chardev は、ホスト → ゲストが遅く、
 agent の `view` と `readMany`（`TOO_LARGE` なら半分に分けて頼み直す）の結果を、必ず Boundary Guard（`syncWorkspaceFromGuest`）に通す。ゲストが直接ワークスペースに書く経路は無い（FR-3）。
 
 - 消してよいのは、MicroGit が記録したことのあるパス（Node.js 版の `dag.json` の `managedFiles` と、shadow の履歴に出てきたパスの和）
-- ワークスペースのファイルの sha256 は、大きさと更新時刻が同じなら計算し直さない（`.microgit_overlay/meta/kernel-sync-cache.json`）
+- ワークスペースのファイルの sha256 は、大きさと更新時刻が同じなら計算し直さない（`.microgit/overlay/meta/kernel-sync-cache.json`）
 - 反映しなかったものは出力に理由を出し、件数を通知する
 
 ## 7. 速さ（2026-09-26、`scripts/bench-backends.mjs`、ファイル 200・保存 40・行き来 30、中央値）

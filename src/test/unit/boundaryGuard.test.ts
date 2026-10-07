@@ -58,10 +58,12 @@ describe('.git への書き込みを弾く（CVE-2014-9390 と同じ種類の攻
     });
 
     test('MicroGit の作業フォルダは弾く（大文字小文字を区別しない FS では大文字でも）', () => {
+        assert.strictEqual(checkPathPolicy('.microgit/shadow/x', linux)?.reason, 'microgit-artifact');
         assert.strictEqual(checkPathPolicy('.microgit_shadow/x', linux)?.reason, 'microgit-artifact');
+        assert.strictEqual(checkPathPolicy('.MICROGIT/x', windows)?.reason, 'microgit-artifact');
         assert.strictEqual(checkPathPolicy('.MICROGIT_OVERLAY/x', windows)?.reason, 'microgit-artifact');
-        assert.strictEqual(checkPathPolicy('.MICROGIT_OVERLAY/x', linux), undefined);
-        assert.strictEqual(checkPathPolicy('sub/.microgit_logs/x', linux), undefined); // ワークスペース直下だけ
+        assert.strictEqual(checkPathPolicy('.MICROGIT/x', linux), undefined);
+        assert.strictEqual(checkPathPolicy('sub/.microgit/x', linux), undefined); // ワークスペース直下だけ
     });
 });
 

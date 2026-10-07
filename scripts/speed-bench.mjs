@@ -90,7 +90,7 @@ console.log(`platform=${process.platform} FILES=${FILES} COMMITS=${COMMITS} SWIT
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'microgit-bench-'));
 const workspace = path.join(tmp, 'ws');
-const shadow = path.join(workspace, '.microgit_shadow');
+const shadow = path.join(workspace, '.microgit', 'shadow');
 fs.mkdirSync(shadow, { recursive: true });
 fs.mkdirSync(workspace, { recursive: true });
 
@@ -220,7 +220,10 @@ for (let i = 0; i < 5; i++) {
     workspace,
     paths,
     (rel) => !String(rel).includes('..'),
-    (p) => String(p).includes('.microgit_'),
+    (p) => {
+      const top = String(p).split(/[/\\]/)[0];
+      return top === '.microgit' || top.startsWith('.microgit_');
+    },
     undefined,
   );
   syncTimes.push({ ms: ms(t0), written: written.length, deleted: deleted.length, skipped });

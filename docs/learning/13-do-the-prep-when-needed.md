@@ -84,7 +84,7 @@ Node.js 版の過去に戻る操作そのものは、もともと遅く、履歴
 
 1. 設定 `microgit.overlayBackend` を `nodejs` にして何回か保存し、`MicroGit: Overlay Status` の `save:` の `overlay` が 0 に近いことを見る
 2. 過去に戻ってから保存を続け、`layer` の時間が増えるかを見る（§2.3）
-3. `.microgit_overlay/views/` の下に、いくつビューができているかを数える
+3. `.microgit/overlay/views/` の下に、いくつビューができているかを数える
 
 ---
 

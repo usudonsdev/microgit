@@ -26,6 +26,7 @@
 
 - ストレージは既存 Git、checkout は Overlay、共有は親の `refs/microgit/*`（詳細は design-policy）
 - 通常 Git への自動コミットはしない。マイクロ履歴はブランチ専属
+- AI 編集の `[AI]` 印は `.cursor/hooks` の観測で付ける。Agent Skill にはしない（`docs/design-policy.md` §2.3）
 - セキュリティ: `execFileSync` + 引数配列。シェル連結禁止
 
 ## Claude Code

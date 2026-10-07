@@ -35,7 +35,10 @@ const runGit = (cwd, args) => execFileSync('git', ['-c', 'core.quotepath=false',
 const tryRunGit = (cwd, args) => { try { return runGit(cwd, args); } catch { return undefined; } };
 const env = { ...process.env, GIT_AUTHOR_NAME: 'b', GIT_AUTHOR_EMAIL: 'b@example.invalid', GIT_COMMITTER_NAME: 'b', GIT_COMMITTER_EMAIL: 'b@example.invalid' };
 const safe = (rel) => !!rel && !path.isAbsolute(rel) && !rel.split('/').includes('..');
-const artifact = (abs, root) => abs.startsWith(path.join(root, '.microgit_'));
+const artifact = (abs, root) => {
+    const top = path.relative(root, abs).split(path.sep)[0];
+    return top === '.microgit' || top.startsWith('.microgit_');
+};
 
 function stats(ms) {
     const s = [...ms].sort((a, b) => a - b);

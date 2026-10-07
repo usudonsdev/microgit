@@ -21,3 +21,4 @@ Cursor と併用する。指示の正本は [AGENTS.md](AGENTS.md)。内容が�
 - 利用者向け: [README.md](README.md)
 - 卒業研究（ビルド検証エンジン・計画段階）: [docs/build-verification-engine.md](docs/build-verification-engine.md)
 - 次期メジャー（カーネル機能ポータブル化・要件確定）: [要件定義書](docs/microgit-kernel-feature-portability-requirements.md) / [初期設計](docs/microgit-kernel-feature-portability-design.md) / [補足](docs/microgit-kernel-feature-portability-supplement.md)。進捗は Issue #8（Epic）、ブランチ `feature/kernel-portability`
+- AI 編集の `[AI]` 印は Cursor フックの観測で付ける。Agent Skill にはしない（`docs/design-policy.md` §2.3）

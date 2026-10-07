@@ -3,13 +3,14 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { durabilityGitArgs } from './durability';
 import { flushPendingGitWrites } from './fastGit/pendingWrites';
+import { shadowDir } from './layout';
 
 export function sanitizeBranchKey(branch: string): string {
     return branch.replace(/[^a-zA-Z0-9._-]/g, '_');
 }
 
 export function shadowWorkTreePath(mainRepoPath: string): string {
-    return path.join(mainRepoPath, '.microgit_shadow');
+    return shadowDir(mainRepoPath);
 }
 
 export function bareGitDirPath(mainRepoPath: string, mainBranch: string): string {
@@ -53,7 +54,7 @@ const ensured = new Set<string>();
 
 /**
  * 作業ツリー内にネスト .git ディレクトリを置かず、
- * `.git/microgit/repos/<branch>.git`（bare）+ `.microgit_shadow/.git`（gitfile）で運用する。
+ * `.git/microgit/repos/<branch>.git`（bare）+ `.microgit/shadow/.git`（gitfile）で運用する。
  * Overlay の軽量 checkout はそのまま利用可能。
  */
 export function ensureShadowRepoForBranch(

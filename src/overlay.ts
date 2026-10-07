@@ -2,8 +2,7 @@ import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { flushPendingGitWrites } from './fastGit/pendingWrites';
-
-export const OVERLAY_DIR = '.microgit_overlay';
+import { overlayDir } from './layout';
 
 /**
  * レイヤの形式（#21）。
@@ -76,7 +75,7 @@ export function isOverlayCheckoutEnabled(getConfig: (key: string) => boolean | u
 }
 
 export function getOverlayPaths(workspaceRoot: string): OverlayPaths {
-    const root = path.join(workspaceRoot, OVERLAY_DIR);
+    const root = overlayDir(workspaceRoot);
     return {
         root,
         meta: path.join(root, 'meta'),

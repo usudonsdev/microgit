@@ -155,7 +155,7 @@ OverlayFS では、上の層にある **ディレクトリでないもの**（�
    ```
 3. **`--raw` の状態を読む**：ファイルを消す・変える・足すを 1 コミットでやって、`git diff-tree -r --raw HEAD~1 HEAD` の A/M/D を確かめる
 4. **回帰テストを流す**：`npm run test:overlay`。4〜7 が今回直した点
-5. **層の形を見る**：MicroGit を使っているワークスペースの `.microgit_overlay/layers/` を開き、`<hash>/` と `<hash>.json` を見比べる
+5. **層の形を見る**：MicroGit を使っているワークスペースの `.microgit/overlay/layers/` を開き、`<hash>/` と `<hash>.json` を見比べる
 
 ---
 

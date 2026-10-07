@@ -4,6 +4,7 @@ node_modules
 .vscode-test/
 *.vsix
 
+.microgit/
 .microgit_shadow/
 .microgit_logs/
 .microgit_overlay/

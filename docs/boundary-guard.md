@@ -19,7 +19,7 @@
 | 相対パスで `/` 区切り。空・`.`・`..` の段なし。`\`・NUL・ドライブ名（`C:`）なし | `bad-path` | すべての OS |
 | パス全体 4096 バイト、1 段 255 バイトまで | `too-long` | すべての OS |
 | どの段も `.git` を指さない。大文字小文字、末尾のドットと空白、NTFS の 8.3 の短い名前（`git~1`）、macOS の HFS+ が無視する文字を含めて判定する | `git-dir` | すべての OS（Git の `core.protectNTFS`・`protectHFS` と同じ範囲） |
-| ワークスペース直下の `.microgit_shadow`・`.microgit_logs`・`.microgit_overlay` でない | `microgit-artifact` | すべての OS（大文字小文字を区別しない FS では大文字でも） |
+| ワークスペース直下の `.microgit`（と、移行前の `.microgit_shadow`・`.microgit_logs`・`.microgit_overlay`）でない | `microgit-artifact` | すべての OS（大文字小文字を区別しない FS では大文字でも） |
 | 種類はファイル（`f`）とディレクトリ（`d`）だけ | `unsupported-type` | シンボリックリンク（`l`）とその他（`o`）は MicroGit の層に入らない（#10 §6） |
 | ファイルの行は `f<TAB>path<TAB>sha256`（64 桁の 16 進） | `malformed` | — |
 | Windows の予約名（`CON`・`PRN`・`AUX`・`NUL`・`COM0-9`・`LPT0-9`・上付き数字・`CONIN$`・`CONOUT$`。拡張子付きも） | `windows-reserved-name` | Windows |

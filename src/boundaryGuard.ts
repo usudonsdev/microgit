@@ -10,7 +10,7 @@
  * 検証すること:
  *   1. パスの形          相対、`/` 区切り、空・`.`・`..` の段なし、NUL・`\`・制御文字なし、長さの上限
  *   2. 触ってはいけない場所  `.git`（大文字小文字・末尾のドットや空白・8.3 の短い名前・macOS が無視する文字を含めて）と、
- *                        MicroGit の作業フォルダ（.microgit_shadow / .microgit_logs / .microgit_overlay）
+ *                        MicroGit の作業フォルダ（.microgit。移行前の .microgit_shadow / .microgit_logs / .microgit_overlay も）
  *   3. 種類              ファイルとディレクトリだけ。シンボリックリンクやデバイスは受け付けない
  *   4. ホストで表せるか（O-14）  Windows の予約名・使えない文字・末尾のドットや空白、
  *                        大文字小文字や Unicode の正規化だけが違う名前のぶつかり（大文字小文字を区別しない FS）
@@ -79,7 +79,7 @@ export type ValidatedView = {
     rejected: Rejection[];
 };
 
-const ARTIFACT_DIRS = ['.microgit_shadow', '.microgit_logs', '.microgit_overlay'];
+const ARTIFACT_DIRS = ['.microgit', '.microgit_shadow', '.microgit_logs', '.microgit_overlay'];
 
 /** Windows で使えないファイル名（拡張子が付いても使えない。COM¹ などの上付き数字も含む） */
 const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³]|conin\$|conout\$)(\..*)?$/i;

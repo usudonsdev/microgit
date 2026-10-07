@@ -8,9 +8,9 @@
  *   ensure   shadow の準備
  *   commit   記録（Git の形式のコミット。#32 の速い記録）
  *   layer    カーネル版・Node.js 版の層の作成
- *   fileLog  .microgit_logs/timeline.log の生成
+ *   fileLog  .microgit/logs/timeline.log の生成
  *   overlay  Overlay の状態の更新
- *   logFile  .microgit_logs/log_latest.json の書き出し
+ *   logFile  .microgit/logs/log_latest.json の書き出し
  *   ui       ステータスバーとパネルの更新
  * あわせて、保存のイベントから「記録が終わるまで」（recorded）と「その時点に戻れるようになるまで」
  * （restorable＝層ができるまで）の時間も記録する。

@@ -22,7 +22,7 @@ if [[ -z "$file_path" ]]; then
 fi
 
 root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-pending_dir="$root/.microgit_logs"
+pending_dir="$root/.microgit/logs"
 pending_file="$pending_dir/ai-pending.json"
 
 mkdir -p "$pending_dir"
@@ -31,7 +31,7 @@ python3 - "$pending_file" "$file_path" "$root" <<'PY'
 import json, os, sys
 pending_file, file_path, root = sys.argv[1], sys.argv[2], sys.argv[3]
 rel = os.path.relpath(file_path, root).replace("\\", "/")
-if rel.startswith("..") or rel.startswith(".microgit_") or rel.startswith(".cursor/"):
+if rel.startswith("..") or rel == ".microgit" or rel.startswith(".microgit/") or rel.startswith(".microgit_") or rel.startswith(".cursor/"):
     sys.exit(0)
 try:
     data = json.load(open(pending_file, encoding="utf-8")) if os.path.exists(pending_file) else []

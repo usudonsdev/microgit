@@ -74,8 +74,8 @@ suite('MicroGit Overlay backend (save → jump)', function () {
         const folders = vscode.workspace.workspaceFolders;
         assert.ok(folders, 'ワークスペースが開かれていません。');
         root = folders[0].uri.fsPath;
-        shadow = path.join(root, '.microgit_shadow');
-        assert.ok(!fs.existsSync(shadow), 'MicroGit を有効にする前から .microgit_shadow がある（ほかのテストが作った？）');
+        shadow = path.join(root, '.microgit', 'shadow');
+        assert.ok(!fs.existsSync(shadow), 'MicroGit を有効にする前から .microgit/shadow がある（ほかのテストが作った？）');
         const setting = process.env.MICROGIT_TEST_BACKEND_SETTING;
         if (setting) {
             await vscode.workspace.getConfiguration().update('microgit.overlayBackend', setting, vscode.ConfigurationTarget.Workspace);

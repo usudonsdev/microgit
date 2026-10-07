@@ -14,7 +14,7 @@ MicroGit の履歴は、次期メジャーで 3 か所に現れる。
 
 ```
 shadow の Git（.git/microgit/repos/<branch>.git）
-Node 版の層とビュー（.microgit_overlay/）
+Node 版の層とビュー（.microgit/overlay/）
 カーネル版の層（最小ゲストのメモリ、または Linux の一時ディレクトリ）
 ```
 
@@ -116,7 +116,7 @@ MicroGit では、正本の Git に全部の履歴があるので、写しの層
 1. **自分の PC で測る**：`node scripts/bench-durability.mjs`。HDD や USB メモリの上のフォルダで測ると、差が大きく出るかもしれない
 2. **Git の既定を読む**：`git help config` で `core.fsync` を探し、「default」の行を読む
 3. **設定を切り替える**：VS Code の設定で `microgit.durability` を `process` にして、MicroGit の出力（`MicroGit Output`）に「永続性を変更: process」と出ることを確かめる
-4. **キャッシュを消しても大丈夫なことを確かめる**：MicroGit を使っているワークスペースで VS Code を閉じ、`.microgit_overlay/` を丸ごと消してから開き直し、過去のマイクロコミットに戻る。層とビューが作り直される
+4. **キャッシュを消しても大丈夫なことを確かめる**：MicroGit を使っているワークスペースで VS Code を閉じ、`.microgit/overlay/` を丸ごと消してから開き直し、過去のマイクロコミットに戻る。層とビューが作り直される
 
 ---
 

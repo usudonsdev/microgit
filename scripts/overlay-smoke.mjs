@@ -210,7 +210,10 @@ console.log('8. ワークスペースへの同期でファイル ⇔ ディレ�
   const ws = path.join(tmpRoot, 'sync');
   const paths = o.ensureOverlayDirs(ws);
   const safe = (rel) => !!rel && !path.isAbsolute(rel) && !rel.split('/').includes('..');
-  const artifact = (abs, root) => abs.startsWith(path.join(root, '.microgit_'));
+  const artifact = (abs, root) => {
+    const top = path.relative(root, abs).split(path.sep)[0];
+    return top === '.microgit' || top.startsWith('.microgit_');
+  };
   const managed = ['p', 'p/q.txt', 'dir', 'dir/x.txt'];
   const [a1, a2, a3] = ['5', '6', '7'].map((c) => c.repeat(40));
   writeLayer(paths, a1, { p: 'file', 'dir/x.txt': 'X' });

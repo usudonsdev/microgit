@@ -1,6 +1,6 @@
 # MicroGit 設計方針
 
-最終更新: 2026-07-27（エージェント成果物のリポジトリ内ドキュメント化／Claude Code 併用）
+最終更新: 2026-10-07（生成物は `.microgit/` にまとめる。AI の印は Cursor フックのまま）
 
 ## 1. 現段階のスコープ
 
@@ -47,6 +47,34 @@
 
 ※ 現行の「1ファイル一致で過去コミットへ HEAD 移動＋全体同期」を Cherry-pick に置き換えるのではなく、**全体同期を既定・Cherry-pick を明示操作**とする。
 
+### 2.3 AI 編集の印はフックのまま（2026-10-07）
+
+v3.4.0 で入った仕組みが、いまも AI 連携の全体である。Cursor の `afterFileEdit` / `afterTabFileEdit`（`.cursor/hooks/mark-ai-edit.sh`）が編集した相対パスを `.microgit/logs/ai-pending.json` に足し、保存時に `consumeAiPending` がそれを消費して件名を `micro: [AI] saved …` にする（`src/mainHead.ts` の `buildMicroCommitMessage`）。グラフとサイドバーはその件名を `[AI]` と表示する。v3.4.1 で、通常 Git へ自動コミットする hook は廃止済み。
+
+2026-10-07 に `feature/kernel-portability`（`83a933d`、#38 ジャーナル ADR-0014 まで）を取り直して見直した。カーネル版の checkout もジャーナルも、この印の経路を通らない。記録の本文は保存のときだけ組み立てる。
+
+**Cursor Agent Skill（`SKILL.md`）にはしない。** 検討した案と却下理由:
+
+| 案 | 却下理由 |
+|---|---|
+| エージェントにマイクロ履歴の読み書き手順を教える Skill | 記録は保存イベントが正本。モデルが手順を思い出したときだけ残すと、取りこぼしと二重記録が起きる。通常 Git への自動コミットをやめた理由と同じ |
+| 拡張機能に Skill を同梱し、入れただけで全ワークスペースに効かせる | VSIX は他リポジトリの `.cursor/skills/` を置けない。利用者が各リポジトリで有効にする操作が残り、フックをコピーするのと手間が同じ |
+| Claude Code 向けにも Skill を書く | Claude Code には Cursor の `afterFileEdit` が無い。Skill を足しても編集の観測にはならない |
+
+残る制限（未実装。今回は直さない）:
+
+- フックは MicroGit 自身のリポジトリにしか無い。拡張機能を入れた他のワークスペースでは、同じ `.cursor/hooks.json` を置くまで `[AI]` は付かない
+- シェル経由の書き込みや、フックの無い Claude Code の編集は印が付かない。保存そのものは通常どおり残る
+- 配布するなら、拡張機能のコマンドでフック一式をワークスペースへコピーする方が、Skill より観測が確実。コピー先の上書き規則を決めてからにする
+
+### 2.4 生成物は `.microgit/` にまとめる（2026-10-07）
+
+ワークスペース直下に出ていた `.microgit_shadow`、`.microgit_logs`、`.microgit_overlay` は、`.microgit/shadow`、`.microgit/logs`、`.microgit/overlay` に移す。エクスプローラーに並ぶ生成フォルダを 1 つにするため。正本のオブジェクトは今までどおり親リポジトリの `.git/microgit/repos/<branch>.git` にあり、`.microgit/shadow/.git` はそこを指す gitfile のまま。
+
+起動時と、パスを解決するときに `migrateLegacyMicrogitLayout`（`src/layout.ts`）が古いフォルダを移す。新しい場所が空ならフォルダごと移す。同じ名前が既にあるファイルは残し、移しきれなかった古いフォルダも消さない。ブランチ切り替えで拡張機能ストレージへ退避していた古い 3 フォルダは、戻すときに `.microgit/` の対応する子へ入れる。
+
+Boundary Guard は `.microgit` に加え、古い 3 つの名前もワークスペース直下なら拒む。戻した履歴が、また直下にフォルダを作らないようにするため。
+
 ## 3. メインブランチ専属のマイクロ履歴
 
 ### 現状の問題
@@ -78,7 +106,7 @@ hotfix   → マイクロ空間 C
 
 ### 現状の欠陥
 
-作業ツリー内の `.microgit_shadow/.git`（ネスト Git）をそのまま `git add` すると gitlink になりやすく、受け手にオブジェクトが渡らない。
+作業ツリー内の `.microgit/shadow/.git`（gitfile）をそのまま `git add` すると gitlink になりやすく、受け手にオブジェクトが渡らない。
 
 ### 目標
 

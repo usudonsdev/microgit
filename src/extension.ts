@@ -5,7 +5,6 @@ import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import {
-    OVERLAY_DIR,
     checkoutLayers,
     collectShadowTrackedFiles,
     computePath,
@@ -29,6 +28,7 @@ import { recoverJournals } from './fastGit/journal';
 import { flushPendingGitWrites, registerPendingFlusher } from './fastGit/pendingWrites';
 import { GitRunner, isSafeGitRef, MicroCommitInput, MicroCommitOutcome, recordMicroCommitViaGitCli } from './microCommit';
 import { findInPath, KernelSettings, planLaunch } from './kernel/launchers';
+import { LEGACY_MICROGIT_DIRS, MICROGIT_ROOT_NAME, aiPendingPath, logsDir, migrateLegacyMicrogitLayout } from './layout';
 import {
     ensureShadowRepoForBranch,
     fetchMicrogitRefsFromOrigin,
@@ -36,6 +36,7 @@ import {
     publishToParentRefs,
     pushMicrogitRefsToOrigin,
     sanitizeBranchKey as sanitizeBranchKeyShared,
+    shadowWorkTreePath,
 } from './shadowStore';
 import {
     buildMainIntervalOptions,
@@ -47,7 +48,7 @@ import { durabilityGitArgs, getDurability, setDurability } from './durability';
 
 const STATE_ENABLED = 'microgit.enabled';
 const STATE_TARGET_BRANCH = 'microgit.targetBranch';
-const ARTIFACT_DIRS = ['.microgit_shadow', '.microgit_logs', OVERLAY_DIR] as const;
+const ARTIFACT_ROOTS = [MICROGIT_ROOT_NAME, ...Object.values(LEGACY_MICROGIT_DIRS)] as const;
 
 /** 現在ユーザーがどのタイムライン（マイクロブランチ）の延長線上にいるか */
 let currentMicroBranchTag: string = 'mb-1';
@@ -164,7 +165,7 @@ export function activate(context: vscode.ExtensionContext) {
         const rootPath = workspaceFolders[0].uri.fsPath;
         syncBranchPolicy(rootPath);
         if (isActiveOnCurrentBranch(rootPath)) {
-            const shadowRepoPath = path.join(rootPath, '.microgit_shadow');
+            const shadowRepoPath = shadowWorkTreePath(rootPath);
             if (fs.existsSync(shadowRepoPath)) {
                 currentMicroBranchTag = detectCurrentTag(shadowRepoPath);
                 ExtensionLogger.log(`前回のアクティブマイクロブランチを引き継ぎました: ${currentMicroBranchTag}`);
@@ -246,13 +247,13 @@ export function activate(context: vscode.ExtensionContext) {
                     saveResult = result;
                     if ((result === 'created' || result === 'rewound') && useOverlayCheckout()) {
                         // 新しいコミットのときは何もしない。ワークスペースはもう保存した内容で、層は runShadowCommit で
-                        // 書き出してある（カーネル版は agent に、Node.js 版は .microgit_overlay/layers に）。
+                        // 書き出してある（カーネル版は agent に、Node.js 版は .microgit/overlay/layers に）。
                         // Node.js 版は以前ここで「過去の姿のビュー」を作り直していて、保存のたびに 0.5〜0.6 秒かかっていた（#41）。
                         // ビューは、過去に戻るときに、いちばん近い展開済みのビューから必要な層だけ当てて作る。
                         // 同じ中身に戻した（rewound）ときは、ワークスペースを合わせるので今までどおり。HEAD は記録した結果から取る（#37）
                         const outcome = lastSaveOutcome as { head: string; layerByKernel: boolean } | undefined;
                         if (result === 'rewound') {
-                            const head = outcome?.head ?? tryRunGit(path.join(rootPath, '.microgit_shadow'), ['rev-parse', 'HEAD'])?.trim();
+                            const head = outcome?.head ?? tryRunGit(shadowWorkTreePath(rootPath), ['rev-parse', 'HEAD'])?.trim();
                             if (head) {
                                 await applyOverlayCheckout(rootPath, head, { syncWorkspace: result === 'rewound' });
                             }
@@ -499,7 +500,7 @@ function buildUiSnapshot(rootPath: string | undefined): MicroGitUiSnapshot {
     const microSpace = getActiveMicroSpaceBranch() ?? currentBranch;
     const onRecordable = isRecordableBranch(currentBranch);
     const active = isEnabled() && onRecordable;
-    const shadowRepoPath = path.join(rootPath, '.microgit_shadow');
+    const shadowRepoPath = shadowWorkTreePath(rootPath);
     const hasShadow = fs.existsSync(path.join(shadowRepoPath, '.git')) || fs.existsSync(shadowRepoPath);
     let commits: MicroGitUiSnapshot['commits'] = [];
     let currentHead: string | undefined;
@@ -677,9 +678,9 @@ function prepareShadowForBranch(rootPath: string, mainBranch: string, importFrom
         // 保存のたびに（同じブランチで importFromParent=false）ここを通るので、ジャーナルのチェックポイントと作り直しは、
         // shadow を付け替える・親から取り込むときだけにする（保存のたびにすると、毎回ジャーナルを閉じて確定させてしまい、
         // 次の保存が新しいジャーナルを作る＝ディレクトリの fsync が 1 回増える。CI の Linux・macOS で fsync が 2 回になった）
-        if (importFromParent) { checkpointShadowSync(path.join(rootPath, '.microgit_shadow')); } // 付け替える前の shadow の分
+        if (importFromParent) { checkpointShadowSync(shadowWorkTreePath(rootPath)); } // 付け替える前の shadow の分
         ensureShadowRepoForBranch(rootPath, mainBranch, (m, l) => ExtensionLogger.log(m, l));
-        if (importFromParent) { recoverShadowJournals(path.join(rootPath, '.microgit_shadow')); }
+        if (importFromParent) { recoverShadowJournals(shadowWorkTreePath(rootPath)); }
         if (importFromParent) {
             importFromParentRefs(rootPath, mainBranch, (m, l) => ExtensionLogger.log(m, l));
         }
@@ -691,7 +692,7 @@ function prepareShadowForBranch(rootPath: string, mainBranch: string, importFrom
 }
 
 function reloadMicroTagFromShadow(rootPath: string): void {
-    const shadowRepoPath = path.join(rootPath, '.microgit_shadow');
+    const shadowRepoPath = shadowWorkTreePath(rootPath);
     if (fs.existsSync(path.join(shadowRepoPath, '.git')) || fs.existsSync(shadowRepoPath)) {
         try {
             currentMicroBranchTag = detectCurrentTag(shadowRepoPath);
@@ -736,8 +737,9 @@ function moveDirectory(src: string, dest: string): void {
 
 /** ブランチ専属空間を作業ツリーから拡張機能ストレージへ退避する */
 function stashMicroGitArtifacts(rootPath: string, mainBranch: string): void {
+    migrateLegacyMicrogitLayout(rootPath);
     const stashRoot = getArtifactStashRoot(mainBranch);
-    for (const dirName of ARTIFACT_DIRS) {
+    for (const dirName of ARTIFACT_ROOTS) {
         const src = path.join(rootPath, dirName);
         if (!fs.existsSync(src)) { continue; }
         try {
@@ -753,15 +755,27 @@ function stashMicroGitArtifacts(rootPath: string, mainBranch: string): void {
 /** ブランチ専属のマイクロ空間を作業ツリーへ戻す */
 function restoreMicroGitArtifacts(rootPath: string, mainBranch: string): void {
     const stashRoot = getArtifactStashRoot(mainBranch);
-    for (const dirName of ARTIFACT_DIRS) {
-        const src = path.join(stashRoot, dirName);
-        if (!fs.existsSync(src)) { continue; }
+    const packed = path.join(stashRoot, MICROGIT_ROOT_NAME);
+    if (fs.existsSync(packed)) {
         try {
-            moveDirectory(src, path.join(rootPath, dirName));
-            ExtensionLogger.log(`復元しました [${mainBranch}]: ${dirName}`);
+            moveDirectory(packed, path.join(rootPath, MICROGIT_ROOT_NAME));
+            ExtensionLogger.log(`復元しました [${mainBranch}]: ${MICROGIT_ROOT_NAME}`);
         } catch (err: unknown) {
             const message = err instanceof Error ? err.message : String(err);
-            ExtensionLogger.log(`${dirName} の復元に失敗しました: ${message}`, 'ERROR');
+            ExtensionLogger.log(`${MICROGIT_ROOT_NAME} の復元に失敗しました: ${message}`, 'ERROR');
+        }
+    }
+    for (const [child, legacyName] of Object.entries(LEGACY_MICROGIT_DIRS)) {
+        const src = path.join(stashRoot, legacyName);
+        if (!fs.existsSync(src)) { continue; }
+        const dest = path.join(rootPath, MICROGIT_ROOT_NAME, child);
+        if (fs.existsSync(dest)) { continue; }
+        try {
+            moveDirectory(src, dest);
+            ExtensionLogger.log(`復元しました [${mainBranch}]: ${legacyName} → ${MICROGIT_ROOT_NAME}/${child}`);
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err);
+            ExtensionLogger.log(`${legacyName} の復元に失敗しました: ${message}`, 'ERROR');
         }
     }
 }
@@ -1002,16 +1016,16 @@ function isSafeRepoRelativePath(relPath: string, rootPath: string): boolean {
 
 function isMicroGitArtifactPath(filePath: string, rootPath: string): boolean {
     const resolved = path.resolve(filePath);
-    return ARTIFACT_DIRS.some((dirName) => {
+    return ARTIFACT_ROOTS.some((dirName) => {
         const artifactRoot = path.join(rootPath, dirName);
         return resolved === artifactRoot || resolved.startsWith(artifactRoot + path.sep);
     });
 }
 
 async function generateMicroGitFileLog(rootPath: string, savedFilePath: string): Promise<void> {
-    const shadowRepoPath = path.join(rootPath, '.microgit_shadow');
+    const shadowRepoPath = shadowWorkTreePath(rootPath);
     const fileName = path.basename(savedFilePath);
-    const logFolderPath = path.join(rootPath, '.microgit_logs');
+    const logFolderPath = logsDir(rootPath);
     const logFilePath = path.join(logFolderPath, 'timeline.log');
 
     try {
@@ -1033,7 +1047,7 @@ async function generateMicroGitFileLog(rootPath: string, savedFilePath: string):
         }
 
         fs.writeFileSync(logFilePath, logContent, 'utf8');
-        ExtensionLogger.log(`.microgit_logs/timeline.log を自動更新しました (${fileName})`);
+        ExtensionLogger.log(`.microgit/logs/timeline.log を自動更新しました (${fileName})`);
     } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         ExtensionLogger.log(`ログ生成に失敗しました: ${message}`, 'ERROR');
@@ -1046,11 +1060,9 @@ function useOverlayCheckout(): boolean {
     );
 }
 
-const AI_PENDING_FILE = path.join('.microgit_logs', 'ai-pending.json');
-
 /** Cursor Agent / Tab 編集でマークされたパスなら true を返し、pending から外す */
 function consumeAiPending(rootPath: string, relativeFilePath: string): boolean {
-    const pendingPath = path.join(rootPath, AI_PENDING_FILE);
+    const pendingPath = aiPendingPath(rootPath);
     try {
         if (!fs.existsSync(pendingPath)) { return false; }
         const raw = JSON.parse(fs.readFileSync(pendingPath, 'utf8')) as unknown;
@@ -1089,7 +1101,7 @@ async function applyKernelCheckout(rootPath: string, targetHash: string): Promis
     const kernel = await selector.ensureKernel();
     if (!kernel) { return false; }
 
-    const shadowRepoPath = path.join(rootPath, '.microgit_shadow');
+    const shadowRepoPath = shadowWorkTreePath(rootPath);
     const paths = ensureOverlayDirs(rootPath);
     // 消してよいのは MicroGit が記録したことのあるパスだけ（Node 版の syncMergeToWorkspace と同じ範囲）
     const managed = new Set([...readDag(paths).managedFiles, ...collectShadowTrackedFiles(shadowRepoPath, tryRunGit)]);
@@ -1133,7 +1145,7 @@ async function applyOverlayCheckout(
     targetHash: string,
     options?: { syncWorkspace?: boolean },
 ): Promise<void> {
-    const shadowRepoPath = path.join(rootPath, '.microgit_shadow');
+    const shadowRepoPath = shadowWorkTreePath(rootPath);
     const syncWorkspace = options?.syncWorkspace !== false;
 
     if (syncWorkspace) {
@@ -1185,7 +1197,7 @@ async function applyOverlayCheckout(
 }
 
 async function sharedTimeTravel(target: string, rootPath: string): Promise<void> {
-    const shadowRepoPath = path.join(rootPath, '.microgit_shadow');
+    const shadowRepoPath = shadowWorkTreePath(rootPath);
 
     if (!isSafeGitRef(target)) {
         vscode.window.showErrorMessage('不正なコミット参照です。ハッシュまたは mb-* タグのみ指定できます。');
@@ -1283,7 +1295,7 @@ async function runShadowCommit(
         return 'skipped';
     }
 
-    const shadowRepoPath = path.join(mainRepoPath, '.microgit_shadow');
+    const shadowRepoPath = shadowWorkTreePath(mainRepoPath);
     const shadowFilePath = path.join(shadowRepoPath, ...relativeFilePath.split('/'));
 
     if (!isPathInsideRoot(shadowFilePath, shadowRepoPath)) {
@@ -1478,10 +1490,8 @@ class ExtensionLogger {
         // 対象ブランチ以外では成果物を作らない（他ブランチへの混入防止）
         if (!isOnTargetBranch(workspaceRoot)) { return; }
         try {
-            const logFolder = path.join(workspaceRoot, '.microgit_logs');
-            if (!fs.existsSync(logFolder)) {
-                fs.mkdirSync(logFolder);
-            }
+            const logFolder = logsDir(workspaceRoot);
+            fs.mkdirSync(logFolder, { recursive: true });
             fs.writeFileSync(path.join(logFolder, 'log_latest.json'), JSON.stringify(this.logRecords, null, 2), 'utf8');
         } catch { /* ignore export errors */ }
     }

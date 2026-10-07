@@ -121,12 +121,12 @@ function expectedFiles(repo, commit) {
     return new Map(entries.map((e) => [e.path, sha256(contents.get(e.sha))]));
 }
 
-/** ワークスペースのファイル（.microgit_* を除く） */
+/** ワークスペースのファイル（.microgit を除く） */
 function workspaceFiles(root) {
     const out = new Map();
     const walk = (dir, prefix) => {
         for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
-            if (!prefix && ent.name.startsWith('.microgit_')) { continue; }
+            if (!prefix && (ent.name === '.microgit' || ent.name.startsWith('.microgit_'))) { continue; }
             const rel = prefix ? `${prefix}/${ent.name}` : ent.name;
             const abs = path.join(dir, ent.name);
             if (ent.isDirectory()) { walk(abs, rel); } else if (ent.isFile()) { out.set(rel, sha256(fs.readFileSync(abs))); }
@@ -146,10 +146,10 @@ function diffMaps(expected, actual) {
 }
 
 const isSafeRepoRelativePath = (rel) => !!rel && !path.isAbsolute(rel) && !path.normalize(rel).split(path.sep).includes('..');
-const isMicroGitArtifactPath = (abs, root) => ['.microgit_shadow', '.microgit_logs', '.microgit_overlay'].some((d) => {
-    const a = path.join(root, d);
-    return abs === a || abs.startsWith(a + path.sep);
-});
+const isMicroGitArtifactPath = (abs, root) => {
+    const top = path.relative(root, abs).split(path.sep)[0];
+    return top === '.microgit' || top.startsWith('.microgit_');
+};
 
 async function runScenario(backend, s, failures, stats) {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'microgit-e2e-'));
