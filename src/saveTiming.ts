@@ -31,6 +31,8 @@ export type SaveTiming = {
     result: string;
     /** 速い記録の中の段階ごとの時間（ms）と、fsync の回数・時間（fsyncCount・fsyncMs）。#45 */
     commitPhases?: Record<string, number>;
+    /** カーネル版の層づくりの中の段階ごとの時間（ms。名前は layerFeeder.ts の LayerPhases）。#61 */
+    layerPhases?: Record<string, number>;
     /** 記録に使ったもの（fast / git）と、層を作ったもの（kernel / nodejs / none） */
     recorder?: string;
     layer?: string;
@@ -105,6 +107,13 @@ export class SaveTimingLog {
         };
         for (const s of SAVE_STAGES) {
             add(s, this.items.map((i) => i.stages[s]).filter((v): v is number => v !== undefined));
+            if (s === 'layer') {
+                // 層づくりの内訳（#61）。Mac の実機は CI で測れないので、Overlay Status から読めるようにする
+                const names = [...new Set(this.items.flatMap((i) => Object.keys(i.layerPhases ?? {})))];
+                for (const n of names) {
+                    add(`  ${n}`, this.items.map((i) => i.layerPhases?.[n]).filter((v): v is number => v !== undefined));
+                }
+            }
         }
         add('recorded', this.items.map((i) => i.recordedMs).filter((v): v is number => v !== undefined));
         add('restorable', this.items.map((i) => i.restorableMs).filter((v): v is number => v !== undefined));

@@ -49,7 +49,7 @@
 | `reset` | — | — | 層をすべて捨てる |
 | `stage` | `upload`、`data`、`append` | — | base64 の断片（最大32 KiB）を一時領域へ置く。macOS の小さいフレーム用 |
 | `stageOp` | `upload`、`stagedOp`、`append` | — | commitの操作を1件ずつ一時領域へ置く。ファイル数が多い場合の小さいフレーム用 |
-| `commit` | `layer`、`parent`、`ops` | `layer`、`depth`、`existed`、`mountOptions`、`exdevRenames` | 親までの層を lowerdir に積み、空の upper に `ops` を当てて凍結する（§4.1） |
+| `commit` | `layer`、`parent`、`ops` | `layer`、`depth`、`existed`、`mountOptions`、`exdevRenames`、`phasesUs` | 親までの層を lowerdir に積み、空の upper に `ops` を当てて凍結する（§4.1） |
 | `view` | `layer` | `entries`（空のツリーでは省かれる） | その時点のツリーの一覧（§4.2） |
 | `read` | `layer`、`path` | `data`（base64） | 1 ファイルの中身 |
 | `readMany` | `layer`、`paths` | `files`（`[{path, data}]`） | 複数のファイルの中身。合計 32 MiB を超えると `TOO_LARGE`（ホストは分けて頼み直す） |
@@ -64,6 +64,18 @@
 - `depth` は、自分を含めた層の数（base を除く）。400 を超えると `TOO_DEEP`。どこで写しの層に切り替えるかはホストが決める（ADR-0003 では 32）
 - `ops` のどれかが失敗したら、その層は残さない
 - `exdevRenames` は、`mv` が `EXDEV` になりコピーで代わりにやった回数（下の層のディレクトリの rename。ADR-0005）
+- `phasesUs` は、層を新しく作ったときの、commit の中の段階ごとの時間（マイクロ秒。agent 1.2.0 から、#61）。`existed: true` のときは付かない。ホストは往復の時間から `elapsedUs` を引いて「通信」の時間を出す
+
+| 段階 | 中身 |
+|---|---|
+| `prepare` | 親の層の確認、lowerdir のオプション文字列づくり、upper と workdir の mkdir |
+| `mount` | `mount(2)`（OverlayFS） |
+| `mountinfo` | `/proc/mounts` から、実際に効いている mount オプションを読む（応答の `mountOptions`） |
+| `ops` | `ops` を当てる（`writeb64` の base64 の復号を含む） |
+| `unmount` | `umount(2)` |
+| `cleanup` | workdir を消す |
+
+段階の合計は `elapsedUs` より少し小さい。`elapsedUs` は要求の JSON の読み取りと、一時領域の upload の片付けも含むため
 
 `ops` の要素（どれも文字列の配列）：
 

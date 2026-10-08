@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	agentVersion    = "1.1.0"
+	agentVersion    = "1.2.0"
 	protocolVersion = 1
 	portName        = "microgit"
 	stateRoot       = "/run/microgit"
@@ -70,7 +70,9 @@ type response struct {
 	Layers       *int       `json:"layers,omitempty"`
 	UsedBytes    uint64     `json:"usedBytes,omitempty"`
 	TotalBytes   uint64     `json:"totalBytes,omitempty"`
-	ElapsedUs    int64      `json:"elapsedUs,omitempty"`
+	// commit の中の段階ごとの時間（µs、#61）。応答に足しただけなので命令の形は v1 のまま
+	PhasesUs  map[string]int64 `json:"phasesUs,omitempty"`
+	ElapsedUs int64            `json:"elapsedUs,omitempty"`
 }
 
 // protoError はホストが種類で分岐できるエラー。code は docs/agent-protocol.md の表の記号。
@@ -306,7 +308,7 @@ func handle(s *store, req request) response {
 		if err != nil {
 			return fail(err)
 		}
-		return response{OK: true, Layer: req.Layer, Existed: info.existed, Depth: info.depth, MountOptions: info.mountOptions, ExdevRenames: info.exdevRenames}
+		return response{OK: true, Layer: req.Layer, Existed: info.existed, Depth: info.depth, MountOptions: info.mountOptions, ExdevRenames: info.exdevRenames, PhasesUs: info.phasesUs}
 	case "view":
 		entries, err := s.view(req.Layer)
 		if err != nil {

@@ -49,7 +49,40 @@ export type EnsureResult = {
     /** 送った中身の大きさ（base64 にする前） */
     bytes: number;
     elapsedMs: number;
+    /** 層づくりの段階ごとの時間（新しく作ったときだけ。作り直しの経路では付けない） */
+    phases?: LayerPhases;
 };
+
+/**
+ * 層づくりの段階ごとの時間（ms、#61）。
+ *   prepare    ホストで op を組み立てる（中身の base64 化。Git から作るときは Git の起動と中身の読み出しも）
+ *   stage      小さいフレームの通り道（macOS）で、中身と op を先に分けて送る
+ *   roundTrip  commit を送ってから応答が届くまで
+ *   guest      そのうち agent の中にいた時間（応答の elapsedUs）
+ *   transport  roundTrip − guest。JSON の組み立て・読み取りと、ホストとゲストのあいだの往復
+ *   guest.<段階>  agent の commit の中の段階（応答の phasesUs。docs/agent-protocol.md §4.1）
+ *   guest.other   guest から guest.<段階> の合計を引いた残り（要求の JSON の読み取りなど）
+ * phasesUs を返さない古い agent では guest.* が無い。
+ */
+export type LayerPhases = Record<string, number>;
+
+function layerPhases(prepare: number, stage: number, roundTrip: number, res: Record<string, unknown>): LayerPhases {
+    const phases: LayerPhases = { prepare, stage, roundTrip };
+    if (typeof res.elapsedUs !== 'number') { return phases; }
+    const guest = res.elapsedUs / 1000;
+    phases.guest = guest;
+    phases.transport = roundTrip - guest;
+    const inner = res.phasesUs as Record<string, number> | undefined;
+    if (inner) {
+        let sum = 0;
+        for (const [name, us] of Object.entries(inner)) {
+            phases[`guest.${name}`] = us / 1000;
+            sum += us / 1000;
+        }
+        phases['guest.other'] = guest - sum;
+    }
+    return phases;
+}
 
 type Upload = { id: string; data: Buffer };
 type BuiltOps = { ops: string[][]; uploads: Upload[]; bytes: number };
@@ -192,6 +225,7 @@ export class LayerFeeder {
      */
     async ensureFromDelta(hash: string, delta: MicroCommitDelta): Promise<EnsureResult | undefined> {
         const started = Date.now();
+        const t0 = performance.now();
         const existing = this.known.get(hash);
         if (existing !== undefined) {
             return { layer: hash, created: false, snapshot: false, depth: existing, bytes: 0, elapsedMs: 0 };
@@ -214,24 +248,30 @@ export class LayerFeeder {
             return ['writeb64', f.path, f.content.toString('base64'), mode];
         });
         if (bytes > this.options.maxCommitBytes) { return undefined; }
+        const t1 = performance.now();
 
         let res: Record<string, unknown>;
+        let t2: number;
         try {
             await this.stageUploads(uploads);
-            res = await this.agent.call(await this.commitRequest(hash, delta.parent, ops));
+            const request = await this.commitRequest(hash, delta.parent, ops);
+            t2 = performance.now();
+            res = await this.agent.call(request);
         } catch (e) {
             // 親の層が消えていた・同じ名前の層があった・置き場所が一杯：ensure に任せる（作り直しまでする）
             if (e instanceof AgentError && ['EEXIST', 'UNKNOWN_LAYER', 'ENOSPC'].includes(e.code)) { return undefined; }
             throw e;
         }
+        const phases = layerPhases(t1 - t0, t2 - t1, performance.now() - t2, res);
         const depth = Number(res.depth ?? parentDepth + 1);
         this.known.set(hash, depth);
-        return { layer: hash, created: res.existed !== true, snapshot: false, depth, bytes, elapsedMs: Date.now() - started };
+        return { layer: hash, created: res.existed !== true, snapshot: false, depth, bytes, elapsedMs: Date.now() - started, phases };
     }
 
     /** コミット hash の層が agent にあるようにする */
     async ensure(shadowRepo: string, hash: string): Promise<EnsureResult> {
         const started = Date.now();
+        const t0 = performance.now();
         const existing = this.known.get(hash);
         if (existing !== undefined) {
             return { layer: hash, created: false, snapshot: false, depth: existing, bytes: 0, elapsedMs: 0 };
@@ -247,11 +287,15 @@ export class LayerFeeder {
             ? listCommitChanges(shadowRepo, hash, parent, this.tryRunGit)
             : listCommitChanges(shadowRepo, hash, undefined, this.tryRunGit);
         const { ops, uploads, bytes } = this.buildOps(shadowRepo, changes);
+        const t1 = performance.now();
 
         let res: Record<string, unknown>;
+        let t2: number;
         try {
             await this.stageUploads(uploads);
-            res = await this.agent.call(await this.commitRequest(hash, asDiff ? parent : '', ops));
+            const request = await this.commitRequest(hash, asDiff ? parent : '', ops);
+            t2 = performance.now();
+            res = await this.agent.call(request);
         } catch (e) {
             // EEXIST: 同じハッシュの層が違う親で既にある（ホストの記録と agent がずれた）。
             // UNKNOWN_LAYER: 親の層が agent に無い（agent が再起動した）。ENOSPC: 層の置き場所が一杯。
@@ -267,8 +311,9 @@ export class LayerFeeder {
             }
             throw e;
         }
+        const phases = layerPhases(t1 - t0, t2 - t1, performance.now() - t2, res);
         const depth = Number(res.depth ?? 1);
         this.known.set(hash, depth);
-        return { layer: hash, created: res.existed !== true, snapshot: !asDiff, depth, bytes, elapsedMs: Date.now() - started };
+        return { layer: hash, created: res.existed !== true, snapshot: !asDiff, depth, bytes, elapsedMs: Date.now() - started, phases };
     }
 }

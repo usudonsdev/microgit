@@ -102,3 +102,38 @@ describe('LayerFeeder のフレーム分割', () => {
         }
     });
 });
+
+describe('LayerFeeder の層づくりの内訳（#61）', () => {
+    const timedAgent = (res: Record<string, unknown>): AgentConnection => ({
+        spec: { command: 'fake', args: [], description: 'fake' },
+        call: async (request: Request) => (request.op === 'commit' ? { ok: true, depth: 1, ...res } : { ok: true }),
+    } as unknown as AgentConnection);
+
+    test('通信は往復から agent の中の時間を引いたもの。agent の段階の残りは guest.other', async () => {
+        const { root, head } = repositoryWithLargeFile();
+        try {
+            const feeder = new LayerFeeder(timedAgent({ elapsedUs: 5000, phasesUs: { mount: 1500, ops: 2000, unmount: 1000 } }), tryRunGit);
+            const p = (await feeder.ensure(root, head)).phases!;
+            assert.strictEqual(p.guest, 5);
+            assert.strictEqual(p['guest.mount'], 1.5);
+            assert.strictEqual(p['guest.ops'], 2);
+            assert.strictEqual(p['guest.unmount'], 1);
+            assert.strictEqual(p['guest.other'], 0.5);
+            assert.strictEqual(p.transport, p.roundTrip - p.guest);
+            assert.ok(p.prepare >= 0 && p.stage >= 0 && p.roundTrip >= 0);
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true });
+        }
+    });
+
+    test('elapsedUs を返さない agent では、ホスト側の段階だけを残す', async () => {
+        const { root, head } = repositoryWithLargeFile();
+        try {
+            const feeder = new LayerFeeder(timedAgent({}), tryRunGit);
+            const p = (await feeder.ensure(root, head)).phases!;
+            assert.deepStrictEqual(Object.keys(p).sort(), ['prepare', 'roundTrip', 'stage']);
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true });
+        }
+    });
+});

@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // store はコミットを OverlayFS の層として持つ（命令の形 v1、docs/agent-protocol.md）。
@@ -47,6 +48,33 @@ type commitInfo struct {
 	depth        int
 	mountOptions string
 	exdevRenames int
+	// phasesUs は commit の中の段階ごとの時間（µs、#61）。ホストが「通信」と「ゲストの中」を分けるのに使う
+	phasesUs map[string]int64
+}
+
+// phaseClock は、直前の印からの時間をその段階に足していく（#61）。
+// 段階の名前は docs/agent-protocol.md §4.1 の表と同じにする。
+type phaseClock struct {
+	last time.Time
+	d    map[string]time.Duration
+}
+
+func newPhaseClock() *phaseClock {
+	return &phaseClock{last: time.Now(), d: map[string]time.Duration{}}
+}
+
+func (p *phaseClock) mark(name string) {
+	now := time.Now()
+	p.d[name] += now.Sub(p.last)
+	p.last = now
+}
+
+func (p *phaseClock) micros() map[string]int64 {
+	out := make(map[string]int64, len(p.d))
+	for k, v := range p.d {
+		out[k] = v.Microseconds()
+	}
+	return out
 }
 
 // overlayOpts は固定する mount オプション（#12、O-13）。record-kernel.mjs の MOUNT_OPTS と同じにする。
@@ -205,6 +233,7 @@ func checkOptions(data string) error {
 
 func (s *store) commit(id, parent string, ops [][]string) (commitInfo, error) {
 	var info commitInfo
+	clock := newPhaseClock()
 	defer s.cleanupUploads(ops)
 	if id == "" {
 		return info, &protoError{code: "BAD_REQUEST", msg: "commit needs layer"}
@@ -241,10 +270,13 @@ func (s *store) commit(id, parent string, ops [][]string) (commitInfo, error) {
 			return info, err
 		}
 	}
+	clock.mark("prepare")
 	if err := syscall.Mount("overlay", s.mnt(), "overlay", 0, data); err != nil {
 		return info, fmt.Errorf("mount overlay: %w", err)
 	}
+	clock.mark("mount")
 	info.mountOptions = currentMountOptions(s.mnt())
+	clock.mark("mountinfo")
 	opErr := func() error {
 		for _, op := range ops {
 			var n int
@@ -261,18 +293,22 @@ func (s *store) commit(id, parent string, ops [][]string) (commitInfo, error) {
 		}
 		return nil
 	}()
+	clock.mark("ops")
 	if err := syscall.Unmount(s.mnt(), 0); err != nil && opErr == nil {
 		opErr = fmt.Errorf("unmount: %w", err)
 	}
+	clock.mark("unmount")
 	// workdir は mount 中だけ使う作業場所。凍結した層には要らない
 	_ = os.RemoveAll(s.abs(work))
 	if opErr != nil {
 		_ = os.RemoveAll(s.abs(dir))
 		return info, opErr
 	}
+	clock.mark("cleanup")
 	s.next++
 	s.layers[id] = &layer{dir: dir, parent: parent, depth: depth}
 	info.depth = depth
+	info.phasesUs = clock.micros()
 	return info, nil
 }
 

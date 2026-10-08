@@ -1391,6 +1391,7 @@ async function runShadowCommit(
                     // 速い記録が「親からの変化」を知っていれば、それで層を作る（Git を起動しない。#37）
                     const r = await kernel.recordCommit(shadowRepoPath, commitHash, outcome.kind === 'created' ? outcome.delta : undefined);
                     recordedByKernel = true;
+                    if (timer && r.phases) { timer.timing.layerPhases = r.phases; }
                     ExtensionLogger.log(
                         `[Overlay/kernel] 層を記録: ${commitHash.substring(0, 7)} ${r.snapshot ? '写しの層' : '差分の層'}${r.fromDelta ? '（記録の変化から）' : ''} ` +
                         `depth=${r.depth} bytes=${r.bytes} ${r.elapsedMs}ms (${relativeFilePath})`

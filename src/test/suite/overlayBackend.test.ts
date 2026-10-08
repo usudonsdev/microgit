@@ -149,7 +149,7 @@ suite('MicroGit Overlay backend (save → jump)', function () {
         }
         // 最後の時点に戻して、ほかのテストに影響しないようにする
         if (shadowHead() !== last.head) { await vscode.commands.executeCommand('microgit.jumpToCommit', last.head); }
-        type T = { stages: Record<string, number>; commitPhases?: Record<string, number>; recordedMs?: number; restorableMs?: number; totalMs: number; result: string; recorder?: string; layer?: string };
+        type T = { stages: Record<string, number>; commitPhases?: Record<string, number>; layerPhases?: Record<string, number>; recordedMs?: number; restorableMs?: number; totalMs: number; result: string; recorder?: string; layer?: string };
         const all = await vscode.commands.executeCommand<T[]>('microgit.internal.saveTimings');
         const out = process.env.MICROGIT_TEST_SAVE_BENCH_OUT;
         if (out) { fs.writeFileSync(out, JSON.stringify({ platform: `${process.platform}-${process.arch}`, saves: all, travels }, null, 2)); }
@@ -166,6 +166,10 @@ suite('MicroGit Overlay backend (save → jump)', function () {
             // 記録（commit）の中の内訳（#45）
             const phaseNames = [...new Set(items.flatMap((i) => Object.keys(i.commitPhases ?? {})))];
             for (const n of phaseNames) { console.log(row(`  c.${n}`, items.map((i) => i.commitPhases?.[n] ?? 0))); }
+            // 層づくり（layer）の中の内訳（#61）。カーネル版で層を作った保存だけ
+            const layered = items.filter((i) => i.layerPhases);
+            const layerNames = [...new Set(layered.flatMap((i) => Object.keys(i.layerPhases!)))];
+            for (const n of layerNames) { console.log(row(`  l.${n}`, layered.map((i) => i.layerPhases![n] ?? 0))); }
         };
         table('最初の区間', all.slice(0, windowSize));
         table('最後の区間', all.slice(-windowSize));
@@ -177,6 +181,11 @@ suite('MicroGit Overlay backend (save → jump)', function () {
         const fsyncs = all.filter((i) => i.result === 'created' && i.recorder === 'fast' && i.commitPhases?.fsyncCount !== undefined)
             .map((i) => i.commitPhases!.fsyncCount);
         if (fsyncs.length > 0) { assert.strictEqual(pct(fsyncs, 0.5), 1, `保存 1 回の fsync の回数の中央値が 1 でない: ${JSON.stringify(fsyncs.slice(0, 10))}`); }
+        // カーネル版の環境では、層づくりの内訳がゲストの段階まで取れているはず（#61。同梱の agent が古いと guest.* が無い）
+        if (process.env.MICROGIT_TEST_EXPECT_BACKEND === 'kernel') {
+            const withGuest = all.filter((i) => i.layerPhases?.['guest.mount'] !== undefined).length;
+            assert.ok(withGuest > benchSaves / 2, `層づくりの内訳（guest.mount）が付いた保存が ${withGuest} / ${benchSaves} 回しかない`);
+        }
     });
 
     test('Overlay Status で、使ったバックエンドが分かる', async () => {

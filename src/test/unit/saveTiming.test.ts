@@ -36,4 +36,17 @@ describe('保存 1 回の段階ごとの時間（#37）', () => {
         assert.deepStrictEqual([total.p50, total.p95], [60, 60]);
         assert.match(log.describe(), /直近 3 回（created 3）/);
     });
+
+    test('層づくりの内訳は layer の行のすぐ下に出し、内訳の無い保存は数に入れない（#61）', () => {
+        const log = new SaveTimingLog(10);
+        log.add({ stages: { layer: 30 }, totalMs: 40, result: 'created', layerPhases: { transport: 20, 'guest.mount': 2 } });
+        log.add({ stages: { layer: 34 }, totalMs: 44, result: 'created', layerPhases: { transport: 24, 'guest.mount': 4 } });
+        log.add({ stages: { layer: 12 }, totalMs: 20, result: 'created' }); // Node.js 版の層（内訳なし）
+        const names = log.summary().rows.map((r) => r.name);
+        const at = names.indexOf('layer');
+        assert.deepStrictEqual(names.slice(at, at + 3), ['layer', '  transport', '  guest.mount']);
+        const transport = log.summary().rows.find((r) => r.name === '  transport')!;
+        assert.deepStrictEqual([transport.n, transport.p50], [2, 20]);
+        assert.match(log.describe(), / {2}transport/);
+    });
 });

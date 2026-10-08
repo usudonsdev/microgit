@@ -150,6 +150,32 @@ func TestCommitIsIdempotentButRejectsDifferentParent(t *testing.T) {
 	}
 }
 
+// commit の応答に、ゲストの中の段階ごとの時間が付く（#61）。ホストは往復からこれを引いて「通信」を出す
+func TestCommitReportsPhases(t *testing.T) {
+	c := newClient(t)
+	r := c.commit("c1", "", []string{"write", "a.txt", "A"})
+	want := []string{"prepare", "mount", "mountinfo", "ops", "unmount", "cleanup"}
+	var sum int64
+	for _, k := range want {
+		v, ok := r.PhasesUs[k]
+		if !ok || v < 0 {
+			t.Fatalf("phasesUs[%s] = %d, %v (all: %v)", k, v, ok, r.PhasesUs)
+		}
+		sum += v
+	}
+	if len(r.PhasesUs) != len(want) {
+		t.Fatalf("phasesUs has unexpected keys: %v", r.PhasesUs)
+	}
+	// 段階は commit の中だけ。elapsedUs は要求の JSON の読み取りも含むので、合計はそれを超えない
+	if sum > r.ElapsedUs {
+		t.Fatalf("sum of phases %d > elapsedUs %d", sum, r.ElapsedUs)
+	}
+	// 作り直さない再送には段階が無い
+	if again := c.commit("c1", ""); !again.Existed || again.PhasesUs != nil {
+		t.Fatalf("re-commit = %+v", again)
+	}
+}
+
 func TestErrorsCarryCodes(t *testing.T) {
 	c := newClient(t)
 	cases := []struct {
