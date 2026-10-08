@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { execFileSync } from 'child_process';
+import { execFile, execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
@@ -29,11 +29,20 @@ suite('MicroGit Overlay backend (save → jump)', function () {
         }
     };
 
+    /**
+     * shadowHead と同じことを、拡張機能ホストのループを止めずに行う（#61）。
+     * テストは拡張機能と同じプロセスで動くので、保存の処理の最中に execFileSync で Git を起動すると、
+     * その間（Windows で 30〜40 ms）MicroGit は agent の応答を読めず、層づくりの「通信」が長く測られていた
+     */
+    const shadowHeadAsync = (): Promise<string | undefined> => new Promise((resolve) => {
+        execFile('git', ['-C', shadow, 'rev-parse', 'HEAD'], { encoding: 'utf8' }, (err, stdout) => resolve(err ? undefined : stdout.trim()));
+    });
+
     /** 保存ジョブ（キュー）が shadow にコミットを作るまで待つ */
     async function waitForNewHead(before: string | undefined, timeoutMs = 60_000): Promise<string> {
         const deadline = Date.now() + timeoutMs;
         while (Date.now() < deadline) {
-            const head = shadowHead();
+            const head = await shadowHeadAsync();
             if (head && head !== before) { return head; }
             await new Promise((r) => setTimeout(r, 100));
         }
