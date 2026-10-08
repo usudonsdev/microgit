@@ -58,7 +58,21 @@ export class AgentUnavailableError extends Error {
     }
 }
 
-type Pending = { resolve: (v: Record<string, unknown>) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> };
+type Pending = { resolve: (v: Record<string, unknown>) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout>; sentAt: number };
+
+/**
+ * 1 回の要求の時刻（performance.now()、#61 の計測用）。
+ *   sentAt     要求を書き出し終えた時刻
+ *   arrivedAt  応答の行を受け取った時刻（readline の line が呼ばれた時）
+ * 応答のオブジェクトをキーにして持つ（応答の中身には混ぜない）
+ */
+export type RequestTiming = { sentAt: number; arrivedAt: number };
+const requestTimings = new WeakMap<object, RequestTiming>();
+
+/** request / call が返した応答の時刻。計測を持たない応答（偽の agent など）では undefined */
+export function requestTiming(res: object): RequestTiming | undefined {
+    return requestTimings.get(res);
+}
 
 function connectPipe(pipe: string): Promise<net.Socket> {
     return new Promise((resolve, reject) => {
@@ -160,6 +174,7 @@ export class AgentConnection {
     }
 
     private onLine(line: string): void {
+        const arrivedAt = performance.now();
         let msg: Record<string, unknown>;
         try {
             msg = JSON.parse(line) as Record<string, unknown>;
@@ -177,6 +192,7 @@ export class AgentConnection {
         if (!p) { return; }
         this.pending.delete(id);
         clearTimeout(p.timer);
+        requestTimings.set(msg, { sentAt: p.sentAt, arrivedAt });
         p.resolve(msg);
     }
 
@@ -212,8 +228,10 @@ export class AgentConnection {
                 this.pending.delete(id);
                 reject(new AgentUnavailableError(`timeout after ${this.requestTimeoutMs} ms: ${String(body.op)}`));
             }, this.requestTimeoutMs);
-            this.pending.set(id, { resolve, reject, timer });
+            const pending: Pending = { resolve, reject, timer, sentAt: 0 };
+            this.pending.set(id, pending);
             output.write(JSON.stringify({ id, ...body }) + '\n');
+            pending.sentAt = performance.now();
         });
     }
 

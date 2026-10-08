@@ -126,13 +126,37 @@ describe('LayerFeeder の層づくりの内訳（#61）', () => {
         }
     });
 
-    test('elapsedUs を返さない agent では、ホスト側の段階だけを残す', async () => {
+    test('elapsedUs を返さない agent では、ホスト側の段階とループの計測だけを残す', async () => {
         const { root, head } = repositoryWithLargeFile();
         try {
             const feeder = new LayerFeeder(timedAgent({}), tryRunGit);
             const p = (await feeder.ensure(root, head)).phases!;
-            assert.deepStrictEqual(Object.keys(p).sort(), ['prepare', 'roundTrip', 'stage']);
+            assert.deepStrictEqual(Object.keys(p).sort(), ['loop.blocked', 'loop.maxGap', 'prepare', 'roundTrip', 'stage']);
         } finally {
+            fs.rmSync(root, { recursive: true, force: true });
+        }
+    });
+
+    test('本物の AgentConnection では、通信を送信・配達・再開に分け、合計が通信と一致する', async () => {
+        // 1 行読んだら、20 ms 寝てから elapsedUs=5000 で答える偽の agent（配達の時間に寝た分が入る）
+        const script = [
+            "const rl = require('readline').createInterface({ input: process.stdin });",
+            "process.stdout.write(JSON.stringify({ event: 'ready', ok: true, protocol: 1 }) + '\\n');",
+            "rl.on('line', (l) => { const r = JSON.parse(l);",
+            "  setTimeout(() => process.stdout.write(JSON.stringify({ id: r.id, ok: true, depth: 1, elapsedUs: 5000 }) + '\\n'), 20); });",
+        ].join('\n');
+        const agent = new AgentConnection({ command: process.execPath, args: ['-e', script], description: 'fake-node' }, 10_000);
+        const { root, head } = repositoryWithLargeFile();
+        try {
+            await agent.waitReady(10_000);
+            const p = (await new LayerFeeder(agent, tryRunGit).ensure(root, head)).phases!;
+            assert.strictEqual(p.guest, 5);
+            for (const k of ['send', 'wire', 'resume']) { assert.ok(p[k] !== undefined, `${k} が無い`); }
+            assert.ok(Math.abs(p.send + p.wire + p.resume - p.transport) < 0.01, JSON.stringify(p));
+            assert.ok(p.wire >= 10, `寝た 20 ms のうち guest の 5 ms を引いた分が配達に入っていない: ${p.wire}`);
+            assert.ok(p.resume >= 0 && p.resume < 10);
+        } finally {
+            agent.kill();
             fs.rmSync(root, { recursive: true, force: true });
         }
     });

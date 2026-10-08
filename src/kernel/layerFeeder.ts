@@ -21,7 +21,7 @@
 import { spawnSync } from 'child_process';
 import { listCommitChanges, TreeChange } from '../overlay';
 import { MicroCommitDelta } from '../microCommit';
-import { AgentConnection, AgentError } from './agentConnection';
+import { AgentConnection, AgentError, requestTiming } from './agentConnection';
 import { flushPendingGitWrites } from '../fastGit/pendingWrites';
 
 type GitTryRunner = (cwd: string, args: string[]) => string | undefined;
@@ -62,16 +62,70 @@ export type EnsureResult = {
  *   transport  roundTrip − guest。JSON の組み立て・読み取りと、ホストとゲストのあいだの往復
  *   guest.<段階>  agent の commit の中の段階（応答の phasesUs。docs/agent-protocol.md §4.1）
  *   guest.other   guest から guest.<段階> の合計を引いた残り（要求の JSON の読み取りなど）
+ * transport の内訳（本物の AgentConnection のときだけ。transport = send + wire + resume）：
+ *   send       要求の JSON を組み立てて書き出すまで
+ *   wire       書き出してから応答の行を受け取るまで − guest。通り道の往復と、ループが忙しくて読めなかった待ち
+ *   resume     応答の行を受け取ってから、待っていた処理に戻るまで
+ * 往復のあいだの拡張機能ホストのイベントループ（setImmediate を回して、1 周のすき間を測る）：
+ *   loop.blocked  0.5 ms を超えたすき間の合計（ほかの処理がループを使っていた時間）
+ *   loop.maxGap   いちばん長いすき間
  * phasesUs を返さない古い agent では guest.* が無い。
  */
 export type LayerPhases = Record<string, number>;
 
-function layerPhases(prepare: number, stage: number, roundTrip: number, res: Record<string, unknown>): LayerPhases {
-    const phases: LayerPhases = { prepare, stage, roundTrip };
+/** 往復のあいだ setImmediate を回し、ループの 1 周のすき間を測る（#61 の計測用）。止めると結果を返す */
+function startLoopProbe(): () => { blocked: number; maxGap: number } {
+    let last = performance.now();
+    let blocked = 0;
+    let maxGap = 0;
+    let stopped = false;
+    const record = (now: number) => {
+        const gap = now - last;
+        if (gap > maxGap) { maxGap = gap; }
+        if (gap > 0.5) { blocked += gap; }
+        last = now;
+    };
+    const tick = () => {
+        if (stopped) { return; }
+        record(performance.now());
+        setImmediate(tick);
+    };
+    setImmediate(tick);
+    return () => {
+        stopped = true;
+        record(performance.now());
+        return { blocked, maxGap };
+    };
+}
+
+type TimedCall = { res: Record<string, unknown>; roundTrip: number; resumedAt: number; loop: { blocked: number; maxGap: number } };
+
+async function timedCall(agent: AgentConnection, request: Record<string, unknown>): Promise<TimedCall> {
+    const stopProbe = startLoopProbe();
+    const t0 = performance.now();
+    try {
+        const res = await agent.call(request);
+        const resumedAt = performance.now();
+        return { res, roundTrip: resumedAt - t0, resumedAt, loop: stopProbe() };
+    } catch (e) {
+        stopProbe();
+        throw e;
+    }
+}
+
+function layerPhases(prepare: number, stage: number, call: TimedCall): LayerPhases {
+    const { res, roundTrip } = call;
+    const phases: LayerPhases = { prepare, stage, roundTrip, 'loop.blocked': call.loop.blocked, 'loop.maxGap': call.loop.maxGap };
     if (typeof res.elapsedUs !== 'number') { return phases; }
     const guest = res.elapsedUs / 1000;
     phases.guest = guest;
     phases.transport = roundTrip - guest;
+    const timing = requestTiming(res);
+    if (timing) {
+        phases.send = timing.sentAt - (call.resumedAt - roundTrip);
+        phases.wire = timing.arrivedAt - timing.sentAt - guest;
+        phases.resume = call.resumedAt - timing.arrivedAt;
+    }
     const inner = res.phasesUs as Record<string, number> | undefined;
     if (inner) {
         let sum = 0;
@@ -250,19 +304,20 @@ export class LayerFeeder {
         if (bytes > this.options.maxCommitBytes) { return undefined; }
         const t1 = performance.now();
 
-        let res: Record<string, unknown>;
+        let call: TimedCall;
         let t2: number;
         try {
             await this.stageUploads(uploads);
             const request = await this.commitRequest(hash, delta.parent, ops);
             t2 = performance.now();
-            res = await this.agent.call(request);
+            call = await timedCall(this.agent, request);
         } catch (e) {
             // 親の層が消えていた・同じ名前の層があった・置き場所が一杯：ensure に任せる（作り直しまでする）
             if (e instanceof AgentError && ['EEXIST', 'UNKNOWN_LAYER', 'ENOSPC'].includes(e.code)) { return undefined; }
             throw e;
         }
-        const phases = layerPhases(t1 - t0, t2 - t1, performance.now() - t2, res);
+        const res = call.res;
+        const phases = layerPhases(t1 - t0, t2 - t1, call);
         const depth = Number(res.depth ?? parentDepth + 1);
         this.known.set(hash, depth);
         return { layer: hash, created: res.existed !== true, snapshot: false, depth, bytes, elapsedMs: Date.now() - started, phases };
@@ -289,13 +344,13 @@ export class LayerFeeder {
         const { ops, uploads, bytes } = this.buildOps(shadowRepo, changes);
         const t1 = performance.now();
 
-        let res: Record<string, unknown>;
+        let call: TimedCall;
         let t2: number;
         try {
             await this.stageUploads(uploads);
             const request = await this.commitRequest(hash, asDiff ? parent : '', ops);
             t2 = performance.now();
-            res = await this.agent.call(request);
+            call = await timedCall(this.agent, request);
         } catch (e) {
             // EEXIST: 同じハッシュの層が違う親で既にある（ホストの記録と agent がずれた）。
             // UNKNOWN_LAYER: 親の層が agent に無い（agent が再起動した）。ENOSPC: 層の置き場所が一杯。
@@ -304,14 +359,15 @@ export class LayerFeeder {
                 await this.reset();
                 const snap = this.buildOps(shadowRepo, listCommitChanges(shadowRepo, hash, undefined, this.tryRunGit));
                 await this.stageUploads(snap.uploads);
-                res = await this.agent.call(await this.commitRequest(hash, '', snap.ops));
+                const res = await this.agent.call(await this.commitRequest(hash, '', snap.ops));
                 const depth = Number(res.depth ?? 1);
                 this.known.set(hash, depth);
                 return { layer: hash, created: true, snapshot: true, depth, bytes: snap.bytes, elapsedMs: Date.now() - started };
             }
             throw e;
         }
-        const phases = layerPhases(t1 - t0, t2 - t1, performance.now() - t2, res);
+        const res = call.res;
+        const phases = layerPhases(t1 - t0, t2 - t1, call);
         const depth = Number(res.depth ?? 1);
         this.known.set(hash, depth);
         return { layer: hash, created: res.existed !== true, snapshot: !asDiff, depth, bytes, elapsedMs: Date.now() - started, phases };

@@ -183,8 +183,8 @@ suite('MicroGit Overlay backend (save → jump)', function () {
         if (fsyncs.length > 0) { assert.strictEqual(pct(fsyncs, 0.5), 1, `保存 1 回の fsync の回数の中央値が 1 でない: ${JSON.stringify(fsyncs.slice(0, 10))}`); }
         // カーネル版の環境では、層づくりの内訳がゲストの段階まで取れているはず（#61。同梱の agent が古いと guest.* が無い）
         if (process.env.MICROGIT_TEST_EXPECT_BACKEND === 'kernel') {
-            const withGuest = all.filter((i) => i.layerPhases?.['guest.mount'] !== undefined).length;
-            assert.ok(withGuest > benchSaves / 2, `層づくりの内訳（guest.mount）が付いた保存が ${withGuest} / ${benchSaves} 回しかない`);
+            const withGuest = all.filter((i) => i.layerPhases?.['guest.mount'] !== undefined && i.layerPhases?.wire !== undefined).length;
+            assert.ok(withGuest > benchSaves / 2, `層づくりの内訳（guest.mount と wire）が付いた保存が ${withGuest} / ${benchSaves} 回しかない`);
         }
     });
 

@@ -19,7 +19,7 @@ if (dirs.length === 0) {
 }
 
 // 層づくりの内訳の列（src/kernel/layerFeeder.ts の LayerPhases、guest.* は docs/agent-protocol.md §4.1）
-const LAYER_COLS = ['prepare', 'stage', 'transport', 'guest', 'guest.prepare', 'guest.mount', 'guest.mountinfo', 'guest.ops', 'guest.unmount', 'guest.cleanup', 'guest.other'];
+const LAYER_COLS = ['prepare', 'stage', 'transport', 'send', 'wire', 'resume', 'loop.blocked', 'loop.maxGap', 'guest', 'guest.prepare', 'guest.mount', 'guest.mountinfo', 'guest.ops', 'guest.unmount', 'guest.cleanup', 'guest.other'];
 
 const median = (xs) => {
     if (xs.length === 0) { return NaN; }
