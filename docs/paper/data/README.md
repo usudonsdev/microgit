@@ -27,6 +27,7 @@ VS Code の中で保存を繰り返して計った、1 回ごとの段階ごと�
 | `save-pipeline-win32-policy.json` | ブランチの確認で Git を起動しなくした後 |
 | `save-pipeline-win32-delta.json` | 層の作成で Git を起動しなくした後 |
 | `save-pipeline-win32-nodejs-after.json` | 手元の Windows、Node.js 版、#41 の後（保存 100 回、過去に戻る操作 10 回の travels つき）。#41 の前は保存 100 回の計測が途中で止まった（下の注） |
+| `ci-37815483559/save-bench-*.json` | CI の 5 つの環境、ADR-0015（5.1.x）の後、#61 の計測用ブランチ（`measure/61-layer-breakdown`）。保存ごとに layerPhases（層づくりの内訳：prepare・stage・transport・guest と guest.* の段階）が入る。`node scripts/summarize-save-bench.mjs docs/paper/data/ci-37815483559` で内訳の表が出る |
 | `ci-36809764061/save-bench-*.json` | CI の 5 つの環境、#41 の後（保存 100 回、travels つき） |
 | `ci-36902155146/save-bench-*.json` | CI の 5 つの環境、#38（ジャーナル、ADR-0014）の後。commitPhases に journal・writeObjects・writeIndex・writeRefs が入る。前（`ci-36882411545`）との比較は `node scripts/summarize-save-bench.mjs docs/paper/data/ci-36882411545 docs/paper/data/ci-36902155146` |
 | `ci-36882411545/save-bench-*.json` | CI の 5 つの環境、#45 の計測を足した後。保存ごとに commitPhases（記録の中の段階ごとの時間と、fsyncCount・fsyncMs）が入っている |
