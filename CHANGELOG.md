@@ -4,6 +4,12 @@ All notable changes to the "MicroGit" extension will be documented in this file.
 
 ## [Unreleased]
 
+## [5.1.2] - 2026-10-09
+
+### Changed
+- **ストアの説明文を、初めての人にも分かるように書き直した。** 何ができるか、普段の Git とは別に残ること、始め方、戻り方、困ったときの対処だけにした。仕組みの説明は [MicroGit の仕組み](docs/how-microgit-works.md) に分けた。GitHub の README は、これまでどおり詳しい解説のまま（ストアの説明文は `README-marketplace.md` から作る）
+- 拡張機能の動きは変えていない
+
 ## [5.1.1] - 2026-10-07
 
 ### Changed
