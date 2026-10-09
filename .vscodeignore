@@ -35,6 +35,10 @@ mac/**
 windows/**
 # 開発用のスクリプト（ベンチ・スモーク・テスト・VSIX 作り）は配らない（#19）
 scripts/**
+# README は 2 つある。GitHub に出る詳しい README.md は配らず、ストア向けの README-marketplace.md を
+# vsce package --readme-path で VSIX の readme.md にする（両方入れると大文字小文字だけ違う同じ名前になり、vsce が止まる）
+README.md
+README-marketplace.md
 # エージェント向けの作業メモは配らない
 AGENTS.md
 CLAUDE.md
