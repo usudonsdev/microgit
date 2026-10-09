@@ -27,6 +27,11 @@ VS Code の中で保存を繰り返して計った、1 回ごとの段階ごと�
 | `save-pipeline-win32-policy.json` | ブランチの確認で Git を起動しなくした後 |
 | `save-pipeline-win32-delta.json` | 層の作成で Git を起動しなくした後 |
 | `save-pipeline-win32-nodejs-after.json` | 手元の Windows、Node.js 版、#41 の後（保存 100 回、過去に戻る操作 10 回の travels つき）。#41 の前は保存 100 回の計測が途中で止まった（下の注） |
+| `ci-37824014250/save-bench-*.json` | #61、テストが保存の最中に Git を起動しない形にしたあと（内部コマンド `microgit.internal.lastSave`）。**#61 の結論に使う値** |
+| `ci-37821867662/save-bench-*.json` | #61、テストの Git を非同期の `execFile` にしたあと（Windows は直ったが、Linux は fork の待ちが残る） |
+| `ci-37819226341/save-bench-*.json` | #61、layerPhases に send・wire・resume・loop.blocked・loop.maxGap を足したあと。テストの Git の待ちを含む |
+| `ci-37815483559/save-bench-*.json` | #61、ADR-0015（5.1.x）の後。保存ごとに layerPhases（層づくりの内訳：prepare・stage・transport・guest と guest.* の段階）が入る。テストの Git の待ちを含む |
+| `local-win-61/save-bench-*.json` | #61、手元の Windows 11（AMD Ryzen 7 5700X）、保存 100 回。`sync-git-poll`（テストが Git を同期で起動）、`async-git-poll`（非同期）、`no-git-poll`（起動しない、カーネル版）、`nodejs-no-git-poll`（起動しない、Node.js 版） |
 | `ci-36809764061/save-bench-*.json` | CI の 5 つの環境、#41 の後（保存 100 回、travels つき） |
 | `ci-36902155146/save-bench-*.json` | CI の 5 つの環境、#38（ジャーナル、ADR-0014）の後。commitPhases に journal・writeObjects・writeIndex・writeRefs が入る。前（`ci-36882411545`）との比較は `node scripts/summarize-save-bench.mjs docs/paper/data/ci-36882411545 docs/paper/data/ci-36902155146` |
 | `ci-36882411545/save-bench-*.json` | CI の 5 つの環境、#45 の計測を足した後。保存ごとに commitPhases（記録の中の段階ごとの時間と、fsyncCount・fsyncMs）が入っている |
@@ -35,3 +40,5 @@ VS Code の中で保存を繰り返して計った、1 回ごとの段階ごと�
 注：#41 の前のコードで、Node.js 版の保存 100 回を手元で計ると、計測が 3 分かかり、2 回とも途中で「Document has been closed」で止まった（VS Code が使われていない文書を閉じたためと考える）。#41 の前後の比較は、保存 40 回にそろえて行った（`docs/design-rationale.md` §3.4、ファイルには残していない）。
 
 論文や記事に使うときは、条件をそろえた 4 つ（`fast-vs-git-*`）と、5.0.0 までの記録の伸び方（`baseline-win32` と `linux-wsl2` の `cli`）を分けて書く。
+
+注（#61、2026-10-09）：`ci-37815483559` より前の save-bench の「層の作成（layer）」「保存 1 回の処理全体（total）」は、拡張機能テストが保存の直後に Git を同期で起動していた待ち（Windows で 30〜40 ms、Linux で数 ms）を含んでいる。テストを直した値は `ci-37824014250` と `local-win-61/*-no-git-poll.json`。層づくりの内訳の表は、計測用ブランチ `measure/61-layer-breakdown` の `scripts/summarize-save-bench.mjs` で出る（master の版には内訳の列が無い）。経緯は [save-bottleneck-investigation.md](../../save-bottleneck-investigation.md)。
