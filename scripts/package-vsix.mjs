@@ -177,7 +177,8 @@ function checkVsix(file, layout) {
     const entries = zipEntries(file);
     const names = new Set(entries.map((e) => e.name));
     const problems = [];
-    for (const f of ['extension/package.json', 'extension/out/extension.js', 'extension/LICENCE.md', 'extension/THIRD_PARTY_NOTICES.md']) {
+    // readme.md はストアの説明文（README-marketplace.md から作る）。無いとストアのページが空になる
+    for (const f of ['extension/package.json', 'extension/out/extension.js', 'extension/readme.md', 'extension/LICENCE.md', 'extension/THIRD_PARTY_NOTICES.md']) {
         if (!names.has(f)) { problems.push(`無い: ${f}`); }
     }
     for (const f of layout.expect) {
@@ -221,7 +222,8 @@ for (const target of targets) {
     const layout = layouts[target]();
     const file = path.join(out, `microgit-${pkg.version}-${target}.vsix`);
     fs.rmSync(file, { force: true });
-    const args = [vsceBin, 'package', '--no-dependencies', '-o', file];
+    // ストアの説明文は、初心者向けの README-marketplace.md（GitHub の README.md は詳しい解説のまま。.vscodeignore で外す）
+    const args = [vsceBin, 'package', '--no-dependencies', '--readme-path', 'README-marketplace.md', '-o', file];
     // universal は --target を付けない。Marketplace では、専用の VSIX が無いプラットフォームに配られる
     if (target !== 'universal') { args.push('--target', target); }
     console.log(`\n== ${target}`);
