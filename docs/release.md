@@ -145,6 +145,19 @@ agent 1.1.0を使うため、この混在を見逃した。公開判定では手
 | 2026-10-07 | いったん Open VSX は未公開だった。この機械に名前空間 `usudonsdev` のトークンが無く、`ovsx verify-pat` が入力を求めた |
 | 2026-10-07 | 利用者が `ovsx login usudonsdev` したあと、**Open VSX に公開**（同じ 5 つの VSIX を `ovsx publish --packagePath`）。公開直後はレジストリが版を有効にするまで公開 API から見えず、linux-x64 が最後だった。見えるようになってから取り直した 5 つの VSIX の sha256 が `vsix.json` と一致した。無効のまま残った版を消すと、その版番号は二度と使えない（`ovsx unpublish`）ので、消さずに有効化を待った |
 
+### 3.4 5.1.2 の公開の記録（途中）
+
+利用者の決定（2026-10-09）：ストアの説明文を初めての人向けに書き直した（`README-marketplace.md`）ので、パッチ 5.1.2 として公開する。公開先は、まず VS Code Marketplace だけ（Open VSX は後で）。公開の作業は利用者が Mac から行う（[mac-handoff.md](./mac-handoff.md) §2）。
+
+| 日付 | できごと |
+|---|---|
+| 2026-10-09 | PR #63 を `master` にマージ（d0c5106）。PR の package.yml（run 37879013607）で 5 つの VSIX の作成と 5 つの環境の確認が通った |
+| 2026-10-09 | `master` の d0c5106 に `v5.1.2` のタグを打って push した。package.yml（run 37880129730）が 5 つの環境の確認を通り、GitHub Release の下書きを作った |
+| 2026-10-09 | 下書きの 5 つの VSIX の sha256 が `vsix.json` と一致した。VSIX の `extension/readme.md` が `README-marketplace.md` の文（初めての人向け）であることを確かめた |
+| 2026-10-09 | v5.1.1 からのソースの差分に `guest/`・`mac/`・`windows/`・`src/` は無い。darwin-arm64 VSIX を v5.1.1 と比べると、違いは `readme.md`・`changelog.md`・`package.json`・`extension.vsixmanifest`（版と説明文）と、`arm64/Image` の 98 バイト（Go が埋め込む `vcs.revision`（d249d52 → d0c5106）・`vcs.time` と、それに伴う値）だけ。`out/` の JavaScript と `microgit-vm` は同じ。Mac の kernel の実機での確認し直しは、5.1.1 と同じ判断で省ける |
+| 2026-10-09 | **VS Code Marketplace への公開は失敗した**（Windows の機械から `vsce publish --packagePath`）。「Access Denied: The Personal Access Token used has expired」。1 つ目（win32-x64）で止まったので、何も公開されていない（公開 API の版は 5.1.1 のまま）。GitHub Release は下書きのまま |
+| — | **残り**：新しいトークンで Marketplace に公開 → 配られた VSIX の確認 → GitHub Release の公開 → この表と CHANGELOG の日付の更新。Open VSX は後で |
+
 ## 4. 公開方針（2026-09-28 確定）
 
 | # | 事項 | 決定 |
