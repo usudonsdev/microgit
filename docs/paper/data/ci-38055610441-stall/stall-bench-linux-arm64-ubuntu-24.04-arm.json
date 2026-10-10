@@ -1,0 +1,277 @@
+{
+  "platform": "linux-arm64",
+  "backend": "kernel",
+  "resolutionMs": 1,
+  "idleMaxMs": 23.59,
+  "budget": {
+    "targetMs": 16,
+    "limitMs": 50
+  },
+  "saves": 20,
+  "summary": {
+    "w1": {
+      "median": 2.06,
+      "p95": 4.1,
+      "max": 5.67,
+      "overTarget": 0,
+      "overLimit": 0
+    },
+    "w2": {
+      "median": 30.21,
+      "p95": 31.7,
+      "max": 41.53,
+      "overTarget": 20,
+      "overLimit": 0
+    },
+    "w3": {
+      "median": 39.53,
+      "p95": 41.43,
+      "max": 543.21,
+      "overTarget": 20,
+      "overLimit": 1
+    }
+  },
+  "records": [
+    {
+      "n": 0,
+      "warmup": true,
+      "rel": "stall/file0.ts",
+      "w1": 2.62,
+      "w2": 30.65,
+      "w3": 37.8,
+      "w1Wall": 17.15
+    },
+    {
+      "n": 1,
+      "warmup": false,
+      "rel": "stall/file1.ts",
+      "w1": 1.7,
+      "w2": 30.87,
+      "w3": 40.22,
+      "w1Wall": 13.4
+    },
+    {
+      "n": 2,
+      "warmup": false,
+      "rel": "stall/file2.ts",
+      "w1": 1.46,
+      "w2": 30.2,
+      "w3": 40.22,
+      "w1Wall": 16.69
+    },
+    {
+      "n": 3,
+      "warmup": false,
+      "rel": "stall/file3.ts",
+      "w1": 1.52,
+      "w2": 31.7,
+      "w3": 41.21,
+      "w1Wall": 13.35
+    },
+    {
+      "n": 4,
+      "warmup": false,
+      "rel": "stall/file4.ts",
+      "w1": 1.68,
+      "w2": 27.79,
+      "w3": 40.22,
+      "w1Wall": 12.39
+    },
+    {
+      "n": 5,
+      "warmup": false,
+      "rel": "stall/file0.ts",
+      "w1": 4.1,
+      "w2": 41.53,
+      "w3": 543.21,
+      "w1Wall": 13.78
+    },
+    {
+      "n": 6,
+      "warmup": false,
+      "rel": "stall/file1.ts",
+      "w1": 5.67,
+      "w2": 30.59,
+      "w3": 40.09,
+      "w1Wall": 216.25
+    },
+    {
+      "n": 7,
+      "warmup": false,
+      "rel": "stall/file2.ts",
+      "w1": 2.06,
+      "w2": 28.29,
+      "w3": 40.58,
+      "w1Wall": 12.58
+    },
+    {
+      "n": 8,
+      "warmup": false,
+      "rel": "stall/file3.ts",
+      "w1": 3.19,
+      "w2": 31.08,
+      "w3": 41.43,
+      "w1Wall": 10.74
+    },
+    {
+      "n": 9,
+      "warmup": false,
+      "rel": "stall/file4.ts",
+      "w1": 3.17,
+      "w2": 30.29,
+      "w3": 38.58,
+      "w1Wall": 12.79
+    },
+    {
+      "n": 10,
+      "warmup": false,
+      "rel": "stall/file0.ts",
+      "w1": 2.17,
+      "w2": 29.18,
+      "w3": 38.75,
+      "w1Wall": 11.49
+    },
+    {
+      "n": 11,
+      "warmup": false,
+      "rel": "stall/file1.ts",
+      "w1": 2.4,
+      "w2": 29.23,
+      "w3": 41.21,
+      "w1Wall": 11.89
+    },
+    {
+      "n": 12,
+      "warmup": false,
+      "rel": "stall/file2.ts",
+      "w1": 2.15,
+      "w2": 30.13,
+      "w3": 39.5,
+      "w1Wall": 11.92
+    },
+    {
+      "n": 13,
+      "warmup": false,
+      "rel": "stall/file3.ts",
+      "w1": 2.08,
+      "w2": 29.33,
+      "w3": 38.81,
+      "w1Wall": 12.97
+    },
+    {
+      "n": 14,
+      "warmup": false,
+      "rel": "stall/file4.ts",
+      "w1": 2.27,
+      "w2": 30.77,
+      "w3": 38.52,
+      "w1Wall": 11.05
+    },
+    {
+      "n": 15,
+      "warmup": false,
+      "rel": "stall/file0.ts",
+      "w1": 2.04,
+      "w2": 30,
+      "w3": 38.65,
+      "w1Wall": 11.84
+    },
+    {
+      "n": 16,
+      "warmup": false,
+      "rel": "stall/file1.ts",
+      "w1": 1.71,
+      "w2": 30.21,
+      "w3": 37.9,
+      "w1Wall": 12.48
+    },
+    {
+      "n": 17,
+      "warmup": false,
+      "rel": "stall/file2.ts",
+      "w1": 1.85,
+      "w2": 30.56,
+      "w3": 39.04,
+      "w1Wall": 11.93
+    },
+    {
+      "n": 18,
+      "warmup": false,
+      "rel": "stall/file3.ts",
+      "w1": 1.82,
+      "w2": 31.39,
+      "w3": 38.19,
+      "w1Wall": 12.09
+    },
+    {
+      "n": 19,
+      "warmup": false,
+      "rel": "stall/file4.ts",
+      "w1": 1.75,
+      "w2": 30.03,
+      "w3": 40.03,
+      "w1Wall": 12.1
+    },
+    {
+      "n": 20,
+      "warmup": false,
+      "rel": "stall/file0.ts",
+      "w1": 3.04,
+      "w2": 31.26,
+      "w3": 39.53,
+      "w1Wall": 12.93
+    }
+  ],
+  "controls": [
+    {
+      "n": 0,
+      "w2": 1.23,
+      "w3": 20.69
+    },
+    {
+      "n": 1,
+      "w2": 1.21,
+      "w3": 1.29
+    },
+    {
+      "n": 2,
+      "w2": 1.18,
+      "w3": 1.29
+    },
+    {
+      "n": 3,
+      "w2": 1.27,
+      "w3": 1.2
+    },
+    {
+      "n": 4,
+      "w2": 1.16,
+      "w3": 0.2
+    },
+    {
+      "n": 5,
+      "w2": 0.13,
+      "w3": 0.2
+    },
+    {
+      "n": 6,
+      "w2": 1.26,
+      "w3": 1.29
+    },
+    {
+      "n": 7,
+      "w2": 1.28,
+      "w3": 1.2
+    },
+    {
+      "n": 8,
+      "w2": 1.2,
+      "w3": 1.2
+    },
+    {
+      "n": 9,
+      "w2": 1.27,
+      "w3": 1.24
+    }
+  ]
+}

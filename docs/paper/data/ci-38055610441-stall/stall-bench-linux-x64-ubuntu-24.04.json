@@ -1,0 +1,277 @@
+{
+  "platform": "linux-x64",
+  "backend": "nodejs",
+  "resolutionMs": 1,
+  "idleMaxMs": 184.73,
+  "budget": {
+    "targetMs": 16,
+    "limitMs": 50
+  },
+  "saves": 20,
+  "summary": {
+    "w1": {
+      "median": 22.23,
+      "p95": 24.07,
+      "max": 24.23,
+      "overTarget": 19,
+      "overLimit": 0
+    },
+    "w2": {
+      "median": 36.45,
+      "p95": 42.22,
+      "max": 75.09,
+      "overTarget": 20,
+      "overLimit": 1
+    },
+    "w3": {
+      "median": 50.09,
+      "p95": 212.12,
+      "max": 215.14,
+      "overTarget": 20,
+      "overLimit": 12
+    }
+  },
+  "records": [
+    {
+      "n": 0,
+      "warmup": true,
+      "rel": "stall/file0.ts",
+      "w1": 23.89,
+      "w2": 34.26,
+      "w3": 49.14,
+      "w1Wall": 33.58
+    },
+    {
+      "n": 1,
+      "warmup": false,
+      "rel": "stall/file1.ts",
+      "w1": 23.41,
+      "w2": 36.29,
+      "w3": 196.66,
+      "w1Wall": 31.47
+    },
+    {
+      "n": 2,
+      "warmup": false,
+      "rel": "stall/file2.ts",
+      "w1": 22.95,
+      "w2": 36.13,
+      "w3": 49,
+      "w1Wall": 31.06
+    },
+    {
+      "n": 3,
+      "warmup": false,
+      "rel": "stall/file3.ts",
+      "w1": 22.35,
+      "w2": 37.99,
+      "w3": 196.66,
+      "w1Wall": 32.13
+    },
+    {
+      "n": 4,
+      "warmup": false,
+      "rel": "stall/file4.ts",
+      "w1": 0.63,
+      "w2": 36.45,
+      "w3": 48.41,
+      "w1Wall": 36.75
+    },
+    {
+      "n": 5,
+      "warmup": false,
+      "rel": "stall/file0.ts",
+      "w1": 23.81,
+      "w2": 35.14,
+      "w3": 190.1,
+      "w1Wall": 31.85
+    },
+    {
+      "n": 6,
+      "warmup": false,
+      "rel": "stall/file1.ts",
+      "w1": 21.84,
+      "w2": 35.63,
+      "w3": 48.91,
+      "w1Wall": 30.14
+    },
+    {
+      "n": 7,
+      "warmup": false,
+      "rel": "stall/file2.ts",
+      "w1": 21.07,
+      "w2": 34.82,
+      "w3": 188.79,
+      "w1Wall": 30.23
+    },
+    {
+      "n": 8,
+      "warmup": false,
+      "rel": "stall/file3.ts",
+      "w1": 21.87,
+      "w2": 35.63,
+      "w3": 48.97,
+      "w1Wall": 30.05
+    },
+    {
+      "n": 9,
+      "warmup": false,
+      "rel": "stall/file4.ts",
+      "w1": 21.13,
+      "w2": 75.09,
+      "w3": 197.84,
+      "w1Wall": 28.29
+    },
+    {
+      "n": 10,
+      "warmup": false,
+      "rel": "stall/file0.ts",
+      "w1": 21.17,
+      "w2": 35.83,
+      "w3": 50.09,
+      "w1Wall": 28.93
+    },
+    {
+      "n": 11,
+      "warmup": false,
+      "rel": "stall/file1.ts",
+      "w1": 22.23,
+      "w2": 37.14,
+      "w3": 203.21,
+      "w1Wall": 30.53
+    },
+    {
+      "n": 12,
+      "warmup": false,
+      "rel": "stall/file2.ts",
+      "w1": 24.02,
+      "w2": 36.45,
+      "w3": 49.23,
+      "w1Wall": 32.51
+    },
+    {
+      "n": 13,
+      "warmup": false,
+      "rel": "stall/file3.ts",
+      "w1": 23.35,
+      "w2": 35.6,
+      "w3": 207.54,
+      "w1Wall": 28.72
+    },
+    {
+      "n": 14,
+      "warmup": false,
+      "rel": "stall/file4.ts",
+      "w1": 23.49,
+      "w2": 37.34,
+      "w3": 48.02,
+      "w1Wall": 31.66
+    },
+    {
+      "n": 15,
+      "warmup": false,
+      "rel": "stall/file0.ts",
+      "w1": 22.59,
+      "w2": 35.67,
+      "w3": 215.14,
+      "w1Wall": 30.65
+    },
+    {
+      "n": 16,
+      "warmup": false,
+      "rel": "stall/file1.ts",
+      "w1": 24.23,
+      "w2": 37.57,
+      "w3": 49,
+      "w1Wall": 32.02
+    },
+    {
+      "n": 17,
+      "warmup": false,
+      "rel": "stall/file2.ts",
+      "w1": 24.07,
+      "w2": 42.22,
+      "w3": 210.03,
+      "w1Wall": 32.18
+    },
+    {
+      "n": 18,
+      "warmup": false,
+      "rel": "stall/file3.ts",
+      "w1": 22.2,
+      "w2": 36.85,
+      "w3": 50.09,
+      "w1Wall": 29.9
+    },
+    {
+      "n": 19,
+      "warmup": false,
+      "rel": "stall/file4.ts",
+      "w1": 21.59,
+      "w2": 37.27,
+      "w3": 212.12,
+      "w1Wall": 29.36
+    },
+    {
+      "n": 20,
+      "warmup": false,
+      "rel": "stall/file0.ts",
+      "w1": 21,
+      "w2": 37.6,
+      "w3": 48.55,
+      "w1Wall": 28.9
+    }
+  ],
+  "controls": [
+    {
+      "n": 0,
+      "w2": 1.21,
+      "w3": 215.53
+    },
+    {
+      "n": 1,
+      "w2": 1.27,
+      "w3": 1.26
+    },
+    {
+      "n": 2,
+      "w2": 1.23,
+      "w3": 3.93
+    },
+    {
+      "n": 3,
+      "w2": 1.22,
+      "w3": 1.29
+    },
+    {
+      "n": 4,
+      "w2": 1.22,
+      "w3": 1.29
+    },
+    {
+      "n": 5,
+      "w2": 1.21,
+      "w3": 17.53
+    },
+    {
+      "n": 6,
+      "w2": 11.88,
+      "w3": 1.21
+    },
+    {
+      "n": 7,
+      "w2": 1.21,
+      "w3": 1.21
+    },
+    {
+      "n": 8,
+      "w2": 1.21,
+      "w3": 0.15
+    },
+    {
+      "n": 9,
+      "w2": 0.14,
+      "w3": 0.94
+    }
+  ]
+}

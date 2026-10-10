@@ -1,0 +1,277 @@
+{
+  "platform": "win32-x64",
+  "backend": "kernel",
+  "resolutionMs": 1,
+  "idleMaxMs": 1.14,
+  "budget": {
+    "targetMs": 16,
+    "limitMs": 50
+  },
+  "saves": 20,
+  "summary": {
+    "w1": {
+      "median": 8.9,
+      "p95": 40.39,
+      "max": 45.07,
+      "overTarget": 5,
+      "overLimit": 0
+    },
+    "w2": {
+      "median": 112.57,
+      "p95": 119.85,
+      "max": 125.75,
+      "overTarget": 20,
+      "overLimit": 20
+    },
+    "w3": {
+      "median": 276.61,
+      "p95": 320.91,
+      "max": 390.12,
+      "overTarget": 20,
+      "overLimit": 20
+    }
+  },
+  "records": [
+    {
+      "n": 0,
+      "warmup": true,
+      "rel": "stall/file0.ts",
+      "w1": 12.37,
+      "w2": 116.37,
+      "w3": 264.68,
+      "w1Wall": 40.74
+    },
+    {
+      "n": 1,
+      "warmup": false,
+      "rel": "stall/file1.ts",
+      "w1": 9.08,
+      "w2": 109.82,
+      "w3": 260.75,
+      "w1Wall": 27.17
+    },
+    {
+      "n": 2,
+      "warmup": false,
+      "rel": "stall/file2.ts",
+      "w1": 7.63,
+      "w2": 114.41,
+      "w3": 276.35,
+      "w1Wall": 34.74
+    },
+    {
+      "n": 3,
+      "warmup": false,
+      "rel": "stall/file3.ts",
+      "w1": 17.61,
+      "w2": 112.64,
+      "w3": 315.93,
+      "w1Wall": 45.33
+    },
+    {
+      "n": 4,
+      "warmup": false,
+      "rel": "stall/file4.ts",
+      "w1": 8.61,
+      "w2": 111.26,
+      "w3": 280.54,
+      "w1Wall": 28.98
+    },
+    {
+      "n": 5,
+      "warmup": false,
+      "rel": "stall/file0.ts",
+      "w1": 8.85,
+      "w2": 105.63,
+      "w3": 276.87,
+      "w1Wall": 27.15
+    },
+    {
+      "n": 6,
+      "warmup": false,
+      "rel": "stall/file1.ts",
+      "w1": 8.04,
+      "w2": 107.33,
+      "w3": 274.51,
+      "w1Wall": 23.65
+    },
+    {
+      "n": 7,
+      "warmup": false,
+      "rel": "stall/file2.ts",
+      "w1": 9.31,
+      "w2": 115.92,
+      "w3": 290.24,
+      "w1Wall": 24.43
+    },
+    {
+      "n": 8,
+      "warmup": false,
+      "rel": "stall/file3.ts",
+      "w1": 10.09,
+      "w2": 117.42,
+      "w3": 260.75,
+      "w1Wall": 28.06
+    },
+    {
+      "n": 9,
+      "warmup": false,
+      "rel": "stall/file4.ts",
+      "w1": 11.25,
+      "w2": 112.57,
+      "w3": 292.6,
+      "w1Wall": 24.95
+    },
+    {
+      "n": 10,
+      "warmup": false,
+      "rel": "stall/file0.ts",
+      "w1": 10.53,
+      "w2": 110.61,
+      "w3": 276.61,
+      "w1Wall": 28.39
+    },
+    {
+      "n": 11,
+      "warmup": false,
+      "rel": "stall/file1.ts",
+      "w1": 8.48,
+      "w2": 112.84,
+      "w3": 310.16,
+      "w1Wall": 26.17
+    },
+    {
+      "n": 12,
+      "warmup": false,
+      "rel": "stall/file2.ts",
+      "w1": 30.88,
+      "w2": 105.17,
+      "w3": 262.85,
+      "w1Wall": 68.33
+    },
+    {
+      "n": 13,
+      "warmup": false,
+      "rel": "stall/file3.ts",
+      "w1": 8.52,
+      "w2": 111.39,
+      "w3": 276.35,
+      "w1Wall": 28.57
+    },
+    {
+      "n": 14,
+      "warmup": false,
+      "rel": "stall/file4.ts",
+      "w1": 37.9,
+      "w2": 118.01,
+      "w3": 263.11,
+      "w1Wall": 79.38
+    },
+    {
+      "n": 15,
+      "warmup": false,
+      "rel": "stall/file0.ts",
+      "w1": 8.79,
+      "w2": 112.31,
+      "w3": 248.95,
+      "w1Wall": 24.5
+    },
+    {
+      "n": 16,
+      "warmup": false,
+      "rel": "stall/file1.ts",
+      "w1": 7.77,
+      "w2": 109.62,
+      "w3": 272.68,
+      "w1Wall": 27.48
+    },
+    {
+      "n": 17,
+      "warmup": false,
+      "rel": "stall/file2.ts",
+      "w1": 40.39,
+      "w2": 113.16,
+      "w3": 319.34,
+      "w1Wall": 72.6
+    },
+    {
+      "n": 18,
+      "warmup": false,
+      "rel": "stall/file3.ts",
+      "w1": 45.07,
+      "w2": 115.52,
+      "w3": 390.12,
+      "w1Wall": 110.18
+    },
+    {
+      "n": 19,
+      "warmup": false,
+      "rel": "stall/file4.ts",
+      "w1": 8.04,
+      "w2": 125.75,
+      "w3": 283.16,
+      "w1Wall": 26.71
+    },
+    {
+      "n": 20,
+      "warmup": false,
+      "rel": "stall/file0.ts",
+      "w1": 8.9,
+      "w2": 119.85,
+      "w3": 320.91,
+      "w1Wall": 27.74
+    }
+  ],
+  "controls": [
+    {
+      "n": 0,
+      "w2": 1.51,
+      "w3": 2.01
+    },
+    {
+      "n": 1,
+      "w2": 2.38,
+      "w3": 86.75
+    },
+    {
+      "n": 2,
+      "w2": 1.9,
+      "w3": 1.07
+    },
+    {
+      "n": 3,
+      "w2": 2,
+      "w3": 2.06
+    },
+    {
+      "n": 4,
+      "w2": 1.53,
+      "w3": 1.04
+    },
+    {
+      "n": 5,
+      "w2": 1.34,
+      "w3": 2.92
+    },
+    {
+      "n": 6,
+      "w2": 1.54,
+      "w3": 1.03
+    },
+    {
+      "n": 7,
+      "w2": 1.27,
+      "w3": 1.52
+    },
+    {
+      "n": 8,
+      "w2": 1.19,
+      "w3": 1.53
+    },
+    {
+      "n": 9,
+      "w2": 1.45,
+      "w3": 1.99
+    }
+  ]
+}
