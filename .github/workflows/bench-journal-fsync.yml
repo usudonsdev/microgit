@@ -1,0 +1,48 @@
+name: Bench journal fsync
+
+# ジャーナル追記の確定のやり方（fdatasync・事前確保・O_DSYNC・非同期）の費用を、3 つの OS で比べる（#65）。
+# 製品のコードは使わない（依存なし）ので npm ci は要らない。
+
+on:
+  push:
+    branches:
+      - 'measure/*-journal-fsync'
+    paths:
+      - 'scripts/bench-journal-fsync.mjs'
+      - '.github/workflows/bench-journal-fsync.yml'
+  workflow_dispatch:
+
+jobs:
+  bench:
+    name: bench (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run bench
+        shell: bash
+        run: node scripts/bench-journal-fsync.mjs --json "${{ runner.temp }}/bench-journal-fsync-${{ matrix.os }}.json" | tee "${{ runner.temp }}/bench-journal-fsync-${{ matrix.os }}.txt"
+
+      - name: Show table in job summary
+        shell: bash
+        run: |
+          {
+            echo '```'
+            cat "${{ runner.temp }}/bench-journal-fsync-${{ matrix.os }}.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-journal-fsync-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/bench-journal-fsync-${{ matrix.os }}.json
+            ${{ runner.temp }}/bench-journal-fsync-${{ matrix.os }}.txt
