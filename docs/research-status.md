@@ -126,7 +126,7 @@ CI の 5 つの環境、ジャーナル導入後・書き出しの遅延の前�
 | **P1** | 「気づかない」を測るテストを足す：保存 1 回のあいだに拡張機能ホストが止まった最長の時間（目標 16 ms・上限 50 ms）、保存のときに画面に何かが出ないこと | 速さの計測を、合格の基準で判定できる形にする | 未着手 |
 | P2 | ADR-0015 の後の値を、CI の 5 環境で取り直す（層づくりの内訳も） | §2.2 は ADR-0015 の前の値 | **済み**（#61、2026-10-09。[save-bottleneck-investigation.md](./save-bottleneck-investigation.md)） |
 | P2 | 層づくりの内訳（通信・mount・unmount）を測る | 保存の処理の中で最も重い。「保存の直後に戻る」と、資源の使い方に効く | **済み**（#61）。最も重いのはテストの待ちだった。直すと mount・unmount は 0.3 ms 以下 |
-| P2 | テストが保存の最中に Git を起動しないようにする修正を master に入れる（`microgit.internal.lastSave`） | 入れないと、master の CI の保存の数字はテストの待ちを含み続ける | 計測用ブランチ `measure/61-layer-breakdown` にだけある。利用者の判断待ち |
+| P2 | テストが保存の最中に Git を起動しないようにする修正を master に入れる（`microgit.internal.lastSave`） | 入れないと、master の CI の保存の数字はテストの待ちを含み続ける | **済み**（2026-10-10、5.1.3。利用者の決定） |
 | P2 | Node.js 版の層づくりで、Git の起動と遅らせた書き出しの強制をやめる（カーネル版の `ensureFromDelta` と同じ「親からの変化」を使う） | 今いちばん重い（CI 15〜34 ms、手元の Windows 157 ms）。同期の Git の起動は拡張機能ホストも止める | 未着手 |
 | P2 | Apple silicon の実機で、カーネル版の層づくりの内訳を測る | CI では測れない。Mac は保存のたびに stage と commit で往復が 2 回以上ある | 未着手（[指示書](./mac-kernel-measurement-instructions.md)） |
 | P2 | 普通の `git checkout` との比較を Windows でも測り、計測のスクリプトをリポジトリに入れる | 記事の比較が Mac だけ。今のスクリプトはリポジトリの外 | 未着手 |

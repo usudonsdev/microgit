@@ -4,6 +4,12 @@ All notable changes to the "MicroGit" extension will be documented in this file.
 
 ## [Unreleased]
 
+## [5.1.3] - 2026-10-10
+
+### Fixed
+- **拡張機能テストの保存の計測が、テスト自身の待ちを含んでいたのを直した**（#61）。テストは拡張機能と同じプロセスで動くのに、保存の直後に Git を同期で起動して記録を確かめていたので、そのあいだ（Windows で 30〜40 ms）MicroGit が止まり、層づくりが遅く測られていた。テストは保存の最中に Git を起動せず、内部コマンド `microgit.internal.lastSave`（処理を終えた保存の数と最後のコミット）で待つ
+- 拡張機能の動きは変えていない（内部コマンドを 1 つ足しただけ）
+
 ## [5.1.2] - 2026-10-09
 
 ### Changed
