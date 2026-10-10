@@ -1,0 +1,144 @@
+{
+  "env": {
+    "platform": "win32",
+    "release": "10.0.26100",
+    "arch": "x64",
+    "node": "v20.20.2",
+    "cpu": "AMD EPYC 9V74 80-Core Processor                ",
+    "tmpdir": "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp",
+    "n": 300,
+    "warmup": 20,
+    "prealloc": 8388608,
+    "constants": {
+      "O_DSYNC": null,
+      "O_SYNC": null
+    }
+  },
+  "results": [
+    {
+      "method": "loop-baseline",
+      "size": 0,
+      "loopMaxMs": 0.4504999999999981
+    },
+    {
+      "method": "current",
+      "size": 2048,
+      "loopMaxMs": 441.2555000000001,
+      "median": 2.2272000000002663,
+      "p95": 10.941800000000057,
+      "max": 441.1551999999999,
+      "n": 300
+    },
+    {
+      "method": "current",
+      "size": 16384,
+      "loopMaxMs": 70.76440000000002,
+      "median": 2.3656999999998334,
+      "p95": 3.669300000000021,
+      "max": 70.70220000000018,
+      "n": 300
+    },
+    {
+      "method": "prealloc-trunc",
+      "size": 2048,
+      "median": 2.2086999999996806,
+      "p95": 4.0925000000002,
+      "max": 66.80510000000004,
+      "n": 300
+    },
+    {
+      "method": "prealloc-trunc",
+      "size": 16384,
+      "median": 2.3065999999998894,
+      "p95": 3.2466999999996915,
+      "max": 16.40610000000015,
+      "n": 300
+    },
+    {
+      "method": "prealloc-zero",
+      "size": 2048,
+      "median": 2.161399999999958,
+      "p95": 3.374200000000201,
+      "max": 32.20430000000033,
+      "n": 300
+    },
+    {
+      "method": "prealloc-zero",
+      "size": 16384,
+      "median": 2.334899999999834,
+      "p95": 3.668499999999767,
+      "max": 19.574399999999514,
+      "n": 300
+    },
+    {
+      "method": "wt-dsync",
+      "size": 2048,
+      "unavailable": "fs.constants.O_DSYNC が無い"
+    },
+    {
+      "method": "wt-dsync",
+      "size": 16384,
+      "unavailable": "fs.constants.O_DSYNC が無い"
+    },
+    {
+      "method": "wt-sync",
+      "size": 2048,
+      "unavailable": "fs.constants.O_SYNC が無い"
+    },
+    {
+      "method": "wt-sync",
+      "size": 16384,
+      "unavailable": "fs.constants.O_SYNC が無い"
+    },
+    {
+      "method": "wt-dsync-raw",
+      "size": 2048,
+      "median": 2.073099999999613,
+      "p95": 3.4773999999997613,
+      "max": 30.191399999999703,
+      "n": 300
+    },
+    {
+      "method": "wt-dsync-raw",
+      "size": 16384,
+      "median": 2.2179999999989377,
+      "p95": 4.342400000000453,
+      "max": 69.75910000000022,
+      "n": 300
+    },
+    {
+      "method": "wt-sync-raw",
+      "size": 2048,
+      "median": 2.0799999999999272,
+      "p95": 3.236399999999776,
+      "max": 15.126500000000306,
+      "n": 300
+    },
+    {
+      "method": "wt-sync-raw",
+      "size": 16384,
+      "median": 2.171299999999974,
+      "p95": 4.1828999999997905,
+      "max": 21.001500000000306,
+      "n": 300
+    },
+    {
+      "method": "async",
+      "size": 2048,
+      "loopMaxMs": 0.13400000000001455,
+      "median": 2.20640000000094,
+      "p95": 3.608299999999872,
+      "max": 17.939899999999398,
+      "n": 300
+    },
+    {
+      "method": "async",
+      "size": 16384,
+      "loopMaxMs": 0.22029999999904248,
+      "median": 2.2911999999996624,
+      "p95": 3.309499999999389,
+      "max": 34.09569999999985,
+      "n": 300
+    }
+  ]
+}

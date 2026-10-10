@@ -1,0 +1,16 @@
+# linux 6.17.0-1022-azure x64 node v20.20.2 / AMD EPYC 9V45 96-Core Processor / tmp=/tmp
+# 各 300 回（ウォームアップ 20 回を除く）。単位 ms。O_DSYNC=4096 O_SYNC=1052672
+方法            大きさ  中央値  p95    最大    loop最長
+loop-baseline   -       -       -      -       0.36
+current         2KiB    0.27    0.38   16.23   16.23
+current         16KiB   0.29    0.38   1.31    1.34
+prealloc-trunc  2KiB    0.22    0.29   17.09   -
+prealloc-trunc  16KiB   0.26    0.34   1.69    -
+prealloc-zero   2KiB    0.09    0.10   0.25    -
+prealloc-zero   16KiB   0.09    0.11   7.44    -
+wt-dsync        2KiB    0.23    0.30   0.46    -
+wt-dsync        16KiB   0.27    0.34   137.15  -
+wt-sync         2KiB    0.24    0.38   1.29    -
+wt-sync         16KiB   0.30    8.45   59.12   -
+async           2KiB    0.24    75.01  159.52  0.21
+async           16KiB   0.29    0.36   0.89    0.09

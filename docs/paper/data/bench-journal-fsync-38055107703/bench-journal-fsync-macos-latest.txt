@@ -1,0 +1,16 @@
+# darwin 25.6.0 arm64 node v20.20.2 / Apple M1 (Virtual) / tmp=/var/folders/36/tjdph2t965j8snz9_vkdnw0r0000gn/T
+# 各 300 回（ウォームアップ 20 回を除く）。単位 ms。O_DSYNC=4194304 O_SYNC=128
+方法            大きさ  中央値  p95   最大   loop最長
+loop-baseline   -       -       -     -      1.39
+current         2KiB    0.88    2.08  22.62  24.92
+current         16KiB   0.79    1.34  2.63   2.98
+prealloc-trunc  2KiB    0.61    1.37  7.35   -
+prealloc-trunc  16KiB   0.50    0.90  2.61   -
+prealloc-zero   2KiB    0.50    0.95  3.41   -
+prealloc-zero   16KiB   0.86    1.28  2.91   -
+wt-dsync        2KiB    0.10    0.25  1.30   -
+wt-dsync        16KiB   0.15    0.32  1.17   -
+wt-sync         2KiB    0.07    0.13  0.98   -
+wt-sync         16KiB   0.15    0.37  1.03   -
+async           2KiB    0.93    1.57  4.12   1.56
+async           16KiB   1.24    1.77  3.63   2.19
