@@ -4,6 +4,9 @@ All notable changes to the "MicroGit" extension will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- **保存のたびのステータスバーの一時メッセージ（「[MicroGit] 記録 …」）を、既定で出さないようにした。** 保存のときに記録されていることに気づかない、という基準のため。以前のように出したいときは、設定 `microgit.showSaveStatus` を `true` にする（#68）
+
 ## [5.1.2] - 2026-10-09
 
 ### Changed

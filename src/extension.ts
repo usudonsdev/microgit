@@ -22,6 +22,7 @@ import {
 import { BackendSelector, parseBackendSetting } from './kernel/backendSelector';
 import { ensureExecutable } from './kernel/executable';
 import { FastMicroCommitter } from './fastMicroCommit';
+import { saveStatusMessage, SaveStatusResult } from './saveStatus';
 import { SaveTimer, SaveTimingLog } from './saveTiming';
 import { firstTagAtHead, readRef, readSymbolicHead, resolveGitDir } from './fastGit/refs';
 import { recoverJournals } from './fastGit/journal';
@@ -949,6 +950,13 @@ function recoverShadowJournals(shadowRepoPath: string): void {
     }
 }
 
+/** 保存のたびの一時メッセージ。設定 microgit.showSaveStatus が true のときだけ出す（#68） */
+function showSaveStatus(result: SaveStatusResult): void {
+    const show = vscode.workspace.getConfiguration().get<boolean>('microgit.showSaveStatus') === true;
+    const text = saveStatusMessage(show, result);
+    if (text !== undefined) { vscode.window.setStatusBarMessage(text, 3000); }
+}
+
 /**
  * 1 回の保存を記録する。設定 microgit.fastMicroCommit（既定 true）なら、Git のプロセスを起動しない速い実装
  * （fastMicroCommit.ts）で記録し、前提から外れたときや失敗したときは Git の CLI の実装で記録する（#32）
@@ -1364,10 +1372,7 @@ async function runShadowCommit(
             ExtensionLogger.log(
                 `[同一変更/${outcome.reason}] 新規コミットなし。HEAD→${outcome.commit.substring(0, 7)} (active=${currentMicroBranchTag})`
             );
-            vscode.window.setStatusBarMessage(
-                `[MicroGit] 同一変更のため HEAD のみ復帰 ${outcome.commit.substring(0, 7)}`,
-                3000
-            );
+            showSaveStatus({ kind: 'rewound', commit: outcome.commit });
             const branchRewind = getCurrentBranch(mainRepoPath);
             if (isRecordableBranch(branchRewind)) {
                 schedulePublishToParent(mainRepoPath, branchRewind!);
@@ -1435,7 +1440,7 @@ async function runShadowCommit(
         timer?.skip();
 
         ExtensionLogger.log(`シャドウコミット作成: ${commitHash.substring(0, 7)} (${relativeFilePath}) tag=${currentMicroBranchTag}`);
-        vscode.window.setStatusBarMessage(`[MicroGit] 記録 ${commitHash.substring(0, 7)} · ${currentMicroBranchTag}`, 3000);
+        showSaveStatus({ kind: 'created', commit: commitHash, tag: currentMicroBranchTag });
         return 'created';
     } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
