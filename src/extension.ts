@@ -11,7 +11,7 @@ import {
     describeOverlayEngine,
     ensureLayerExists,
     ensureOverlayDirs,
-    exportCommitLayer,
+    exportCommitLayerWithSource,
     isOverlayCheckoutEnabled,
     readDag,
     removeFromWriteLayer,
@@ -1403,7 +1403,10 @@ async function runShadowCommit(
         if (useOverlayCheckout() && !recordedByKernel) {
             try {
                 const overlayPaths = ensureOverlayDirs(mainRepoPath);
-                exportCommitLayer(
+                // 速い記録が「親からの変化」を知っていれば、それで層を作る（Git を起動せず、ADR-0015 で貯めている
+                // Git のファイルもその場で書き出させない。#66、カーネル版の #37 と同じ考え）。
+                // 使えない条件（親が違う・2 ファイル以上・安全でないパスなど）では exportCommitLayer が Git から作る
+                const exported = exportCommitLayerWithSource(
                     shadowRepoPath,
                     overlayPaths,
                     commitHash,
@@ -1411,11 +1414,12 @@ async function runShadowCommit(
                     currentMicroBranchTag,
                     runGit,
                     tryRunGit,
+                    outcome.kind === 'created' ? outcome.delta : undefined,
                 );
                 removeFromWriteLayer(overlayPaths, currentMicroBranchTag, relativeFilePath);
                 ExtensionLogger.log(
                     `[Overlay] レイヤ+ビュー展開: layers/${commitHash.substring(0, 7)} ` +
-                    `view=${commitHash.substring(0, 7)} (${relativeFilePath})`
+                    `view=${commitHash.substring(0, 7)}${exported.source === 'delta' ? '（記録の変化から）' : ''} (${relativeFilePath})`
                 );
             } catch (overlayErr: unknown) {
                 const msg = overlayErr instanceof Error ? overlayErr.message : String(overlayErr);

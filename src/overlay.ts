@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { flushPendingGitWrites } from './fastGit/pendingWrites';
 import { overlayDir } from './layout';
+import type { MicroCommitDelta } from './microCommit';
 
 /**
  * レイヤの形式（#21）。
@@ -803,6 +804,53 @@ export function listCommitChanges(
     return changes;
 }
 
+/** 層に書く 1 エントリ。中身は書く直前に読む（Git の道では、ここで初めて Git を起動する） */
+type LayerEntry = {
+    status: TreeChange['status'];
+    path: string;
+    content?: () => Buffer;
+};
+
+/** 層を Git から作ったか、速い記録の「親からの変化」から作ったか（#66） */
+export type LayerSource = 'git' | 'delta';
+
+/**
+ * 速い記録の「親からの変化」（MicroCommitDelta）を、層に書くエントリにする（#66）。
+ * 使えないときは undefined を返し、呼ぶ側は今までどおり Git から作る（遅いが確実な道）。
+ *
+ * Git の道（listCommitChanges → サブモジュールと isSafeLayerPath の除外 → git cat-file blob）と、層の中身・
+ * メタデータ・DAG がまったく同じになる場合だけ使う。条件と、それぞれの理由:
+ *   - 親（parentHash）があり、delta.parent と一致する。Git の道は parentHash との diff-tree を書くので、
+ *     違う親との差分を書くと層の中身が変わる。親が無い（最初の記録）ときは、Git の道は ls-tree の全ファイルを書く
+ *   - 変わったファイルがちょうど 1 つ。速い記録が delta を付けるのは「保存したファイル 1 つだけが変わり、
+ *     消えたファイルが無い」ときなので、Git の diff-tree もその 1 行（A か M、親でシンボリックリンクだったなら T）
+ *     だけを返す。2 つ以上だと、DAG の changedFiles の順番（Git のツリーの順）や、祖先と子孫の置き換えを
+ *     合わせる必要が出るので扱わない
+ *   - モードが 100644 / 100755。シンボリックリンク（120000）とサブモジュール（160000）は Git の道に任せる
+ *     （速い記録は通常のファイルにしか delta を付けないので、ここに来るのは想定外の入力だけ）
+ *   - パスが isSafeLayerPath を通る。通らないパスは Git の道では捨てられ、層は空・changedFiles も空になる。
+ *     それを真似るより、Git の道に落とすほうが確実
+ *   - 中身が MAX_BLOB_BYTES 以下。Git の道は上限を超えると execFileSync が失敗して層を作らない。
+ *     その振る舞いも Git の道に任せる
+ * 層の Node 版はモードを書かない（ファイルの中身だけを書く）ので、100644 と 100755 の違いは層には出ない。
+ * delta の中身は、速い記録が blob にしたバイト列そのもの（fastMicroCommit.ts の stageObject('blob', content)）なので、
+ * `git cat-file blob` で読み直したものとバイト単位で同じ。
+ */
+export function layerEntriesFromDelta(
+    delta: MicroCommitDelta | undefined,
+    parentHash: string | undefined,
+): LayerEntry[] | undefined {
+    if (!delta || !parentHash || delta.parent !== parentHash) { return undefined; }
+    if (!Array.isArray(delta.files) || delta.files.length !== 1) { return undefined; }
+    const file = delta.files[0];
+    if (file.mode !== '100644' && file.mode !== '100755') { return undefined; }
+    if (typeof file.path !== 'string' || !isSafeLayerPath(file.path)) { return undefined; }
+    if (!Buffer.isBuffer(file.content) || file.content.length > MAX_BLOB_BYTES) { return undefined; }
+    const content = file.content;
+    // 親にあったか（A か M か）は、層にもメタデータにも DAG にも出ないので区別しない
+    return [{ status: 'M', path: file.path, content: () => content }];
+}
+
 /**
  * コミットの変化を layers/<hash>/ に書き出す（レイヤ形式 v2）。
  * - 追加・変更・種類の変化（A/M/T）: ファイルの中身を丸ごと書く。シンボリックリンク（120000）はリンク先の文字列を
@@ -812,6 +860,15 @@ export function listCommitChanges(
  *   ディレクトリを作ることになる（N-4）。
  * - サブモジュール（160000）と、層の外を指すパスは無視する。
  * メタデータは最後に書く。途中で止まった書き出しはメタデータが無いので、ensureLayerExists が作り直す。
+ *
+ * delta（速い記録の「親からの変化」）を渡すと、使える条件のときは Git を起動せずに作る（#66）。
+ * 以前は保存のたびに git diff-tree と、ファイルごとに git cat-file blob を同期で起動し、その前に
+ * flushPendingGitWrites で、ADR-0015 で「落ち着いてから書く」ことにした Git のファイルをその場で書き出させていた。
+ * #61 の計測では、これが Node.js 版の保存の処理のほぼ全部（手元の Windows で 157 ms）だった。カーネル版は
+ * #37 で同じ delta を使い、Git を起動しなくなっている（layerFeeder.ts の ensureFromDelta）。
+ * delta の道では flushPendingGitWrites を呼ばない（Git を読まないので要らない。書き出しは ADR-0015 どおり
+ * 保存が落ち着いてから、または次に Git を読む処理の前に起きる）。使えない条件は layerEntriesFromDelta を見ること。
+ * 使えなければ今までどおり Git から作る。
  */
 export function exportCommitLayer(
     shadowRepoPath: string,
@@ -819,8 +876,64 @@ export function exportCommitLayer(
     commitHash: string,
     parentHash: string | undefined,
     branchTag: string | undefined,
+    runGit: GitRunner,
+    tryRunGit: GitTryRunner,
+    delta?: MicroCommitDelta,
+): string[] {
+    return exportCommitLayerWithSource(
+        shadowRepoPath, paths, commitHash, parentHash, branchTag, runGit, tryRunGit, delta,
+    ).changedFiles;
+}
+
+/** exportCommitLayer と同じ。どちらの道で作ったか（ログとテスト用）も返す */
+export function exportCommitLayerWithSource(
+    shadowRepoPath: string,
+    paths: OverlayPaths,
+    commitHash: string,
+    parentHash: string | undefined,
+    branchTag: string | undefined,
     _runGit: GitRunner,
     tryRunGit: GitTryRunner,
+    delta?: MicroCommitDelta,
+): { changedFiles: string[]; source: LayerSource } {
+    const fromDelta = layerEntriesFromDelta(delta, parentHash);
+    if (fromDelta) {
+        return {
+            changedFiles: writeCommitLayer(paths, commitHash, parentHash, branchTag, () => fromDelta),
+            source: 'delta',
+        };
+    }
+    const changedFiles = writeCommitLayer(paths, commitHash, parentHash, branchTag, () =>
+        listCommitChanges(shadowRepoPath, commitHash, parentHash, tryRunGit)
+            .filter((c) => c.mode !== '160000' && isSafeLayerPath(c.path))
+            .map((c): LayerEntry => ({
+                status: c.status,
+                path: c.path,
+                content: c.status === 'D' ? undefined : () => {
+                    // maxBuffer の既定は 1 MiB。v1 はそれより大きいファイルで ENOBUFS になり、「削除」扱いにしていた
+                    flushPendingGitWrites(shadowRepoPath); // 速い記録が貯めている分を書き出させる（ADR-0015）
+                    return execFileSync('git', ['cat-file', 'blob', c.sha], {
+                        cwd: shadowRepoPath,
+                        stdio: ['pipe', 'pipe', 'pipe'],
+                        windowsHide: true,
+                        maxBuffer: MAX_BLOB_BYTES,
+                    });
+                },
+            })),
+    );
+    return { changedFiles, source: 'git' };
+}
+
+/**
+ * 層の中身・メタデータ・DAG・ビューを書く（Git の道と delta の道で共通。#66）。
+ * listEntries は古い層を消したあとに呼ぶ（以前の exportCommitLayer と同じ順番。Git の道ではここで diff-tree を起動する）
+ */
+function writeCommitLayer(
+    paths: OverlayPaths,
+    commitHash: string,
+    parentHash: string | undefined,
+    branchTag: string | undefined,
+    listEntries: () => LayerEntry[],
 ): string[] {
     fs.mkdirSync(paths.layers, { recursive: true });
     fs.mkdirSync(paths.meta, { recursive: true });
@@ -831,26 +944,18 @@ export function exportCommitLayer(
     removeTree(dest);
     fs.mkdirSync(dest, { recursive: true });
 
-    const changes = listCommitChanges(shadowRepoPath, commitHash, parentHash, tryRunGit)
-        .filter((c) => c.mode !== '160000' && isSafeLayerPath(c.path));
+    const changes = listEntries();
     const writtenPaths = new Set(changes.filter((c) => c.status !== 'D').map((c) => c.path));
     const whiteouts: string[] = [];
 
     for (const change of changes) {
-        if (change.status === 'D') {
+        if (change.status === 'D' || !change.content) {
             if (!hasAncestorIn(change.path, writtenPaths)) {
                 whiteouts.push(change.path);
             }
             continue;
         }
-        // maxBuffer の既定は 1 MiB。v1 はそれより大きいファイルで ENOBUFS になり、「削除」扱いにしていた
-        flushPendingGitWrites(shadowRepoPath); // 速い記録が貯めている分を書き出させる（ADR-0015）
-        const content = execFileSync('git', ['cat-file', 'blob', change.sha], {
-            cwd: shadowRepoPath,
-            stdio: ['pipe', 'pipe', 'pipe'],
-            windowsHide: true,
-            maxBuffer: MAX_BLOB_BYTES,
-        });
+        const content = change.content();
         const outFile = path.join(dest, ...change.path.split('/'));
         fs.mkdirSync(path.dirname(outFile), { recursive: true });
         fs.writeFileSync(outFile, content);
