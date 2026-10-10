@@ -2,6 +2,7 @@ import * as assert from 'assert';
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import { monitorEventLoopDelay } from 'perf_hooks';
 import * as vscode from 'vscode';
 
 /**
@@ -194,6 +195,106 @@ suite('MicroGit Overlay backend (save → jump)', function () {
             const withGuest = all.filter((i) => i.layerPhases?.['guest.mount'] !== undefined && i.layerPhases?.wire !== undefined).length;
             assert.ok(withGuest > benchSaves / 2, `層づくりの内訳（guest.mount と wire）が付いた保存が ${withGuest} / ${benchSaves} 回しかない`);
         }
+    });
+
+    // 保存の前後で拡張機能ホストのイベントループが止まった最長の時間（#67）。MICROGIT_TEST_STALL_BENCH=<回数> のときだけ走る計測
+    // （MICROGIT_TEST_STALL_BENCH_OUT=<パス> で、1 回ごとの記録を JSON に書く）。合格の基準
+    // 「保存のときに、利用者がマイクロコミットされていることに気づかない」を、ホストが止まった時間で判定するための数字。
+    //
+    // 測り方に perf_hooks.monitorEventLoopDelay（resolution 1 ms）を選んだ理由:
+    //   - setImmediate を回す方法は、ループを 1 周するたびに休まず回るので CPU を 1 コア近く使い続け、同じ機械で動く QEMU や
+    //     Git の時間を乱す。計測自体が結果を変えてしまう
+    //   - monitorEventLoopDelay は 1 ms ごとのタイマーだけで、負荷が小さい。区間ごとに reset して max を読めば、その区間で
+    //     ループが止まった最長が分かる。タイマーが遅れて発火した分だけ記録されるので、止まった時間は max から resolution
+    //     （1 ms）を引いたもの。Windows のタイマーの粗さ（既定は約 15.6 ms）は、Electron が 1 ms に上げるので
+    //     最初に何もしない 1 秒の「休止」区間を測り、その max を床（ノイズ）として添える
+    //   - 止まっているあいだは記録されず、止まりが終わった時点で記録される。だから止まりは、終わった区間に入る
+    // 区間: W1 保存の呼び出しから、その保存の処理が終わる（lastSave().processed が増える）まで／W2 そこから 1.0 秒
+    // （0.3 秒後の後片付けを含む）／W3 そのあと 1.5 秒（1.5 秒後の共有を含む）。後片付けが後ろへずれ続けないよう、
+    // 1 回保存して 2.5 秒待つ。予算（16 ms 目標・50 ms 上限）を超えても落とさない。
+    const stallSaves = Number(process.env.MICROGIT_TEST_STALL_BENCH ?? '0');
+    (stallSaves > 0 ? test : test.skip)(`保存 ${stallSaves} 回の前後でホストのループが止まった最長を計る`, async function () {
+        this.timeout(0);
+        const RES_MS = 1;
+        const h = monitorEventLoopDelay({ resolution: RES_MS });
+        const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+        const maxMs = () => Math.max(0, h.max / 1e6 - RES_MS);
+        const round = (x: number) => Math.round(x * 100) / 100;
+        const pct = (xs: number[], p: number) => { const s = [...xs].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.floor((s.length - 1) * p))] ?? 0; };
+        await vscode.commands.executeCommand('microgit.internal.waitForSaves');
+        h.enable();
+        await sleep(1000);
+        h.reset();
+        await sleep(1000);
+        const idleMs = round(maxMs());
+        type Rec = { n: number; warmup: boolean; rel: string; w1: number; w2: number; w3: number; w1Wall: number };
+        const recs: Rec[] = [];
+        const controls: Array<{ n: number; w2: number; w3: number }> = [];
+        const files = Array.from({ length: 5 }, (_, i) => `stall/file${i}.ts`);
+        try {
+            // 最初の 1 回は層やジャーナルを作るので、集計には入れず（warmup）、JSON には残す
+            for (let n = 0; n <= stallSaves; n++) {
+                const rel = files[n % files.length];
+                const abs = path.join(root, ...rel.split('/'));
+                if (!fs.existsSync(abs)) { fs.mkdirSync(path.dirname(abs), { recursive: true }); fs.writeFileSync(abs, ''); }
+                const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(abs));
+                const edit = new vscode.WorkspaceEdit();
+                edit.replace(doc.uri, new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length)), `// ${rel}
+${'x'.repeat(200)}
+// stall ${n}
+`);
+                assert.ok(await vscode.workspace.applyEdit(edit));
+                const before = await lastSave();
+                // W1: 保存の呼び出しから、その保存の処理が終わるまで
+                h.reset();
+                const t0 = performance.now();
+                assert.ok(await doc.save());
+                const deadline = Date.now() + 60_000;
+                while ((await lastSave()).processed <= before.processed) {
+                    if (Date.now() > deadline) { throw new Error('save was not processed'); }
+                    await sleep(2);
+                }
+                const w1Wall = performance.now() - t0;
+                const w1 = maxMs();
+                h.reset();
+                await sleep(1000);
+                const w2 = maxMs();
+                h.reset();
+                await sleep(1500);
+                const w3 = maxMs();
+                recs.push({ n, warmup: n === 0, rel, w1: round(w1), w2: round(w2), w3: round(w3), w1Wall: round(w1Wall) });
+            }
+            // 対照：保存せずに同じ区間（1.0 秒＋1.5 秒）を測る。保存と関係なく起きる止まり（ほかの定期処理、VS Code の都合）を見分ける
+            for (let n = 0; n < Math.min(stallSaves, 10); n++) {
+                h.reset();
+                await sleep(1000);
+                const w2 = maxMs();
+                h.reset();
+                await sleep(1500);
+                controls.push({ n, w2: round(w2), w3: round(maxMs()) });
+            }
+        } finally {
+            h.disable();
+        }
+        const counted = recs.filter((r) => !r.warmup);
+        const budget = { targetMs: 16, limitMs: 50 };
+        const windows = ['w1', 'w2', 'w3'] as const;
+        const summary = Object.fromEntries(windows.map((w) => {
+            const xs = counted.map((r) => r[w]);
+            return [w, { median: round(pct(xs, 0.5)), p95: round(pct(xs, 0.95)), max: round(Math.max(...xs)), overTarget: xs.filter((x) => x > budget.targetMs).length, overLimit: xs.filter((x) => x > budget.limitMs).length }];
+        }));
+        const out = process.env.MICROGIT_TEST_STALL_BENCH_OUT;
+        if (out) { fs.writeFileSync(out, JSON.stringify({ platform: `${process.platform}-${process.arch}`, backend: process.env.MICROGIT_TEST_EXPECT_BACKEND ?? 'auto', resolutionMs: RES_MS, idleMaxMs: idleMs, budget, saves: counted.length, summary, records: recs, controls }, null, 2)); }
+        console.log(`[stall-bench] ループが止まった最長（ms、${counted.length} 回、休止中の床 ${idleMs} ms、予算 ${budget.targetMs} / ${budget.limitMs} ms）`);
+        for (const w of windows) {
+            const x = summary[w];
+            console.log(`  ${w.toUpperCase()}  中央値 ${x.median.toFixed(1).padStart(6)}  p95 ${x.p95.toFixed(1).padStart(6)}  最大 ${x.max.toFixed(1).padStart(6)}  ${budget.targetMs} ms 超え ${x.overTarget} 回  ${budget.limitMs} ms 超え ${x.overLimit} 回`);
+        }
+        if (controls.length > 0) {
+            const c2 = controls.map((c) => c.w2); const c3 = controls.map((c) => c.w3);
+            console.log(`  対照（保存なし ${controls.length} 回）  W2 相当 中央値 ${pct(c2, 0.5).toFixed(1)} 最大 ${Math.max(...c2).toFixed(1)}  W3 相当 中央値 ${pct(c3, 0.5).toFixed(1)} 最大 ${Math.max(...c3).toFixed(1)}`);
+        }
+        assert.strictEqual(counted.length, stallSaves);
     });
 
     test('Overlay Status で、使ったバックエンドが分かる', async () => {
