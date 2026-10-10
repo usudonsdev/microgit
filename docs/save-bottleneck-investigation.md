@@ -286,7 +286,7 @@ flowchart TD
 |---|---|---|
 | 使う環境 | Linux（5.11 以降、非特権のユーザー名前空間が使える）、Windows x64、Apple silicon Mac | Intel Mac、Windows on Arm、名前空間が止められた Linux など |
 | 保存のときにすること | 記録が知っている「親からの変化」（変わったファイルと中身）を agent に 1 回送る。agent は OverlayFS で層を 1 枚凍結する | `git diff-tree` で変わったファイルを調べ、ファイルごとに `git cat-file blob` を `execFileSync` で起動し、`.microgit/overlay/layers` に書く。その前に貯めた Git のファイルを書き出させる（`flushPendingGitWrites`） |
-| Git の起動 | しない | 保存 1 回で 2 回以上（同期） |
+| Git の起動 | しない | 保存 1 回で 2 回以上（同期）。**#66（2026-10-10）で、速い記録の delta が使えるときは起動しなくなった**（最初の記録・2 ファイル以上の変化・シンボリックリンクなどは今までどおり Git から） |
 | 時間 | 1.4〜4.6 ms | CI の Linux 14.8 ms、CI の macOS 34.0 ms、手元の Windows 157.1 ms |
 
 ### 8.5 残っている重いところと、測っていないところ

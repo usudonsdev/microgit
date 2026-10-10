@@ -4,6 +4,9 @@ All notable changes to the "MicroGit" extension will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- **Node.js 版の層づくりで、保存のたびに Git を起動しないようにした**（#66）。速い記録が知っている「親からの変化」で層を作る（カーネル版の #37 と同じ）。使えないとき（最初の記録、2 ファイル以上の変化、シンボリックリンクなど）は今までどおり Git から作る。手元の Windows で、Node.js 版の層づくりが 183 ms → 26 ms、保存 1 回の処理全体が 194 ms → 32 ms
+
 ## [5.1.2] - 2026-10-09
 
 ### Changed
