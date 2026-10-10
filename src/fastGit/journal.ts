@@ -12,6 +12,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as zlib from 'zlib';
 import { timedFdatasync, timedFsync } from './fsyncStats';
+import { timeSync, markResume } from '../syncWorkLog';
 import { hashObject, looseObjectPath, ObjectType, writeLooseObject } from './objects';
 import { readIndex } from './gitIndex';
 import { readRef, readSymbolicHead, writeRef, writeSymbolicRef } from './refs';
@@ -167,6 +168,7 @@ export class Journal {
             try {
                 // 1. 次のファイルを裏で作る。その間の保存は、今のファイルに追記し続ける
                 const next = await this.createNext();
+                markResume('journal.checkpoint after createNext');
                 if (this.fd < 0) {
                     // その間に checkpointSync が今のファイルを片付けた。次のファイルをそのまま使う
                     this.fd = next.fd;
@@ -183,12 +185,12 @@ export class Journal {
                 this.bytes = 0;
                 this.written = new Set();
                 // 3. 古いファイルの記録で書いた Git のファイルと、その名前（ディレクトリ）を確定させてから、古いファイルを消す
-                fs.closeSync(oldFd);
+                timeSync('journal.closeSync(old)', () => fs.closeSync(oldFd));
                 // オブジェクトは上書きされないので裏で確定させる。ref・HEAD・index など上書きされうるファイルは、
                 // 開いて確定させて閉じるまでを同期で一度に行う。裏で開いたままにすると、その間の保存の上書きの rename が
                 // Windows で EPERM になる（5.0.0 の公開前の確認、windows-latest で 105 回に 1 回）
                 for (const f of files) {
-                    if (isObjectFile(f)) { await flushFile(f); } else { flushFileSync(f); }
+                    if (isObjectFile(f)) { await timeSync('journal.flushFile(objects: async, sync part)', () => flushFile(f)); } else { timeSync('journal.flushFileSync(ref/HEAD/index)', () => flushFileSync(f), () => path.basename(f)); }
                 }
                 for (const d of parentDirs(files)) { await fsyncDir(d); }
                 await fs.promises.unlink(oldFile).catch(() => undefined);

@@ -1,4 +1,5 @@
 import { execFileSync } from 'child_process';
+import { timeSync, timeGit, noteWork } from './syncWorkLog';
 import * as fs from 'fs';
 import * as path from 'path';
 import { durabilityGitArgs } from './durability';
@@ -24,12 +25,12 @@ export function parentMicroRefPrefix(mainBranch: string): string {
 function runGitDir(gitDir: string, args: string[], workTree?: string): string {
     // shadow の bare への書き込み（update-ref など）も、設定した永続性の水準で行う（#11 の O-11）
     const fullArgs = [...durabilityGitArgs(), '--git-dir', gitDir, ...(workTree ? ['--work-tree', workTree] : []), ...args];
-    flushPendingGitWrites(); // 速い記録が貯めている分を先に書き出させる（ADR-0015）
-    return execFileSync('git', fullArgs, {
+    timeSync('flushPendingGitWrites', () => flushPendingGitWrites()); // 速い記録が貯めている分を先に書き出させる（ADR-0015）
+    return timeGit(args, () => execFileSync('git', fullArgs, {
         encoding: 'utf8',
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true,
-    }).toString();
+    }).toString());
 }
 
 function tryGitDir(gitDir: string, args: string[], workTree?: string): string | undefined {
@@ -154,6 +155,7 @@ export function publishToParentRefs(
         .trim()
         .split('\n')
         .filter(Boolean);
+    noteWork('publish.mbTags', tags.length);
     for (const tag of tags) {
         if (!/^mb-\d+$/.test(tag)) { continue; }
         try {

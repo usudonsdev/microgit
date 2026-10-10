@@ -1,4 +1,5 @@
 import { execFileSync } from 'child_process';
+import { timeSync, timeGit, markResume, takeSyncWorkLog } from './syncWorkLog';
 import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -446,6 +447,8 @@ export function activate(context: vscode.ExtensionContext) {
         // 処理を終えた保存の数と、最後に記録したコミット。テストが保存の最中に Git を起動しないため（#61）
         vscode.commands.registerCommand('microgit.internal.lastSave', () => ({ processed: savesProcessed, head: lastSaveOutcome?.head })),
         vscode.commands.registerCommand('microgit.internal.flushAfterSave', async () => { await saveChain; await flushAfterSaveRefresh(); }),
+        // 同期の仕事の計測（#67）。取ったら空にする。clear=false なら残す
+        vscode.commands.registerCommand('microgit.internal.syncWorkLog', (clear?: boolean) => takeSyncWorkLog(clear !== false)),
         vscode.commands.registerCommand('microgit.internal.saveTimings', (clear?: boolean) => {
             const all = [...saveTimings.all];
             if (clear) { saveTimings.clear(); }
@@ -483,8 +486,11 @@ export function activate(context: vscode.ExtensionContext) {
 
 /** ステータスバーと専用 UI（サイドバー / グラフ）を最新状態へ同期する */
 function refreshUi(rootPath: string | undefined): void {
-    updateStatusBar(rootPath);
-    microGitUi?.update(buildUiSnapshot(rootPath));
+    timeSync('refreshUi', () => {
+        timeSync('updateStatusBar', () => updateStatusBar(rootPath));
+        const snapshot = timeSync('buildUiSnapshot', () => buildUiSnapshot(rootPath));
+        timeSync('microGitUi.update(postMessage)', () => microGitUi?.update(snapshot));
+    });
 }
 
 function buildUiSnapshot(rootPath: string | undefined): MicroGitUiSnapshot {
@@ -511,11 +517,11 @@ function buildUiSnapshot(rootPath: string | undefined): MicroGitUiSnapshot {
     let currentHead: string | undefined;
 
     if (active && hasShadow) {
-        commits = getMicroGraphData(shadowRepoPath);
+        commits = timeSync('getMicroGraphData', () => getMicroGraphData(shadowRepoPath));
         currentHead = tryRunGit(shadowRepoPath, ['rev-parse', 'HEAD'])?.trim();
     }
 
-    const mainCommits = getMainCommitLog(rootPath, 40);
+    const mainCommits = timeSync('getMainCommitLog', () => getMainCommitLog(rootPath, 40));
     const mainIntervals = buildMainIntervalOptions(
         mainCommits,
         commits.map((c) => c.mainHead),
@@ -548,9 +554,10 @@ function scheduleAfterSaveRefresh(rootPath: string, savedFile?: string): void {
         // 保存の処理が走っていないときに行う（列に積むと、その間の保存を待たせる）
         void (async () => {
             // ジャーナルに溜まった分の Git のファイルを確定させ、ジャーナルを消す（ADR-0014。保存の時間には入らない）
-            await checkpointFastCommitters();
-            if (job.savedFile) { await generateMicroGitFileLog(job.rootPath, job.savedFile); }
-            await ExtensionLogger.exportLogFile(job.rootPath);
+            await timeSync('checkpointFastCommitters(sync part)', () => checkpointFastCommitters());
+            markResume('after checkpointFastCommitters');
+            if (job.savedFile) { await timeSync('generateMicroGitFileLog', () => generateMicroGitFileLog(job.rootPath, job.savedFile!)); }
+            await timeSync('exportLogFile', () => ExtensionLogger.exportLogFile(job.rootPath));
             refreshUi(job.rootPath);
         })();
     }, AFTER_SAVE_REFRESH_MS);
@@ -563,9 +570,10 @@ async function flushAfterSaveRefresh(): Promise<void> {
     afterSaveJob = undefined;
     afterSaveTimer = undefined;
     if (!job) { return; }
-    await checkpointFastCommitters();
-    if (job.savedFile) { await generateMicroGitFileLog(job.rootPath, job.savedFile); }
-    await ExtensionLogger.exportLogFile(job.rootPath);
+    await timeSync('checkpointFastCommitters(sync part)', () => checkpointFastCommitters());
+    markResume('after checkpointFastCommitters');
+    if (job.savedFile) { await timeSync('generateMicroGitFileLog', () => generateMicroGitFileLog(job.rootPath, job.savedFile!)); }
+    await timeSync('exportLogFile', () => ExtensionLogger.exportLogFile(job.rootPath));
     refreshUi(job.rootPath);
 }
 
@@ -585,7 +593,7 @@ function schedulePublishToParent(rootPath: string, branch: string): void {
         publishTimer = undefined;
         if (!job) { return; }
         try {
-            publishToParentRefs(job.rootPath, job.branch, (m, l) => ExtensionLogger.log(m, l));
+            timeSync('publishToParentRefs', () => publishToParentRefs(job.rootPath, job.branch, (m, l) => ExtensionLogger.log(m, l)));
         } catch (pubErr: unknown) {
             const msg = pubErr instanceof Error ? pubErr.message : String(pubErr);
             ExtensionLogger.log(`親 refs への publish に失敗: ${msg}`, 'WARN');
@@ -866,17 +874,17 @@ function runGit(
     options?: { env?: NodeJS.ProcessEnv }
 ): string {
     // 隠しリポジトリを読む前に、速い記録が貯めている Git のファイルを書き出させる（ADR-0015）
-    flushPendingGitWrites(cwd);
+    timeSync('flushPendingGitWrites', () => flushPendingGitWrites(cwd));
     // core.quotepath=false: 既定（true）では --name-only などが日本語などのパスを "\343\203\241..." のように
     // エスケープして出し、それをパスとして使うと別のファイルを指してしまう（#21 の N-6）
     // durabilityGitArgs: 保存の記録（commit-tree・update-ref など）を、設定した永続性の水準で書く（#11 の O-11）
-    return execFileSync('git', ['-c', 'core.quotepath=false', ...durabilityGitArgs(), ...args], {
+    return timeGit(args, () => execFileSync('git', ['-c', 'core.quotepath=false', ...durabilityGitArgs(), ...args], {
         cwd,
         encoding: 'utf8',
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true,
         env: options?.env ?? process.env,
-    }).toString();
+    }).toString());
 }
 
 function tryRunGit(cwd: string, args: string[]): string | undefined {
@@ -1051,7 +1059,7 @@ async function generateMicroGitFileLog(rootPath: string, savedFilePath: string):
             fs.mkdirSync(logFolderPath, { recursive: true });
         }
 
-        fs.writeFileSync(logFilePath, logContent, 'utf8');
+        timeSync('timeline.log writeFileSync', () => fs.writeFileSync(logFilePath, logContent, 'utf8'), () => `${logContent.length} chars`);
         ExtensionLogger.log(`.microgit/logs/timeline.log を自動更新しました (${fileName})`);
     } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
@@ -1497,8 +1505,9 @@ class ExtensionLogger {
         if (!isOnTargetBranch(workspaceRoot)) { return; }
         try {
             const logFolder = logsDir(workspaceRoot);
-            fs.mkdirSync(logFolder, { recursive: true });
-            fs.writeFileSync(path.join(logFolder, 'log_latest.json'), JSON.stringify(this.logRecords, null, 2), 'utf8');
+            timeSync('exportLogFile.mkdirSync', () => fs.mkdirSync(logFolder, { recursive: true }));
+            const json = timeSync('exportLogFile.JSON.stringify', () => JSON.stringify(this.logRecords, null, 2), () => `${this.logRecords.length} records`);
+            timeSync('exportLogFile.writeFileSync', () => fs.writeFileSync(path.join(logFolder, 'log_latest.json'), json, 'utf8'), () => `${json.length} chars`);
         } catch { /* ignore export errors */ }
     }
 }

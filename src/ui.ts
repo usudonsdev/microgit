@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { timeSync } from './syncWorkLog';
 import { filterCommitsByMainInterval, type MainIntervalOption } from './mainHead';
 
 export interface GraphCommit {
@@ -129,11 +130,15 @@ export class MicroGitUi implements vscode.WebviewViewProvider {
     }
 
     private postToSidebar(): void {
-        this.view?.webview.postMessage({ type: 'update', payload: this.viewPayload() });
+        timeSync('ui.postToSidebar', () => this.view?.webview.postMessage({ type: 'update', payload: timeSync('ui.viewPayload', () => this.viewPayload()) }), () => `view=${this.view ? 'yes' : 'no'}`);
     }
 
     private postToGraph(): void {
-        const payload = this.viewPayload();
+        timeSync('ui.postToGraph', () => this.postToGraphBody(), () => `panel=${this.graphPanel ? 'yes' : 'no'}`);
+    }
+
+    private postToGraphBody(): void {
+        const payload = timeSync('ui.viewPayload', () => this.viewPayload());
         this.graphPanel?.webview.postMessage({
             type: 'update',
             payload: {

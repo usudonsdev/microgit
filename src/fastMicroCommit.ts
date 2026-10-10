@@ -14,6 +14,7 @@
  * FastPathUnsupported を投げる。呼ぶ側は Git の CLI の実装に任せる。
  */
 import { execFileSync } from 'child_process';
+import { timeSync, timeGit } from './syncWorkLog';
 import * as fs from 'fs';
 import * as path from 'path';
 import { GitIndex, IndexEntry, compareIndexEntries, entryFromStat, indexPath, readIndex, writeIndex } from './fastGit/gitIndex';
@@ -143,9 +144,9 @@ export class FastMicroCommitter {
         // Git に履歴を読ませる前に、貯めている分を書き出す（まだ書いていないコミットを Git は知らない）
         this.materialize();
         this.stats.gitSpawns++;
-        return execFileSync('git', ['-c', 'core.quotepath=false', ...args], {
+        return timeGit(args, () => execFileSync('git', ['-c', 'core.quotepath=false', ...args], {
             cwd: this.workTree, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, maxBuffer: 1 << 30,
-        }).toString();
+        }).toString());
     }
 
     /** 設定を読み、この実装の前提を満たすかを確かめる（最初の 1 回と、履歴を読み直すとき） */
@@ -584,8 +585,8 @@ export class FastMicroCommitter {
 
     /** ジャーナルのチェックポイント（保存が落ち着いたときに呼ぶ。保存を待たせない）。先に貯めている分を書き出す */
     checkpoint(): Promise<void> {
-        this.materialize();
-        return this.journal?.checkpoint() ?? Promise.resolve();
+        timeSync('fc.materialize', () => this.materialize());
+        return timeSync('journal.checkpoint(sync part)', () => this.journal?.checkpoint() ?? Promise.resolve());
     }
 
     /** ジャーナルのチェックポイントを同期で（拡張機能の終わり）。先に貯めている分を書き出す */

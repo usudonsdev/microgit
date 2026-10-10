@@ -221,13 +221,47 @@ suite('MicroGit Overlay backend (save → jump)', function () {
         const maxMs = () => Math.max(0, h.max / 1e6 - RES_MS);
         const round = (x: number) => Math.round(x * 100) / 100;
         const pct = (xs: number[], p: number) => { const s = [...xs].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.floor((s.length - 1) * p))] ?? 0; };
+        // 同期の仕事の計測（microgit.internal.syncWorkLog。取ったら空になる）
+        type WorkRec = { kind: 'fn' | 'git' | 'note' | 'resume'; name: string; t: number; ms: number; depth: number; parent?: string; detail?: string };
+        const takeWork = async () => ((await vscode.commands.executeCommand('microgit.internal.syncWorkLog', true)) as WorkRec[] | undefined) ?? [];
+        // 休止の床を汚さないよう、前のテストの後片付けと publish が終わってから測る。waitForSaves は保存の列を待つだけで
+        // 0.3 秒後・1.5 秒後のタイマーは待たない。flushAfterSave で後片付けを済ませ、publish のタイマー（1.5 秒）が切れて処理が終わる
+        // （publishToParentRefs の記録が出る）まで待つ
         await vscode.commands.executeCommand('microgit.internal.waitForSaves');
+        await vscode.commands.executeCommand('microgit.internal.flushAfterSave');
+        await sleep(1800);
+        const preWork: WorkRec[] = [];
+        for (const settleDeadline = Date.now() + 4000; ;) {
+            preWork.push(...await takeWork());
+            if (preWork.some((r) => r.name === 'publishToParentRefs') || Date.now() > settleDeadline) { break; }
+            await sleep(100);
+        }
+        await sleep(500);
+        await takeWork();
         h.enable();
         await sleep(1000);
         h.reset();
         await sleep(1000);
         const idleMs = round(maxMs());
-        type Rec = { n: number; warmup: boolean; rel: string; w1: number; w2: number; w3: number; w1Wall: number };
+        type Rec = { n: number; warmup: boolean; rel: string; w1: number; w2: number; w3: number; w1Wall: number; work?: SaveWork };
+        type Run = { start: number; ms: number; top: string[] };
+        type SaveWork = { edges: { w1: number; w2: number; w3: number }; records: Array<WorkRec & { rel: number; win: 'w1' | 'w2' | 'w3' }>; runs: Array<Run & { win: 'w1' | 'w2' | 'w3' }> };
+        // 同期で連続して走った部分（記録の区間の和集合。隙間 1 ms 未満はつなぐ。await の後でもマイクロタスクで続けば 1 つの止まりになる）
+        const runsOf = (ws: Array<{ rel: number; ms: number; name: string; depth: number; kind: string }>): Run[] => {
+            const xs = ws.filter((r) => r.kind === 'fn' || r.kind === 'git').sort((a, b) => a.rel - b.rel || a.depth - b.depth);
+            const runs: Array<Run & { end: number; minDepth: number }> = [];
+            for (const r of xs) {
+                const last = runs[runs.length - 1];
+                if (last && r.rel <= last.end + 1) {
+                    last.end = Math.max(last.end, r.rel + r.ms);
+                    if (r.depth < last.minDepth) { last.minDepth = r.depth; last.top = []; }
+                    if (r.depth === last.minDepth && !last.top.includes(r.name)) { last.top.push(r.name); }
+                } else {
+                    runs.push({ start: r.rel, end: r.rel + r.ms, ms: 0, top: [r.name], minDepth: r.depth });
+                }
+            }
+            return runs.map((r) => ({ start: round(r.start), ms: round(r.end - r.start), top: r.top }));
+        };
         const recs: Rec[] = [];
         const controls: Array<{ n: number; w2: number; w3: number }> = [];
         const files = Array.from({ length: 5 }, (_, i) => `stall/file${i}.ts`);
@@ -244,6 +278,7 @@ ${'x'.repeat(200)}
 // stall ${n}
 `);
                 assert.ok(await vscode.workspace.applyEdit(edit));
+                await takeWork();
                 const before = await lastSave();
                 // W1: 保存の呼び出しから、その保存の処理が終わるまで
                 h.reset();
@@ -259,10 +294,15 @@ ${'x'.repeat(200)}
                 h.reset();
                 await sleep(1000);
                 const w2 = maxMs();
+                const tW2End = performance.now();
                 h.reset();
                 await sleep(1500);
                 const w3 = maxMs();
-                recs.push({ n, warmup: n === 0, rel, w1: round(w1), w2: round(w2), w3: round(w3), w1Wall: round(w1Wall) });
+                const edges = { w1: round(w1Wall), w2: round(tW2End - t0), w3: round(performance.now() - t0) };
+                const winOf = (rel: number): 'w1' | 'w2' | 'w3' => (rel < edges.w1 ? 'w1' : rel < edges.w2 ? 'w2' : 'w3');
+                const records = (await takeWork()).map((r) => ({ ...r, t: round(r.t), ms: round(r.ms), rel: round(r.t - t0), win: winOf(r.t - t0) }));
+                const runs = runsOf(records).map((r) => ({ ...r, win: winOf(r.start) }));
+                recs.push({ n, warmup: n === 0, rel, w1: round(w1), w2: round(w2), w3: round(w3), w1Wall: round(w1Wall), work: { edges, records, runs } });
             }
             // 対照：保存せずに同じ区間（1.0 秒＋1.5 秒）を測る。保存と関係なく起きる止まり（ほかの定期処理、VS Code の都合）を見分ける
             for (let n = 0; n < Math.min(stallSaves, 10); n++) {
@@ -283,8 +323,33 @@ ${'x'.repeat(200)}
             const xs = counted.map((r) => r[w]);
             return [w, { median: round(pct(xs, 0.5)), p95: round(pct(xs, 0.95)), max: round(Math.max(...xs)), overTarget: xs.filter((x) => x > budget.targetMs).length, overLimit: xs.filter((x) => x > budget.limitMs).length }];
         }));
+        // 関数ごとの時間：保存 1 回あたり、その区間で同期でかかった時間の合計（無い保存は 0）の中央値・p95
+        const winNames = ['w1', 'w2', 'w3'] as const;
+        const fnTable: Record<string, Record<string, { median: number; p95: number; calls: number }>> = {};
+        const gitTable: Record<string, Record<string, { countMedian: number; countP95: number; sumMsMedian: number; sumMsP95: number; callMsMedian: number; callMsMax: number }>> = {};
+        const runTable: Record<string, { longestMedian: number; longestP95: number; longestTop: string[] }> = {};
+        for (const w of winNames) {
+            fnTable[w] = {}; gitTable[w] = {};
+            const inWin = counted.map((r) => (r.work?.records ?? []).filter((x) => x.win === w));
+            for (const name of new Set(inWin.flat().filter((x) => x.kind === 'fn').map((x) => x.name))) {
+                const sums = inWin.map((rs) => rs.filter((x) => x.kind === 'fn' && x.name === name).reduce((a, x) => a + x.ms, 0));
+                fnTable[w][name] = { median: round(pct(sums, 0.5)), p95: round(pct(sums, 0.95)), calls: inWin.flat().filter((x) => x.kind === 'fn' && x.name === name).length };
+            }
+            for (const name of new Set(inWin.flat().filter((x) => x.kind === 'git').map((x) => x.name))) {
+                const gs = inWin.map((rs) => rs.filter((x) => x.kind === 'git' && x.name === name));
+                const counts = gs.map((g) => g.length);
+                const sums = gs.map((g) => g.reduce((a, x) => a + x.ms, 0));
+                const calls = gs.flat().map((x) => x.ms);
+                gitTable[w][name] = { countMedian: pct(counts, 0.5), countP95: pct(counts, 0.95), sumMsMedian: round(pct(sums, 0.5)), sumMsP95: round(pct(sums, 0.95)), callMsMedian: round(pct(calls, 0.5)), callMsMax: round(Math.max(...calls)) };
+            }
+            const longest = counted.map((r) => (r.work?.runs ?? []).filter((x) => x.win === w).sort((a, b) => b.ms - a.ms)[0]);
+            const lens = longest.map((x) => x?.ms ?? 0);
+            runTable[w] = { longestMedian: round(pct(lens, 0.5)), longestP95: round(pct(lens, 0.95)), longestTop: [...new Set(longest.flatMap((x) => x?.top ?? []))] };
+        }
+        const mbTags = counted.flatMap((r) => (r.work?.records ?? []).filter((x) => x.name === 'publish.mbTags').map((x) => Number(x.detail)));
+        const workSummary = { functions: fnTable, git: gitTable, longestSyncRun: runTable, mbTags: { min: Math.min(...mbTags), max: Math.max(...mbTags), last: mbTags[mbTags.length - 1] } };
         const out = process.env.MICROGIT_TEST_STALL_BENCH_OUT;
-        if (out) { fs.writeFileSync(out, JSON.stringify({ platform: `${process.platform}-${process.arch}`, backend: process.env.MICROGIT_TEST_EXPECT_BACKEND ?? 'auto', resolutionMs: RES_MS, idleMaxMs: idleMs, budget, saves: counted.length, summary, records: recs, controls }, null, 2)); }
+        if (out) { fs.writeFileSync(out, JSON.stringify({ platform: `${process.platform}-${process.arch}`, backend: process.env.MICROGIT_TEST_EXPECT_BACKEND ?? 'auto', resolutionMs: RES_MS, idleMaxMs: idleMs, idleSettle: { publishSeenBeforeIdle: preWork.some((r) => r.name === 'publishToParentRefs'), preWorkRecords: preWork.length }, budget, saves: counted.length, summary, workSummary, records: recs, controls }, null, 2)); }
         console.log(`[stall-bench] ループが止まった最長（ms、${counted.length} 回、休止中の床 ${idleMs} ms、予算 ${budget.targetMs} / ${budget.limitMs} ms）`);
         for (const w of windows) {
             const x = summary[w];
@@ -294,6 +359,20 @@ ${'x'.repeat(200)}
             const c2 = controls.map((c) => c.w2); const c3 = controls.map((c) => c.w3);
             console.log(`  対照（保存なし ${controls.length} 回）  W2 相当 中央値 ${pct(c2, 0.5).toFixed(1)} 最大 ${Math.max(...c2).toFixed(1)}  W3 相当 中央値 ${pct(c3, 0.5).toFixed(1)} 最大 ${Math.max(...c3).toFixed(1)}`);
         }
+        console.log('  同期でかかった時間：関数ごと（保存 1 回あたりの合計 ms の中央値 / p95。呼び出し回数は全保存の合計）');
+        for (const w of winNames) {
+            const rows = Object.entries(fnTable[w]).sort((a, b) => b[1].p95 - a[1].p95);
+            if (rows.length === 0) { continue; }
+            console.log(`   [${w.toUpperCase()}]  最長の同期の連続 中央値 ${runTable[w].longestMedian.toFixed(1)} p95 ${runTable[w].longestP95.toFixed(1)}（${runTable[w].longestTop.join(', ')}）`);
+            for (const [name, x] of rows) { console.log(`     ${name.padEnd(48)} 中央値 ${x.median.toFixed(1).padStart(7)}  p95 ${x.p95.toFixed(1).padStart(7)}  回数 ${x.calls}`); }
+        }
+        console.log('  Git のプロセスの同期の起動：種類ごと（保存 1 回あたりの回数・合計 ms の中央値 / p95、1 回の ms の中央値・最大）');
+        for (const w of winNames) {
+            for (const [name, x] of Object.entries(gitTable[w]).sort((a, b) => b[1].sumMsP95 - a[1].sumMsP95)) {
+                console.log(`   [${w.toUpperCase()}] ${name.padEnd(24)} 回数 ${x.countMedian}/${x.countP95}  合計 ${x.sumMsMedian.toFixed(1).padStart(7)}/${x.sumMsP95.toFixed(1).padStart(7)} ms  1 回 中央値 ${x.callMsMedian.toFixed(1)} 最大 ${x.callMsMax.toFixed(1)}`);
+            }
+        }
+        console.log(`  mb-* のタグの本数（publish のとき）: 最小 ${workSummary.mbTags.min} 最大 ${workSummary.mbTags.max} 最後 ${workSummary.mbTags.last}`);
         assert.strictEqual(counted.length, stallSaves);
     });
 
