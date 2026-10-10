@@ -148,6 +148,9 @@ jobs:
           # 保存 1 回の処理の段階ごとの時間も、同じ公開版の形で計る（#37）。1 回ごとの記録を成果物に残す
           MICROGIT_TEST_SAVE_BENCH: 100
           MICROGIT_TEST_SAVE_BENCH_OUT: ${{ runner.temp }}/save-bench.json
+          # 保存の前後で拡張機能ホストのループが止まった最長（#67。このブランチだけ）
+          MICROGIT_TEST_STALL_BENCH: 20
+          MICROGIT_TEST_STALL_BENCH_OUT: ${{ runner.temp }}/stall-bench.json
         run: |
           vsix=$(ls dist/*-${{ matrix.vsix }}.vsix)
           echo "VSIX: $vsix ($(wc -c < "$vsix") bytes)"
@@ -161,6 +164,12 @@ jobs:
         with:
           name: save-bench-${{ matrix.vsix }}-${{ matrix.os }}
           path: ${{ runner.temp }}/save-bench.json
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stall-bench-${{ matrix.vsix }}-${{ matrix.os }}
+          path: ${{ runner.temp }}/stall-bench.json
           if-no-files-found: warn
 
   # v* のタグのときだけ、GitHub Release の下書きを作る（公開はしない）
