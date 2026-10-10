@@ -29,13 +29,21 @@ suite('MicroGit Overlay backend (save → jump)', function () {
         }
     };
 
-    /** 保存ジョブ（キュー）が shadow にコミットを作るまで待つ */
-    async function waitForNewHead(before: string | undefined, timeoutMs = 60_000): Promise<string> {
+    type LastSave = { processed: number; head?: string };
+    const lastSave = async () => (await vscode.commands.executeCommand<LastSave>('microgit.internal.lastSave'))!;
+
+    /**
+     * 保存ジョブ（キュー）が shadow にコミットを作るまで待つ。
+     * 保存の処理の最中は Git を起動しない（#61）。テストは拡張機能と同じプロセスで動くので、ここで Git を起動すると
+     * その間（execFileSync なら Windows で 30〜40 ms、非同期の execFile でも Linux の fork の数 ms）ループが止まり、
+     * MicroGit は agent の応答を読めず、層づくりの「通信」が長く測られていた。保存の数と最後のコミットは拡張機能から受け取る
+     */
+    async function waitForNewHead(before: LastSave, timeoutMs = 60_000): Promise<string> {
         const deadline = Date.now() + timeoutMs;
         while (Date.now() < deadline) {
-            const head = shadowHead();
-            if (head && head !== before) { return head; }
-            await new Promise((r) => setTimeout(r, 100));
+            const now = await lastSave();
+            if (now.processed > before.processed && now.head && now.head !== before.head) { return now.head; }
+            await new Promise((r) => setTimeout(r, 10));
         }
         throw new Error('shadow commit did not appear');
     }
@@ -59,7 +67,7 @@ suite('MicroGit Overlay backend (save → jump)', function () {
             fs.mkdirSync(path.dirname(abs), { recursive: true });
             fs.writeFileSync(abs, '');
         }
-        const before = shadowHead();
+        const before = await lastSave();
         const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(abs));
         const edit = new vscode.WorkspaceEdit();
         edit.replace(doc.uri, new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length)), text);

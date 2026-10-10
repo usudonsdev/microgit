@@ -76,6 +76,8 @@ let afterSaveTimer: ReturnType<typeof setTimeout> | undefined;
 let afterSaveJob: { rootPath: string; savedFile?: string } | undefined;
 /** 最後に記録した保存の結果（Overlay の状態の更新で、git rev-parse HEAD を起動しないため。#37） */
 let lastSaveOutcome: { head: string; layerByKernel: boolean } | undefined;
+/** 処理を終えた保存の数（テストが Git を起動せずに保存の終わりを待つため。#61） */
+let savesProcessed = 0;
 /** Overlay のバックエンド（カーネル版か Node.js 版か）を選ぶ（#14、docs/kernel-backend.md） */
 let backendSelector: BackendSelector | undefined;
 
@@ -265,6 +267,7 @@ export function activate(context: vscode.ExtensionContext) {
                     timer.skip();
                 } finally {
                     saveTimings.add(timer.finish(saveResult));
+                    savesProcessed++;
                     pendingSaveJobs = Math.max(0, pendingSaveJobs - 1);
                     if (pendingSaveJobs === 0) {
                         lastEnqueuedSave = undefined;
@@ -440,6 +443,8 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         // テストと計測のための内部コマンド（package.json には出さない。#37）
         vscode.commands.registerCommand('microgit.internal.waitForSaves', async () => { await saveChain; }),
+        // 処理を終えた保存の数と、最後に記録したコミット。テストが保存の最中に Git を起動しないため（#61）
+        vscode.commands.registerCommand('microgit.internal.lastSave', () => ({ processed: savesProcessed, head: lastSaveOutcome?.head })),
         vscode.commands.registerCommand('microgit.internal.flushAfterSave', async () => { await saveChain; await flushAfterSaveRefresh(); }),
         vscode.commands.registerCommand('microgit.internal.saveTimings', (clear?: boolean) => {
             const all = [...saveTimings.all];

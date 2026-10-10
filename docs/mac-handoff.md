@@ -24,7 +24,7 @@
 |---|---|
 | `master` | d0c5106（PR #63 のマージ）。5.1.2。#61 の文書・記事・Mac の指示書・ストアの説明文（`README-marketplace.md`）が入っている |
 | タグ `v5.1.2` | d0c5106 に付けて push 済み。package.yml（run 37880129730）が通り、GitHub Release の **下書き** がある |
-| VS Code Marketplace | **5.1.1 のまま**。5.1.2 の公開はトークンの期限切れで失敗（§2） |
+| VS Code Marketplace | **5.1.1 のまま**。5.1.2 の公開はトークンの期限切れで失敗（§2）。2026-10-10 に master は 5.1.3（テストの修正）になった。5.1.3 のタグと公開は利用者の許可待ち。許可が出て 5.1.3 を出すなら、5.1.2 を飛ばして 5.1.3 を公開してよい（5.1.3 は 5.1.2 の内容を含む） |
 | Open VSX | 5.1.1 のまま。5.1.2 は後で（利用者の判断） |
 | 記事 `articles/microgit-save-bottleneck-was-the-test.md` | master にあるが `published: false`（Zenn では非公開）。公開するときは `true` にして master へ |
 | ブランチ `measure/61-layer-breakdown` | #61 の計測のコード。層づくりの内訳（agent 1.2.0 の `phasesUs`、`layerPhases`）、テストが保存の最中に Git を起動しない修正（`microgit.internal.lastSave`）、`scripts/bench-agent-rtt.mjs`。**master には入れていない** |
@@ -128,7 +128,7 @@ Mac からでも、CI の Windows（遅いディスク）で測れる。
 
 | 事項 | 選択肢・状況 |
 |---|---|
-| テストの修正（`microgit.internal.lastSave`）を master に入れるか | 入れないと、master の CI の保存の数字はテストの待ちを含み続ける。今は計測用ブランチだけ |
+| ~~テストの修正（`microgit.internal.lastSave`）を master に入れるか~~ | **済み**（2026-10-10、5.1.3 として master へ。利用者の決定） |
 | Node.js 版の層づくりを速くするか | 保存の処理で最も重い（CI 14.8〜34 ms、手元の Windows 157 ms）。カーネル版の `ensureFromDelta` と同じ「親からの変化」を使えば、Git の起動と遅らせた書き出しの強制をやめられる見込み |
 | 「気づかない」を測るテスト（拡張機能ホストが止まった最長の時間） | research-status.md §4 の P1。保存のあとの同期の Git（timeline.log・publish）と、保存の直後の同期処理も一緒に測れる |
 | 記事の公開 | `published: true` にして master へ入れると Zenn に出る |
