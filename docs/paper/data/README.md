@@ -41,4 +41,4 @@ VS Code の中で保存を繰り返して計った、1 回ごとの段階ごと�
 
 論文や記事に使うときは、条件をそろえた 4 つ（`fast-vs-git-*`）と、5.0.0 までの記録の伸び方（`baseline-win32` と `linux-wsl2` の `cli`）を分けて書く。
 
-注（#61、2026-10-09）：`ci-37815483559` より前の save-bench の「層の作成（layer）」「保存 1 回の処理全体（total）」は、拡張機能テストが保存の直後に Git を同期で起動していた待ち（Windows で 30〜40 ms、Linux で数 ms）を含んでいる。テストを直した値は `ci-37824014250` と `local-win-61/*-no-git-poll.json`。層づくりの内訳の表は、計測用ブランチ `measure/61-layer-breakdown` の `scripts/summarize-save-bench.mjs` で出る（master の版には内訳の列が無い）。経緯は [save-bottleneck-investigation.md](../../save-bottleneck-investigation.md)。
+注（#61、2026-10-09）：`ci-37815483559` より前の save-bench の「層の作成（layer）」「保存 1 回の処理全体（total）」は、拡張機能テストが保存の直後に Git を同期で起動していた待ち（Windows で 30〜40 ms、Linux で数 ms）を含んでいる。テストを直した値は `ci-37824014250` と `local-win-61/*-no-git-poll.json`。テストの修正は 5.1.3 で master に入った（2026-10-10）。層づくりの内訳の表は、計測用ブランチ `measure/61-layer-breakdown` の `scripts/summarize-save-bench.mjs` で出る（master の版には内訳の列が無い）。経緯は [save-bottleneck-investigation.md](../../save-bottleneck-investigation.md)。
