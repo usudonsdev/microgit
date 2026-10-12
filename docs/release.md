@@ -158,7 +158,7 @@ agent 1.1.0を使うため、この混在を見逃した。公開判定では手
 | 2026-10-09 | **VS Code Marketplace への公開は失敗した**（Windows の機械から `vsce publish --packagePath`）。「Access Denied: The Personal Access Token used has expired」。1 つ目（win32-x64）で止まったので、その時点では何も公開されていない |
 | 2026-10-10 | master は 5.1.3（テストの修正、#71）になった。5.1.3 のタグと公開は利用者の許可待ち。この時点の引き継ぎは、許可が出るなら 5.1.2 を飛ばして 5.1.3 を出してよい、と書いていた |
 | 2026-10-12 | 利用者の決定で、Mac から 5.1.2 を公開した。この Mac の `vsce login usudonsdev` は有効だった（Windows で期限切れだったトークンとは別）。下書きの 5 つの VSIX を `vsce publish --packagePath` で出し、5 つとも 1 回で通った。Marketplace から取った 5 つの VSIX は gzip されていたので展開し、中身の sha256 が `vsix.json` と一致することを確かめた。GitHub Release `v5.1.2` を公開した（下書きをやめた）。CHANGELOG の `[5.1.2]` は版を切った日（2026-10-09）のまま。配った VSIX の中の changelog もその日付 |
-| 2026-10-12 | Open VSX は 5.1.1 のまま（10 月 9 日の判断で後回し）。5.1.3 は master にあるが、タグもストアも未公開 |
+| 2026-10-12 | 利用者の決定で、同じ 5 つの VSIX を **Open VSX に公開**（`ovsx publish --packagePath`）。この Mac の `ovsx login usudonsdev` は有効だった。公開直後は公開 API から見えず、約 2 分後に 5 つとも見えるようになった。取り直した sha256 は `vsix.json` と一致した。無効の版は消していない。5.1.3 は master にあるが、タグもストアも未公開 |
 
 ## 4. 公開方針（2026-09-28 確定）
 

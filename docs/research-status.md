@@ -177,4 +177,4 @@ CI の 5 つの環境、ジャーナル導入後・書き出しの遅延の前�
 | 2026-10-02 | 5.0.0 を Open VSX と VS Code Marketplace に公開。OverlayFS が速くしたのは「過去に戻る」だと整理した。案 1 を中止し、案 2・案 3 を検討した |
 | 2026-10-03 | ADR-0015（書き出しの遅延）を採用し、5.1.0 の版にした。合格の基準を「保存のときに気づかない」に決めた。人が遅れに気づく時間を調べ、保存の処理の予算（16 ms・50 ms）を提案した |
 | 2026-10-07 | 5.1.1（生成物を `.microgit/` にまとめる）を VS Code Marketplace、Open VSX、GitHub Release に公開した |
-| 2026-10-12 | 5.1.2（ストアの説明文）を VS Code Marketplace と GitHub Release に公開した。Open VSX は 5.1.1 のまま。master の 5.1.3 は未公開 |
+| 2026-10-12 | 5.1.2（ストアの説明文）を VS Code Marketplace、Open VSX、GitHub Release に公開した。master の 5.1.3 は未公開 |
