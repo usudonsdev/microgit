@@ -22,12 +22,12 @@
 
 | もの | 状態 |
 |---|---|
-| `master` | d0c5106（PR #63 のマージ）。5.1.2。#61 の文書・記事・Mac の指示書・ストアの説明文（`README-marketplace.md`）が入っている |
-| タグ `v5.1.2` | d0c5106 に付けて push 済み。package.yml（run 37880129730）が通り、GitHub Release の **下書き** がある |
-| VS Code Marketplace | **5.1.1 のまま**。5.1.2 の公開はトークンの期限切れで失敗（§2）。2026-10-10 に master は 5.1.3（テストの修正）になった。5.1.3 のタグと公開は利用者の許可待ち。許可が出て 5.1.3 を出すなら、5.1.2 を飛ばして 5.1.3 を公開してよい（5.1.3 は 5.1.2 の内容を含む） |
-| Open VSX | 5.1.1 のまま。5.1.2 は後で（利用者の判断） |
+| `master` | ac26c85（PR #71）。版は 5.1.3。5.1.2 の説明文と、5.1.3 のテスト修正が入っている |
+| タグ `v5.1.2` | d0c5106 に付けて push 済み。package.yml（run 37880129730）が通り、2026-10-12 に GitHub Release を公開した |
+| VS Code Marketplace | **5.1.2**（2026-10-12、Mac から。この Mac のトークンは有効だった）。5.1.3 は未公開 |
+| Open VSX | 5.1.1 のまま。5.1.2 は後で（利用者の判断、2026-10-09） |
 | 記事 `articles/microgit-save-bottleneck-was-the-test.md` | master にあるが `published: false`（Zenn では非公開）。公開するときは `true` にして master へ |
-| ブランチ `measure/61-layer-breakdown` | #61 の計測のコード。層づくりの内訳（agent 1.2.0 の `phasesUs`、`layerPhases`）、テストが保存の最中に Git を起動しない修正（`microgit.internal.lastSave`）、`scripts/bench-agent-rtt.mjs`。**master には入れていない** |
+| ブランチ `measure/61-layer-breakdown` | #61 の計測のコード。層づくりの内訳と `scripts/bench-agent-rtt.mjs` はここだけ。テストが保存の最中に Git を起動しない修正（`microgit.internal.lastSave`）は 5.1.3 で master に入った |
 | Issue #61 | 開いたまま。途中経過と結果をコメント済み |
 
 ---
