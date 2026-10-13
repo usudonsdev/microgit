@@ -51,7 +51,8 @@ export class PublishQueue<J> {
             try {
                 await this.run(j);
             } catch (err: unknown) {
-                this.onError(err);
+                // ログの書き出しの失敗で、列ごと止めない（止めると、以後の共有が二度と走らない）
+                try { this.onError(err); } catch { /* 何もしない */ }
             }
         });
         this.autoCell = mine;

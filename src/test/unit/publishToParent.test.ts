@@ -457,6 +457,19 @@ describe('共有の列（PublishQueue、#72）', () => {
         assert.strictEqual(q.isClosed, true);
     });
 
+    test('onError が例外を投げても、列は止まらず、次の共有が走る', async () => {
+        const done: number[] = [];
+        const q = new PublishQueue<number>(async (j) => {
+            if (j === 1) { throw new Error('boom'); }
+            done.push(j);
+        }, () => { throw new Error('onError も失敗'); });
+        q.schedule(1);
+        await q.whenIdle();
+        q.schedule(2);
+        await q.whenIdle();
+        assert.deepStrictEqual(done, [2]);
+    });
+
     test('エラーはログに渡すだけで、列は止まらない。runExclusive の失敗は呼んだ側に返る', async () => {
         const errors: unknown[] = [];
         const done: number[] = [];
