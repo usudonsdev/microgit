@@ -3,7 +3,7 @@
 | 項目 | 内容 |
 |---|---|
 | 読む人 | Mac で作業を続ける利用者と、Mac で動かすエージェント |
-| 目的 | Windows の機械で 2026-10-09 に進めた作業（#61 の調査、5.1.2 の公開の途中）を、チャットの履歴なしで Mac から続けられるようにする |
+| 目的 | Windows の機械で進めた作業（#61 の調査、5.2.0 の公開の準備）を、チャットの履歴なしで Mac から続けられるようにする（2026-10-14 に、公開する版を 5.1.2 から 5.2.0 に更新） |
 | 先に読むもの | [save-bottleneck-investigation.md](./save-bottleneck-investigation.md) §1（結論）・§8（保存の処理の今の姿）・§9（Windows の fsync） |
 
 ---
@@ -22,19 +22,19 @@
 
 | もの | 状態 |
 |---|---|
-| `master` | d0c5106（PR #63 のマージ）。5.1.2。#61 の文書・記事・Mac の指示書・ストアの説明文（`README-marketplace.md`）が入っている |
-| タグ `v5.1.2` | d0c5106 に付けて push 済み。package.yml（run 37880129730）が通り、GitHub Release の **下書き** がある |
-| VS Code Marketplace | **5.1.1 のまま**。5.1.2 の公開はトークンの期限切れで失敗（§2）。2026-10-10 に master は 5.1.3（テストの修正）になった。5.1.3 のタグと公開は利用者の許可待ち。許可が出て 5.1.3 を出すなら、5.1.2 を飛ばして 5.1.3 を公開してよい（5.1.3 は 5.1.2 の内容を含む） |
-| Open VSX | 5.1.1 のまま。5.1.2 は後で（利用者の判断） |
+| `master` | 5.2.0（保存のあとの止まりをなくした #72・#73、保存のたびの表示をやめる #68、ストアの説明文、テストの修正）。5.1.2・5.1.3 はストアに出さず、5.2.0 にまとめた |
+| タグ `v5.2.0` | 打ったあとは、package.yml が VSIX を作り、GitHub Release の **下書き** を作る（[release.md](./release.md) §3.5 に run の番号）。古いタグ `v5.2.0` とその下書きの Release は使わない（消してよいかは利用者が決める） |
+| VS Code Marketplace | **5.1.1 のまま**。公開はトークンの期限切れで止まっている（§2）。次に出すのは **5.2.0**（利用者の決定、2026-10-14）。公開は利用者が Mac から行う |
+| Open VSX | 5.1.1 のまま。5.2.0 は後で（利用者の判断） |
 | 記事 `articles/microgit-save-bottleneck-was-the-test.md` | master にあるが `published: false`（Zenn では非公開）。公開するときは `true` にして master へ |
 | ブランチ `measure/61-layer-breakdown` | #61 の計測のコード。層づくりの内訳（agent 1.2.0 の `phasesUs`、`layerPhases`）、テストが保存の最中に Git を起動しない修正（`microgit.internal.lastSave`）、`scripts/bench-agent-rtt.mjs`。**master には入れていない** |
 | Issue #61 | 開いたまま。途中経過と結果をコメント済み |
 
 ---
 
-## 2. 5.1.2 を VS Code Marketplace に公開する
+## 2. 5.2.0 を VS Code Marketplace に公開する
 
-5.1.2 の中身は、ストアの説明文の書き直しだけ（拡張機能の動きは変えていない）。手順は [release.md](./release.md) §3 と同じ。経過は §3.4 に書いてある。
+5.2.0 の中身は、保存のあとの止まりをなくす変更（#72・#73）、保存のたびの表示をやめる変更（#68）、ストアの説明文の書き直し。拡張機能の動きが変わるので、公開の前に、下書きの VSIX を手元の VS Code に入れて、保存・過去に戻る・`MicroGit: Overlay Status` を確かめること。手順は [release.md](./release.md) §3 と同じ。経過は §3.5 に書いてある。
 
 ### 2.1 準備
 
@@ -58,11 +58,11 @@ npx @vscode/vsce ls-publishers   # usudonsdev が出れば登録できている
 
 ```bash
 mkdir -p ~/microgit-512 && cd ~/microgit-512
-gh release download v5.1.2 -R usudonsdev/microgit -p '*.vsix' -p 'vsix.json'
+gh release download v5.2.0 -R usudonsdev/microgit -p '*.vsix' -p 'vsix.json'
 # 5 つの sha256 が vsix.json に載っているか
 node -e "const fs=require('fs'),c=require('crypto');const j=fs.readFileSync('vsix.json','utf8');for(const f of fs.readdirSync('.').filter(f=>f.endsWith('.vsix'))){const h=c.createHash('sha256').update(fs.readFileSync(f)).digest('hex');console.log(f, j.includes(h)?'一致':'不一致')}"
 # ストアの説明文が初めての人向けの文か
-unzip -p microgit-5.1.2-darwin-arm64.vsix extension/readme.md | head -3
+unzip -p microgit-5.2.0-darwin-arm64.vsix extension/readme.md | head -3
 ```
 
 5 つとも「一致」、説明文の 1 行目の次が「**ファイルを保存するたびに、そのときの状態を自動で残しておく拡張機能です。**」なら次へ。
@@ -71,8 +71,8 @@ unzip -p microgit-5.1.2-darwin-arm64.vsix extension/readme.md | head -3
 
 ```bash
 npx @vscode/vsce publish --packagePath \
-  microgit-5.1.2-win32-x64.vsix microgit-5.1.2-linux-x64.vsix microgit-5.1.2-linux-arm64.vsix \
-  microgit-5.1.2-darwin-arm64.vsix microgit-5.1.2-universal.vsix
+  microgit-5.2.0-win32-x64.vsix microgit-5.2.0-linux-x64.vsix microgit-5.2.0-linux-arm64.vsix \
+  microgit-5.2.0-darwin-arm64.vsix microgit-5.2.0-universal.vsix
 ```
 
 - 5.1.1 のときは、linux-arm64 の 1 回目がギャラリーの API のタイムアウトで失敗した。そのときは、失敗したものから後ろだけを出し直す（同じ版を二重に出そうとすると、出ているものはエラーになる）
@@ -86,8 +86,8 @@ curl -s "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquer
 
 ### 2.5 後始末
 
-1. GitHub Release を公開する：`gh release edit v5.1.2 -R usudonsdev/microgit --draft=false`
-2. [release.md](./release.md) §3.4 の表に、公開した日と確かめたことを足し、「（途中）」を消す。CHANGELOG の `[5.1.2]` の日付が公開日と違えば直す
+1. GitHub Release を公開する：`gh release edit v5.2.0 -R usudonsdev/microgit --draft=false`
+2. [release.md](./release.md) §3.5 の表に、公開した日と確かめたことを足し、「（途中）」を消す。CHANGELOG の `[5.2.0]` の日付が公開日と違えば直す
 3. この 2 の変更は、文書のブランチで作って master へ（利用者に確かめてから）
 
 ### 2.6 後でやること
