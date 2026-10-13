@@ -46,6 +46,7 @@ import {
 } from './mainHead';
 import { MicroGitUi, MicroGitUiSnapshot } from './ui';
 import { durabilityGitArgs, getDurability, setDurability } from './durability';
+import { PublishQueue } from './publishQueue';
 
 const STATE_ENABLED = 'microgit.enabled';
 const STATE_TARGET_BRANCH = 'microgit.targetBranch';
@@ -68,6 +69,19 @@ let lastEnqueuedSave: { absPath: string; contentHash: string } | undefined;
 let publishTimer: ReturnType<typeof setTimeout> | undefined;
 let pendingPublishJob: { rootPath: string; branch: string } | undefined;
 const PUBLISH_DEBOUNCE_MS = 1500;
+/**
+ * 親 refs への共有を 1 本の列で流す（#72）。Git の起動を非同期にしたので、共有が走っている間に次の共有の時刻が来うる。
+ * 重なったら終わってからもう 1 回だけ（最後の状態で）走らせ、利用者のコマンドの共有とも重ねない
+ */
+const publishQueue = new PublishQueue<{ rootPath: string; branch: string }>(
+    (job) => publishToParentRefs(job.rootPath, job.branch, (m, l) => ExtensionLogger.log(m, l)),
+    (pubErr: unknown) => {
+        const msg = pubErr instanceof Error ? pubErr.message : String(pubErr);
+        ExtensionLogger.log(`親 refs への publish に失敗: ${msg}`, 'WARN');
+    },
+);
+/** 終了（deactivate）のとき、走っている共有の git push を待つ上限 */
+const PUBLISH_DEACTIVATE_WAIT_MS = 5000;
 /**
  * 保存のあとの後片付け（画面の更新、timeline.log、log_latest.json）。保存の処理の列の中でやると、
  * 1 回 200 ms 前後かかって次の保存を待たせていた（#37 の計測）。保存が続く間はまとめ、落ち着いてから 1 回だけ行う
@@ -398,8 +412,11 @@ export function activate(context: vscode.ExtensionContext) {
             }
             try {
                 ensureShadowRepoForBranch(rootPath, branch!, (m, l) => ExtensionLogger.log(m, l));
-                publishToParentRefs(rootPath, branch!, (m, l) => ExtensionLogger.log(m, l));
-                const pushed = pushMicrogitRefsToOrigin(rootPath, (m, l) => ExtensionLogger.log(m, l));
+                // 自動の共有と重ならないよう、同じ列に並ぶ（#72）。親 refs を更新し終えてから origin へ push する
+                const pushed = await publishQueue.runExclusive(async () => {
+                    await publishToParentRefs(rootPath, branch!, (m, l) => ExtensionLogger.log(m, l));
+                    return pushMicrogitRefsToOrigin(rootPath, (m, l) => ExtensionLogger.log(m, l));
+                });
                 vscode.window.showInformationMessage(
                     pushed
                         ? `[MicroGit] 親 refs と origin の refs/microgit/* へ同期しました（${branch}）`
@@ -423,8 +440,11 @@ export function activate(context: vscode.ExtensionContext) {
                 return;
             }
             try {
-                fetchMicrogitRefsFromOrigin(rootPath, (m, l) => ExtensionLogger.log(m, l));
-                const result = importFromParentRefs(rootPath, branch!, (m, l) => ExtensionLogger.log(m, l));
+                // 親の refs/microgit/* を書き換えるので、走っている共有の git push と重ならないよう同じ列に並ぶ（#72）
+                const result = await publishQueue.runExclusive(async () => {
+                    fetchMicrogitRefsFromOrigin(rootPath, (m, l) => ExtensionLogger.log(m, l));
+                    return importFromParentRefs(rootPath, branch!, (m, l) => ExtensionLogger.log(m, l));
+                });
                 reloadMicroTagFromShadow(rootPath);
                 if (result.outcome === 'diverged' && result.forkTag) {
                     vscode.window.showWarningMessage(
@@ -585,12 +605,9 @@ function schedulePublishToParent(rootPath: string, branch: string): void {
         pendingPublishJob = undefined;
         publishTimer = undefined;
         if (!job) { return; }
-        try {
-            publishToParentRefs(job.rootPath, job.branch, (m, l) => ExtensionLogger.log(m, l));
-        } catch (pubErr: unknown) {
-            const msg = pubErr instanceof Error ? pubErr.message : String(pubErr);
-            ExtensionLogger.log(`親 refs への publish に失敗: ${msg}`, 'WARN');
-        }
+        // 前は publishToParentRefs を同期で呼び、拡張機能ホストを毎回約 520 ms 止めていた（#67 の計測）。
+        // いまは列に頼むだけ。Git は非同期に起動し、エラーは列がログに出す（保存の処理は止めない）
+        publishQueue.schedule(job);
     }, PUBLISH_DEBOUNCE_MS);
 }
 
@@ -1581,8 +1598,22 @@ export function deactivate(): Thenable<void> | undefined {
     for (const fc of fastCommitters.values()) {
         try { fc.checkpointSync(); } catch { /* 次の起動で作り直す */ }
     }
+    // 親 refs への共有（#72）：まだ始まっていない自動の共有は捨て（前も、待っている setTimeout は終了で消えていた。
+    // 次の起動の保存でまた共有される）、走っている git push だけ終わるのを待つ（上限あり）。
+    // push の途中で拡張機能ホストごと止まると、親の refs に .lock が残って、次からの共有が失敗しうるため
+    if (publishTimer) {
+        clearTimeout(publishTimer);
+        publishTimer = undefined;
+    }
+    pendingPublishJob = undefined;
+    let waitTimer: ReturnType<typeof setTimeout> | undefined;
+    const publishDone = Promise.race([
+        publishQueue.close(),
+        new Promise<void>((resolve) => { waitTimer = setTimeout(resolve, PUBLISH_DEACTIVATE_WAIT_MS); }),
+    ]).finally(() => { if (waitTimer) { clearTimeout(waitTimer); } });
     // カーネル版の仮想マシン（または VM なしの agent）を止める。Node.js 版は mount しないので片付け不要
     const selector = backendSelector;
     backendSelector = undefined;
-    return selector?.dispose();
+    const disposed = selector?.dispose();
+    return Promise.all([publishDone, disposed]).then(() => undefined);
 }
