@@ -484,7 +484,7 @@ export function activate(context: vscode.ExtensionContext) {
         const rootPath = workspaceFolders[0].uri.fsPath;
         syncBranchPolicy(rootPath);
         void refreshUi(rootPath);
-    }, workspaceFolders?.[0]?.uri.fsPath);
+    });
 }
 
 /**
@@ -880,7 +880,7 @@ function getCurrentBranch(repoPath: string): string | undefined {
     }
 }
 
-function watchGitBranchChanges(context: vscode.ExtensionContext, onChange: () => void, workspaceRoot?: string): void {
+function watchGitBranchChanges(context: vscode.ExtensionContext, onChange: () => void): void {
     const gitExtension = vscode.extensions.getExtension('vscode.git');
     if (!gitExtension) { return; }
 

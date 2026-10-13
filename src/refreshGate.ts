@@ -18,7 +18,7 @@ export class RefreshCoalescer {
      */
     constructor(private readonly work: (isCurrent: () => boolean) => Promise<void>) {}
 
-    /** 更新を頼む。この依頼を含む更新が終わったら解決する（失敗しても解決する） */
+    /** 更新を頼む。この依頼を含む更新と、それに続くやり直しが全部終わったら解決する（失敗しても解決する） */
     request(): Promise<void> {
         this.generation++;
         return new Promise<void>((resolve) => {
@@ -38,20 +38,23 @@ export class RefreshCoalescer {
 
     private async loop(): Promise<void> {
         this.running = true;
+        // 結果を捨てた更新の依頼も、やり直しの結果が出るまで解決しない（先に解決すると、グラフを開く前に
+        // 「更新が終わった」と思って、まだ古い内容のまま開いてしまう）。最後のやり直しまで終わってから、まとめて解決する
+        const pending: Array<() => void> = [];
         try {
             do {
                 this.again = false;
-                const batch = this.waiters.splice(0);
+                pending.push(...this.waiters.splice(0));
                 const started = this.generation;
                 try {
                     await this.work(() => this.generation === started);
                 } catch {
                     /* 更新の失敗は、次の依頼で取り戻す */
                 }
-                for (const resolve of batch) { resolve(); }
             } while (this.again);
         } finally {
             this.running = false;
+            for (const resolve of pending) { resolve(); }
         }
     }
 }
@@ -59,7 +62,9 @@ export class RefreshCoalescer {
 /**
  * VS Code の Git 拡張の onDidChange は、作業ツリーの状態（変更ファイルの一覧など）が変わるたびに鳴る。
  * 画面（ブランチ名・HEAD・メインのコミットの区間）に関係するのは HEAD の名前とコミットだけなので、
- * その印が前と同じなら「変わっていない」と答える（#73）
+ * その印が前と同じなら「変わっていない」と答える（#73）。
+ * 注意：マージ中・リベース中・変更ファイルの増減だけの通知も捨てる。いまの画面はこれらを使っていないので影響しないが、
+ * 将来、画面がそれらを出すようにするときは、この判定に印を足すこと
  */
 export class ChangeDedupe {
     private last = new Map<string, string>();

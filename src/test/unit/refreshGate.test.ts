@@ -20,6 +20,24 @@ describe('画面の更新を 1 つずつ・最新だけにする（#73）', () =
         assert.equal(runs, 2); // 1 回目 + まとめた 1 回
     });
 
+    it('結果を捨てた更新の依頼も、やり直しの結果が出てから解決する（古い内容のままグラフを開かない）', async () => {
+        const events: string[] = [];
+        let n = 0;
+        let release!: () => void;
+        const gate = new Promise<void>((r) => { release = r; });
+        const c = new RefreshCoalescer(async (isCurrent) => {
+            const id = n++;
+            if (id === 0) { await gate; }
+            events.push(`run${id}:${isCurrent() ? 'applied' : 'dropped'}`);
+        });
+        const p1 = c.request().then(() => { events.push('resolved1'); });
+        await tick();
+        const p2 = c.request().then(() => { events.push('resolved2'); }); // 1 回目が走っている間の依頼 → 1 回目の結果は捨てられる
+        release();
+        await Promise.all([p1, p2]);
+        assert.deepEqual(events, ['run0:dropped', 'run1:applied', 'resolved1', 'resolved2']);
+    });
+
     it('古い更新が後から終わっても、世代が進んでいれば isCurrent が false になり、表示を上書きしない', async () => {
         const applied: string[] = [];
         let n = 0;
