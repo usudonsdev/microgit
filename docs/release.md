@@ -145,7 +145,9 @@ agent 1.1.0を使うため、この混在を見逃した。公開判定では手
 | 2026-10-07 | いったん Open VSX は未公開だった。この機械に名前空間 `usudonsdev` のトークンが無く、`ovsx verify-pat` が入力を求めた |
 | 2026-10-07 | 利用者が `ovsx login usudonsdev` したあと、**Open VSX に公開**（同じ 5 つの VSIX を `ovsx publish --packagePath`）。公開直後はレジストリが版を有効にするまで公開 API から見えず、linux-x64 が最後だった。見えるようになってから取り直した 5 つの VSIX の sha256 が `vsix.json` と一致した。無効のまま残った版を消すと、その版番号は二度と使えない（`ovsx unpublish`）ので、消さずに有効化を待った |
 
-### 3.4 5.1.2 の公開の記録（途中）
+### 3.4 5.1.2 の公開の記録（取りやめ。5.2.0 にまとめた）
+
+> 2026-10-14：公開はトークンの期限切れで止まったまま、変更が増えたので、5.1.2・5.1.3 は出さずに 5.2.0 にまとめた（§3.5）。以下は取りやめるまでの記録。
 
 利用者の決定（2026-10-09）：ストアの説明文を初めての人向けに書き直した（`README-marketplace.md`）ので、パッチ 5.1.2 として公開する。公開先は、まず VS Code Marketplace だけ（Open VSX は後で）。公開の作業は利用者が Mac から行う（[mac-handoff.md](./mac-handoff.md) §2）。
 
@@ -157,6 +159,17 @@ agent 1.1.0を使うため、この混在を見逃した。公開判定では手
 | 2026-10-09 | v5.1.1 からのソースの差分に `guest/`・`mac/`・`windows/`・`src/` は無い。darwin-arm64 VSIX を v5.1.1 と比べると、違いは `readme.md`・`changelog.md`・`package.json`・`extension.vsixmanifest`（版と説明文）と、`arm64/Image` の 98 バイト（Go が埋め込む `vcs.revision`（d249d52 → d0c5106）・`vcs.time` と、それに伴う値）だけ。`out/` の JavaScript と `microgit-vm` は同じ。Mac の kernel の実機での確認し直しは、5.1.1 と同じ判断で省ける |
 | 2026-10-09 | **VS Code Marketplace への公開は失敗した**（Windows の機械から `vsce publish --packagePath`）。「Access Denied: The Personal Access Token used has expired」。1 つ目（win32-x64）で止まったので、何も公開されていない（公開 API の版は 5.1.1 のまま）。GitHub Release は下書きのまま |
 | — | **残り**：新しいトークンで Marketplace に公開 → 配られた VSIX の確認 → GitHub Release の公開 → この表と CHANGELOG の日付の更新。Open VSX は後で |
+
+
+### 3.5 5.2.0 の公開の記録（途中）
+
+利用者の決定（2026-10-14）：保存のあとの止まりをなくす変更（#72・#73）、保存のたびの表示をやめる変更（#68）、ストアの説明文の書き直し、テストの修正を、マイナー版 5.2.0 としてまとめて出す（新しい設定が増え、既定の見え方が変わるため。5.1.0 で保存の速さの改善（#49）をマイナー版にしたのと同じ）。5.1.2・5.1.3 はストアに出さない。公開先は、まず VS Code Marketplace だけ（Open VSX は後で）。公開の作業は利用者が Mac から行う（[mac-handoff.md](./mac-handoff.md) §2）。
+
+| 日付 | できごと |
+|---|---|
+| 2026-10-14 | #69（#68）・#75（#73）・#74（#72）を master にマージ。それぞれ Opus・Sonnet のレビューを通した（#72 は Opus の独立レビューと Sonnet の敵対的レビュー、#73 は Sonnet のクロスレビュー。指摘は直した） |
+| 2026-10-14 | 効果：保存のあとの止まり（拡張機能ホストのイベントループ）の中央値が、手元の Windows で 0.3 秒後の後片付け 240 → 17 ms、1.5 秒後の共有 528 → 16 ms。CI の 5 環境（2 回）でも、Linux・Windows とも 4〜17 ms になった（[save-bottleneck-investigation.md](./save-bottleneck-investigation.md) §10） |
+| — | **残り**：版を 5.2.0 にする PR → master → タグ `v5.2.0` → CI で VSIX と下書きの Release → 利用者が Mac で公開 |
 
 ## 4. 公開方針（2026-09-28 確定）
 
