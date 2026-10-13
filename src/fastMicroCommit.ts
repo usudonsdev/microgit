@@ -577,6 +577,16 @@ export class FastMicroCommitter {
         return [...r.tags].filter(([n, h]) => h === r.head && /^mb-/.test(n)).map(([n]) => n).sort()[0];
     }
 
+    /**
+     * 隠しリポジトリの HEAD のコミットを、メモリの状態から答える（#73）。書き出し待ちがあるあいだは、HEAD のファイルは
+     * 古いので、画面の更新が Git を起動せずに HEAD を知るのに使う（ADR-0015）。書き出し待ちが無ければ undefined（ファイルが正しい）
+     */
+    headFromMemory(): string | undefined {
+        const r = this.refState;
+        if (!this.pending || !r?.head) { return undefined; }
+        return r.head;
+    }
+
     /** 貯めている分を書き出す（隠しリポジトリを読む処理の前に呼ぶ。ADR-0015） */
     flush(): void {
         this.materialize();

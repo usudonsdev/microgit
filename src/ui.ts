@@ -37,8 +37,22 @@ export class MicroGitUi implements vscode.WebviewViewProvider {
     private latest: MicroGitUiSnapshot = emptySnapshot();
     /** サイドバー／グラフ共通のメインコミット区間フィルタ */
     private selectedIntervalId = 'all';
+    /**
+     * 見えるようになったときに、最新の内容を作らせる（#73）。画面が見えていないあいだは内容を作らない（Git の起動が要るため）
+     * ので、サイドバーが開かれた・グラフのタブに戻った時点で、ここから拡張側に頼む
+     */
+    private refreshRequester?: () => void;
 
     constructor(private readonly extensionUri: vscode.Uri) {}
+
+    setRefreshRequester(requester: () => void): void {
+        this.refreshRequester = requester;
+    }
+
+    /** サイドバーかグラフのどちらかが、いま利用者に見えているか */
+    isVisible(): boolean {
+        return Boolean(this.view?.visible || this.graphPanel?.visible);
+    }
 
     resolveWebviewView(
         webviewView: vscode.WebviewView,
@@ -59,7 +73,12 @@ export class MicroGitUi implements vscode.WebviewViewProvider {
                 this.view = undefined;
             }
         });
+        webviewView.onDidChangeVisibility(() => {
+            if (webviewView.visible) { this.refreshRequester?.(); }
+        });
         this.postToSidebar();
+        // 起動のときの更新は、まだ見えていなかったので内容を作っていない。開かれた今、最新を作らせる
+        this.refreshRequester?.();
     }
 
     update(snapshot: MicroGitUiSnapshot): void {
@@ -100,6 +119,10 @@ export class MicroGitUi implements vscode.WebviewViewProvider {
         });
         this.graphPanel.onDidDispose(() => {
             this.graphPanel = undefined;
+        });
+        const panel = this.graphPanel;
+        this.graphPanel.onDidChangeViewState(() => {
+            if (panel.visible) { this.refreshRequester?.(); }
         });
         this.postToGraph();
     }
