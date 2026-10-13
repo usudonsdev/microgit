@@ -169,7 +169,11 @@ agent 1.1.0を使うため、この混在を見逃した。公開判定では手
 |---|---|
 | 2026-10-14 | #69（#68）・#75（#73）・#74（#72）を master にマージ。それぞれ Opus・Sonnet のレビューを通した（#72 は Opus の独立レビューと Sonnet の敵対的レビュー、#73 は Sonnet のクロスレビュー。指摘は直した） |
 | 2026-10-14 | 効果：保存のあとの止まり（拡張機能ホストのイベントループ）の中央値が、手元の Windows で 0.3 秒後の後片付け 240 → 17 ms、1.5 秒後の共有 528 → 16 ms。CI の 5 環境（2 回）でも、Linux・Windows とも 4〜17 ms になった（[save-bottleneck-investigation.md](./save-bottleneck-investigation.md) §10） |
-| — | **残り**：版を 5.2.0 にする PR → master → タグ `v5.2.0` → CI で VSIX と下書きの Release → 利用者が Mac で公開 |
+| 2026-10-14 | 版を 5.2.0 にする PR #76 を master にマージ（8beabbf）。PR の package.yml（run 38438657469）で、master に入れた #68・#72・#73 が合わさった状態が、Windows・Linux・macOS の 5 つの環境（カーネル版と Node.js 版）で通った |
+| 2026-10-14 | 版が 5.2.0、タグを打つコミットが master の先頭（8beabbf）であることを確かめてから、`v5.2.0` のタグを打って push（5.0.0 のときの、古い master にタグを打った失敗の再発防止）。package.yml（run 38440832448）が 5 つの環境の確認を通り、GitHub Release の **下書き**（VSIX 5 つと `vsix.json`）を作った |
+| 2026-10-14 | 下書きの 5 つの VSIX の sha256 が `vsix.json` と一致した。VSIX の版が 5.2.0、`extension/readme.md` が `README-marketplace.md` の文（初めての人向け）であることを確かめた |
+| 2026-10-14 | v5.1.1 の darwin-arm64 VSIX と比べた：`guest/`・`mac/`・`windows/` のソースは変わっていない。`microgit-vm` は同じ。違うのは拡張機能の JavaScript（`extension.js`・`fastMicroCommit.js`・`shadowStore.js`・`ui.js` と、新しい `publishQueue.js`・`refreshGate.js`・`saveStatus.js`）、版と説明文、`arm64/Image` の 110 バイト（Go が埋め込む `vcs.revision`（d249d52 → 8beabbf）・`vcs.time` と、それに伴う値）だけ。Mac の kernel の実機での確認し直しは、5.1.1 と同じ判断で省ける（`src/kernel/` は変わっていない）。ただし拡張機能の動きは変わったので、公開の前に、下書きの VSIX を手元で確かめること |
+| — | **残り**：利用者が Mac で、新しいトークンを登録して VS Code Marketplace に公開（[mac-handoff.md](./mac-handoff.md) §2）→ 配られた VSIX の確認 → GitHub Release の公開 → この表の更新。Open VSX は後で |
 
 ## 4. 公開方針（2026-09-28 確定）
 

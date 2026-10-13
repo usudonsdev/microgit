@@ -23,7 +23,7 @@
 | もの | 状態 |
 |---|---|
 | `master` | 5.2.0（保存のあとの止まりをなくした #72・#73、保存のたびの表示をやめる #68、ストアの説明文、テストの修正）。5.1.2・5.1.3 はストアに出さず、5.2.0 にまとめた |
-| タグ `v5.2.0` | 打ったあとは、package.yml が VSIX を作り、GitHub Release の **下書き** を作る（[release.md](./release.md) §3.5 に run の番号）。古いタグ `v5.2.0` とその下書きの Release は使わない（消してよいかは利用者が決める） |
+| タグ `v5.2.0` | 8beabbf（master の先頭）に打って push 済み。package.yml（run 38440832448）が通り、GitHub Release の **下書き** がある（VSIX の sha256 は `vsix.json` と一致を確認済み。[release.md](./release.md) §3.5）。古いタグ `v5.1.2` とその下書きの Release は使わない（消してよいかは利用者が決める） |
 | VS Code Marketplace | **5.1.1 のまま**。公開はトークンの期限切れで止まっている（§2）。次に出すのは **5.2.0**（利用者の決定、2026-10-14）。公開は利用者が Mac から行う |
 | Open VSX | 5.1.1 のまま。5.2.0 は後で（利用者の判断） |
 | 記事 `articles/microgit-save-bottleneck-was-the-test.md` | master にあるが `published: false`（Zenn では非公開）。公開するときは `true` にして master へ |
