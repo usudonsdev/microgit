@@ -48,6 +48,7 @@ Ubuntu 23.10 以降の既定や、一部のコンテナの中など、非特権�
 
 - どちらで動いているか：コマンド `MicroGit: Overlay Status` の先頭（`active=kernel` / `active=nodejs`）
 - 設定：`microgit.overlayBackend`（`auto` が既定、`kernel`、`nodejs`）。カーネル版を使いたくない場合は `nodejs` にしてください
+- 設定：`microgit.showSaveStatus`（`false` が既定）。保存のたびに、ステータスバーへ「[MicroGit] 記録 …」（同じ中身に戻したときは「[MicroGit] 同一変更のため HEAD のみ復帰 …」）を 3 秒出したいときは `true` にしてください
 - 同梱している第三者のソフトウェアとライセンスは [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) を見てください
 
 ## 免責事項

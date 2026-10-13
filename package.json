@@ -90,6 +90,11 @@
           "default": true,
           "description": "Node.js ユーザー空間 Overlay checkout を有効化（兄弟ブランチのファイル隔離）。オフで従来の git show 同期に戻す。"
         },
+        "microgit.showSaveStatus": {
+          "type": "boolean",
+          "default": false,
+          "description": "保存のたびに、ステータスバーへ「[MicroGit] 記録 …」（同じ中身に戻したときは「[MicroGit] 同一変更のため HEAD のみ復帰 …」）を 3 秒出す。既定の false では何も出さない（保存のときに記録されていることに気づかないため）。true で出す。"
+        },
         "microgit.durability": {
           "type": "string",
           "enum": [

@@ -57,6 +57,7 @@ MicroGit の記録は、作業フォルダの中の `.microgit/` というフォ
 |---|---|
 | 記録されない | ステータスバーが `MicroGit: ON` になっているか、Git のブランチの上にいるかを確かめます |
 | どちらのやり方で動いているか知りたい | コマンド `MicroGit: Overlay Status` を実行します。先頭が `active=kernel` なら小さな Linux を使うやり方、`active=nodejs` ならもう 1 つのやり方です |
+| 保存したときに、記録されたかどうか画面に出してほしい | 設定 `microgit.showSaveStatus` を `true` にします。保存のたびに、画面の下に短い知らせが出ます |
 | 小さな Linux を使いたくない | 設定 `microgit.overlayBackend` を `nodejs` にします |
 
 ## ご注意
