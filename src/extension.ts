@@ -1,5 +1,6 @@
-import { execFileSync } from 'child_process';
+import { execFile, execFileSync } from 'child_process';
 import { createHash } from 'crypto';
+import { promisify } from 'util';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -22,6 +23,7 @@ import {
 import { BackendSelector, parseBackendSetting } from './kernel/backendSelector';
 import { ensureExecutable } from './kernel/executable';
 import { FastMicroCommitter } from './fastMicroCommit';
+import { ChangeDedupe, headSignature, RefreshCoalescer } from './refreshGate';
 import { saveStatusMessage, SaveStatusResult } from './saveStatus';
 import { SaveTimer, SaveTimingLog } from './saveTiming';
 import { firstTagAtHead, readRef, readSymbolicHead, resolveGitDir } from './fastGit/refs';
@@ -185,6 +187,8 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     const workspaceFolders = vscode.workspace.workspaceFolders;
+    // 見えていないあいだは画面の内容を作らない（#73）。見えるようになったときに、ここから最新を作らせる
+    microGitUi.setRefreshRequester(() => { void refreshUi(workspaceFolders?.[0]?.uri.fsPath); });
     if (workspaceFolders) {
         const rootPath = workspaceFolders[0].uri.fsPath;
         syncBranchPolicy(rootPath);
@@ -403,7 +407,8 @@ export function activate(context: vscode.ExtensionContext) {
             if (!workspaceFolders) { return; }
             const rootPath = workspaceFolders[0].uri.fsPath;
             syncBranchPolicy(rootPath);
-            refreshUi(rootPath);
+            // showGraphPanel は最新の内容（有効か・シャドウがあるか）を見て開くので、見えていなくても作り終えてから開く（#73）
+            await refreshUi(rootPath, { force: true });
             microGitUi?.showGraphPanel();
         })
     );
@@ -505,63 +510,113 @@ export function activate(context: vscode.ExtensionContext) {
         if (!workspaceFolders) { return; }
         const rootPath = workspaceFolders[0].uri.fsPath;
         syncBranchPolicy(rootPath);
-        refreshUi(rootPath);
+        void refreshUi(rootPath);
     });
 }
 
-/** ステータスバーと専用 UI（サイドバー / グラフ）を最新状態へ同期する */
-function refreshUi(rootPath: string | undefined): void {
+/**
+ * 画面の更新を 1 つずつ・最新だけにする（#73）。以前は Git を同期で 4 回起動して約 200 ms ホストを止めていた（#67 の計測）。
+ * Git を非同期にしたので、更新が重なったときに古い結果が新しい表示を上書きしないよう、RefreshCoalescer で
+ * 「同時に 1 つ・重なった依頼は 1 回にまとめる・世代が進んだ結果は捨てる」にする
+ */
+let uiRefreshRoot: string | undefined;
+const uiRefresher = new RefreshCoalescer(async (isCurrent) => {
+    const snapshot = await buildUiSnapshot(uiRefreshRoot);
+    if (!isCurrent()) { return; }
+    microGitUi?.update(snapshot);
+});
+
+/**
+ * ステータスバーと専用 UI（サイドバー / グラフ）を最新状態へ同期する。
+ * サイドバーもグラフも見えていないときは内容を作らない（Git の起動が要るため。#73）。
+ * 見えるようになったときに MicroGitUi が頼み直す。force は、見えていなくても作り終えたいとき（グラフを開く前）
+ */
+function refreshUi(rootPath: string | undefined, options?: { force?: boolean }): Promise<void> {
     updateStatusBar(rootPath);
-    microGitUi?.update(buildUiSnapshot(rootPath));
+    uiRefreshRoot = rootPath;
+    if (!rootPath) {
+        // ワークスペースが無いときは Git を使わない。そのまま同期で渡す
+        uiRefresher.invalidate();
+        microGitUi?.update(emptyWorkspaceSnapshot());
+        return Promise.resolve();
+    }
+    if (!options?.force && microGitUi && !microGitUi.isVisible()) {
+        uiRefresher.invalidate(); // 走っている更新の古い結果が、見えるようになったあとに出ないように
+        return Promise.resolve();
+    }
+    return uiRefresher.request();
 }
 
-function buildUiSnapshot(rootPath: string | undefined): MicroGitUiSnapshot {
-    if (!rootPath) {
-        return {
-            enabled: isEnabled(),
-            targetBranch: getActiveMicroSpaceBranch(),
-            onTarget: false,
-            active: false,
-            currentTag: currentMicroBranchTag,
-            commits: [],
-            hasShadow: false,
-            workspaceOpen: false,
-        };
-    }
+function emptyWorkspaceSnapshot(): MicroGitUiSnapshot {
+    return {
+        enabled: isEnabled(),
+        targetBranch: getActiveMicroSpaceBranch(),
+        onTarget: false,
+        active: false,
+        currentTag: currentMicroBranchTag,
+        commits: [],
+        hasShadow: false,
+        workspaceOpen: false,
+    };
+}
 
+async function buildUiSnapshot(rootPath: string | undefined): Promise<MicroGitUiSnapshot> {
+    if (!rootPath) { return emptyWorkspaceSnapshot(); }
+
+    // 状態は始めの時点で読む（Git を待つあいだに状態が変われば、世代が進んで、この結果は捨てられる）
     const currentBranch = getCurrentBranch(rootPath);
     const microSpace = getActiveMicroSpaceBranch() ?? currentBranch;
     const onRecordable = isRecordableBranch(currentBranch);
-    const active = isEnabled() && onRecordable;
+    const enabled = isEnabled();
+    const currentTag = currentMicroBranchTag;
+    const active = enabled && onRecordable;
     const shadowRepoPath = shadowWorkTreePath(rootPath);
     const hasShadow = fs.existsSync(path.join(shadowRepoPath, '.git')) || fs.existsSync(shadowRepoPath);
     let commits: MicroGitUiSnapshot['commits'] = [];
     let currentHead: string | undefined;
 
     if (active && hasShadow) {
-        commits = getMicroGraphData(shadowRepoPath);
-        currentHead = tryRunGit(shadowRepoPath, ['rev-parse', 'HEAD'])?.trim();
+        // HEAD は 1 回だけ、ファイル（書き出し待ちならメモリ）から読む。rev-parse --verify HEAD と rev-parse HEAD の
+        // 2 回の同期の起動をやめた（#67 の計測で各約 50 ms）。HEAD が無い（まだ記録が無い）ときは履歴も空
+        currentHead = await readShadowHead(shadowRepoPath);
+        if (currentHead) { commits = await getMicroGraphData(shadowRepoPath); }
     }
 
-    const mainCommits = getMainCommitLog(rootPath, 40);
+    const mainCommits = await getMainCommitLog(rootPath, 40);
     const mainIntervals = buildMainIntervalOptions(
         mainCommits,
         commits.map((c) => c.mainHead),
     );
 
     return {
-        enabled: isEnabled(),
+        enabled,
         targetBranch: microSpace,
         currentBranch,
         onTarget: onRecordable,
         active,
-        currentTag: currentMicroBranchTag,
+        currentTag,
         currentHead,
         commits,
         mainIntervals,
         hasShadow: active && hasShadow,
         workspaceOpen: true,
     };
+}
+
+/**
+ * 隠しリポジトリの HEAD のコミット（git rev-parse HEAD と同じ答え）。Git を起動しない。
+ * 速い記録が書き出し待ちのあいだは HEAD のファイルが古いので、メモリの状態を先に使う（ADR-0015）。
+ * 読めない（まだ記録が無い・reftable など）ときだけ、非同期で Git に聞く
+ */
+async function readShadowHead(shadowRepoPath: string): Promise<string | undefined> {
+    try {
+        const gitDir = resolveGitDir(shadowRepoPath);
+        const fromMemory = fastCommitters.get(gitDir)?.headFromMemory();
+        if (fromMemory) { return fromMemory; }
+        const fromFile = readRef(gitDir, 'HEAD');
+        if (fromFile) { return fromFile; }
+    } catch { /* 下の Git に任せる */ }
+    return (await tryRunGitAsync(shadowRepoPath, ['rev-parse', 'HEAD']))?.trim() || undefined;
 }
 
 /** 保存のあとの後片付けを予約する。保存が続く間は後ろへずらし、落ち着いてから 1 回だけ行う（#37） */
@@ -579,7 +634,7 @@ function scheduleAfterSaveRefresh(rootPath: string, savedFile?: string): void {
             await checkpointFastCommitters();
             if (job.savedFile) { await generateMicroGitFileLog(job.rootPath, job.savedFile); }
             await ExtensionLogger.exportLogFile(job.rootPath);
-            refreshUi(job.rootPath);
+            await refreshUi(job.rootPath);
         })();
     }, AFTER_SAVE_REFRESH_MS);
 }
@@ -594,7 +649,7 @@ async function flushAfterSaveRefresh(): Promise<void> {
     await checkpointFastCommitters();
     if (job.savedFile) { await generateMicroGitFileLog(job.rootPath, job.savedFile); }
     await ExtensionLogger.exportLogFile(job.rootPath);
-    refreshUi(job.rootPath);
+    await refreshUi(job.rootPath);
 }
 
 function enqueueSave(task: () => Promise<void>): void {
@@ -853,13 +908,19 @@ function watchGitBranchChanges(context: vscode.ExtensionContext, onChange: () =>
     const gitExtension = vscode.extensions.getExtension('vscode.git');
     if (!gitExtension) { return; }
 
-    const attach = (api: { repositories: Array<{ state: { onDidChange: (listener: () => void) => vscode.Disposable } }>; onDidOpenRepository: (listener: (repo: { state: { onDidChange: (listener: () => void) => vscode.Disposable } }) => void) => vscode.Disposable }) => {
-        for (const repo of api.repositories) {
-            context.subscriptions.push(repo.state.onDidChange(onChange));
-        }
-        context.subscriptions.push(api.onDidOpenRepository((repo) => {
-            context.subscriptions.push(repo.state.onDidChange(onChange));
+    type GitRepo = { rootUri: vscode.Uri; state: { HEAD?: { name?: string; commit?: string; type?: number }; onDidChange: (listener: () => void) => vscode.Disposable } };
+    // Git 拡張の onDidChange は、作業ツリーの状態（変更ファイルの一覧など）が変わるたびに鳴る。画面（ブランチ名・
+    // HEAD・メインのコミットの区間）に関係するのは HEAD の名前とコミットだけなので、その印が前と同じ通知は捨てる（#73）
+    const dedupe = new ChangeDedupe();
+    const watch = (repo: GitRepo) => {
+        context.subscriptions.push(repo.state.onDidChange(() => {
+            if (!dedupe.changed(repo.rootUri.fsPath, headSignature(repo.state.HEAD))) { return; }
+            onChange();
         }));
+    };
+    const attach = (api: { repositories: GitRepo[]; onDidOpenRepository: (listener: (repo: GitRepo) => void) => vscode.Disposable }) => {
+        for (const repo of api.repositories) { watch(repo); }
+        context.subscriptions.push(api.onDidOpenRepository((repo) => { watch(repo); }));
     };
 
     const tryAttach = (): boolean => {
@@ -907,6 +968,32 @@ function runGit(
 function tryRunGit(cwd: string, args: string[]): string | undefined {
     try {
         return runGit(cwd, args);
+    } catch {
+        return undefined;
+    }
+}
+
+const execFileAsync = promisify(execFile);
+
+/**
+ * runGit の非同期版（#73）。拡張機能ホストのイベントループを止めない。引数・環境・関所（ADR-0015）は runGit と同じ。
+ * 関所の書き出しは同期だが、貯めている分が無ければ何もしない（保存の後片付けは、先にチェックポイントで書き出し済み）
+ */
+async function runGitAsync(cwd: string, args: string[]): Promise<string> {
+    flushPendingGitWrites(cwd);
+    const { stdout } = await execFileAsync('git', ['-c', 'core.quotepath=false', ...durabilityGitArgs(), ...args], {
+        cwd,
+        encoding: 'utf8',
+        windowsHide: true,
+        env: process.env,
+        maxBuffer: 64 * 1024 * 1024,
+    });
+    return stdout;
+}
+
+async function tryRunGitAsync(cwd: string, args: string[]): Promise<string | undefined> {
+    try {
+        return await runGitAsync(cwd, args);
     } catch {
         return undefined;
     }
@@ -1068,7 +1155,8 @@ async function generateMicroGitFileLog(rootPath: string, savedFilePath: string):
     try {
         if (!fs.existsSync(shadowRepoPath)) { return; }
 
-        const logOutput = runGit(shadowRepoPath, [
+        // 非同期で起動する（#67 の計測：同期だと約 57 ms ホストを止めていた）。中身は同期のときと同じ
+        const logOutput = await runGitAsync(shadowRepoPath, [
             'log',
             '--graph',
             '--all',
@@ -1531,9 +1619,19 @@ class ExtensionLogger {
     }
 }
 
-function getMainCommitLog(mainRepoPath: string, limit: number): Array<{ hash: string; subject: string }> {
+/** メインのコミットの一覧の覚え。HEAD のコミットが同じなら一覧も同じなので、Git を起動しない（#73） */
+let mainCommitLogCache: { key: string; head: string; value: Array<{ hash: string; subject: string }> } | undefined;
+
+async function getMainCommitLog(mainRepoPath: string, limit: number): Promise<Array<{ hash: string; subject: string }>> {
+    // git log -n <limit> の答えは HEAD のコミットだけで決まる（コミットは書き換えられない）。HEAD をファイルから読めたときだけ覚えを使う
+    let head: string | undefined;
+    try { head = readRef(resolveGitDir(mainRepoPath), 'HEAD'); } catch { /* 覚えなしで Git に聞く */ }
+    const key = `${mainRepoPath}\u0000${limit}`;
+    if (head && mainCommitLogCache?.key === key && mainCommitLogCache.head === head) {
+        return mainCommitLogCache.value;
+    }
     try {
-        const stdout = tryRunGit(mainRepoPath, [
+        const stdout = await tryRunGitAsync(mainRepoPath, [
             'log',
             '-n',
             String(limit),
@@ -1542,29 +1640,29 @@ function getMainCommitLog(mainRepoPath: string, limit: number): Array<{ hash: st
         if (!stdout?.trim()) {
             return [];
         }
-        return stdout.trim().split('\n').filter(Boolean).map((line) => {
+        const value = stdout.trim().split('\n').filter(Boolean).map((line) => {
             const [hash = '', subject = ''] = line.split('\x01');
             return { hash, subject };
         });
+        if (head) { mainCommitLogCache = { key, head, value }; }
+        return value;
     } catch {
         return [];
     }
 }
 
-function getMicroGraphData(shadowRepoPath: string): Array<{
+/** 呼ぶ側が HEAD があること（記録が 1 つ以上あること）を確かめてから呼ぶ。rev-parse --verify HEAD の起動をやめた（#73） */
+async function getMicroGraphData(shadowRepoPath: string): Promise<Array<{
     hash: string;
     parents: string[];
     tags: string[];
     subject: string;
     timestamp: string;
     mainHead?: string;
-}> {
+}>> {
     try {
-        const hasCommits = tryRunGit(shadowRepoPath, ['rev-parse', '--verify', 'HEAD']);
-        if (!hasCommits) { return []; }
-
         // body に改行がありうるのでレコード区切りは NUL、フィールドは SOH
-        const stdout = runGit(shadowRepoPath, [
+        const stdout = await runGitAsync(shadowRepoPath, [
             'log',
             '--all',
             '--topo-order',
