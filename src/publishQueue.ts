@@ -23,13 +23,24 @@ export class PublishQueue<J> {
     constructor(
         private readonly run: (job: J) => Promise<void>,
         private readonly onError: (err: unknown) => void,
+        /** 待っている自動の共有に合流してよい頼みか（省略すると、いつでも合流する）。別のブランチの共有を合流させないため */
+        private readonly same?: (waiting: J, requested: J) => boolean,
     ) {}
+
+    /** close のあとか（閉じた列は二度と開かない。拡張機能が activate し直されたら、作り直す） */
+    get isClosed(): boolean { return this.closed; }
 
     /** 自動の共有を頼む。今走っている共有があれば、それが終わってから 1 回だけ（最後に頼まれた内容で）走る */
     schedule(job: J): void {
         if (this.closed) { return; }
         const waiting = this.autoCell;
-        if (waiting && !waiting.started && this.tail === this.autoTail) { waiting.job = job; return; }
+        if (
+            waiting && !waiting.started && this.tail === this.autoTail && waiting.job !== undefined
+            && (!this.same || this.same(waiting.job, job))
+        ) {
+            waiting.job = job;
+            return;
+        }
         const mine: { job: J | undefined; started: boolean } = { job, started: false };
         const task = this.tail.then(async () => {
             // ここで初めて内容を取る（待っている間に差し替えられた最後の内容）

@@ -139,12 +139,15 @@ interface GitResult {
  * Git を非同期に起動する（拡張機能ホストのイベントループを止めない。#72）。失敗しても reject せず、終了コードと出力を返す
  * （git push は一部の ref だけ失敗しても非 0 で終わるので、呼ぶ側が --porcelain の出力で ref ごとに判断する）
  */
+const GIT_ASYNC_TIMEOUT_MS = 5 * 60 * 1000;
 function execGitAsync(args: string[]): Promise<GitResult> {
     return new Promise((resolve) => {
         execFile('git', args, {
             encoding: 'utf8',
             windowsHide: true,
             maxBuffer: 64 * 1024 * 1024,
+            // 止まった git で列が詰まらないように（push は最初の共有で全部のオブジェクトを送るので、長めに取る）
+            timeout: GIT_ASYNC_TIMEOUT_MS,
         }, (err, stdout, stderr) => {
             const rawCode = (err as (NodeJS.ErrnoException & { code?: unknown }) | null)?.code;
             const code = !err ? 0 : typeof rawCode === 'number' ? rawCode : -1;
@@ -249,7 +252,8 @@ function chunkRefspecs(specs: string[], maxChars: number): string[][] {
  * 前は Git を同期（execFileSync）で 3 + タグの本数 回起動し、保存の 1.5 秒後に拡張機能ホストを毎回約 520 ms
  * 止めていた（#67 の計測、手元の Windows。push 1 回が約 210 ms）。いまは
  * - 元の ref はファイルを直接読む（listPublishSources。ふつうは Git を起動しない）
- * - micro-history と全部のタグを、明示した refspec を並べた 1 回の push にまとめる。ワイルドカード
+ * - micro-history を先に単独で push し（失敗したらタグへ進まない）、全部のタグを、明示した refspec を並べた
+ *   1 回の push にまとめる（失敗したタグだけ 1 本ずつやり直す）。ワイルドカード
  *   （refs/tags/mb-*）にしないのは、mb-<数字> 以外の mb-* を共有しない今の決まりと、
  *   micro-history が無いときに何も共有しない動きを、そのまま保つため
  * - Git は非同期に起動する（イベントループを止めない）
@@ -274,33 +278,44 @@ export async function publishToParentRefs(
     if (!hasTip) { return; }
 
     const tipDst = `${prefix}/micro-history`;
-    const specs = [
-        `${MICRO_HISTORY_REF}:${tipDst}`,
-        ...tags.map((tag) => `refs/tags/${tag}:${prefix}/tags/${tag}`),
-    ];
-    const failures: { dst: string; reason: string }[] = [];
-    for (const chunk of chunkRefspecs(specs, options?.maxRefspecChars ?? PUSH_REFSPEC_CHARS)) {
-        const r = await runGitDirAsync(bare, ['push', '--force', '--porcelain', parentGit, ...chunk]);
+    const tipSpec = `${MICRO_HISTORY_REF}:${tipDst}`;
+    const tagSpecs = tags.map((tag) => `refs/tags/${tag}:${prefix}/tags/${tag}`);
+    const dstOf = (spec: string): string => spec.slice(spec.indexOf(':') + 1);
+
+    /** spec を 1 回の push で送り、失敗した ref（先の名前 → 理由）を返す。ref ごとの成否は --porcelain の出力で見る */
+    const pushSpecs = async (specs: string[]): Promise<Map<string, string>> => {
+        const failed = new Map<string, string>();
+        const r = await runGitDirAsync(bare, ['push', '--force', '--porcelain', parentGit, ...specs]);
         const status = parsePushPorcelain(r.stdout);
-        for (const spec of chunk) {
-            const dst = spec.slice(spec.indexOf(':') + 1);
-            const st = status.get(dst);
-            if (st?.ok) { continue; }
-            failures.push({ dst, reason: st?.summary || r.stderr.trim() || `git push の終了コード ${r.code}` });
+        for (const spec of specs) {
+            const st = status.get(dstOf(spec));
+            if (!st?.ok) { failed.set(dstOf(spec), st?.summary || r.stderr.trim() || `git push の終了コード ${r.code}`); }
         }
+        return failed;
+    };
+
+    // micro-history を先に、単独で送る。失敗したらタグには進まない（前と同じ。同じ push に入れると、
+    // micro-history が失敗してもタグだけ更新されてしまう）
+    const tipFailed = await pushSpecs([tipSpec]);
+    if (tipFailed.size > 0) {
+        throw new Error(`親 refs へ micro-history の publish に失敗: ${[...tipFailed.values()][0]}`);
     }
 
-    let tipFailure: string | undefined;
-    for (const f of failures) {
-        if (f.dst === tipDst) {
-            tipFailure = f.reason;
-            continue;
+    // タグはまとめて送る。壊れたタグが 1 本あるだけで全部が止まらないよう（まとめた push は、1 本でも
+    // 取り込めないと全部失敗する）、失敗があれば、失敗した分だけ 1 本ずつやり直す。前は 1 本ずつ送っていて、
+    // 壊れたタグは警告だけで、ほかのタグは共有されていた
+    for (const chunk of chunkRefspecs(tagSpecs, options?.maxRefspecChars ?? PUSH_REFSPEC_CHARS)) {
+        let failed = await pushSpecs(chunk);
+        if (failed.size > 0 && chunk.length > 1) {
+            const retry = chunk.filter((spec) => failed.has(dstOf(spec)));
+            failed = new Map();
+            for (const spec of retry) {
+                for (const [dst, reason] of await pushSpecs([spec])) { failed.set(dst, reason); }
+            }
         }
-        const tag = f.dst.slice(`${prefix}/tags/`.length);
-        log?.(`親 refs へタグ ${tag} の publish に失敗: ${f.reason}`, 'WARN');
-    }
-    if (tipFailure !== undefined) {
-        throw new Error(`親 refs へ micro-history の publish に失敗: ${tipFailure}`);
+        for (const [dst, reason] of failed) {
+            log?.(`親 refs へタグ ${dst.slice(`${prefix}/tags/`.length)} の publish に失敗: ${reason}`, 'WARN');
+        }
     }
     log?.(`親 refs へ publish: ${prefix}/*`);
 }

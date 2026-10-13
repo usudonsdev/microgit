@@ -258,6 +258,50 @@ describe('親 refs への共有（#72）：直す前と同じ refs ができる'
         }
     });
 
+    test('壊れたタグが 1 本あっても、micro-history とほかのタグは共有され、壊れたタグだけ警告になる（前と同じ）', async () => {
+        const root = tmpRoot();
+        try {
+            const m = makeMain(root, 'm');
+            ensureShadowRepoForBranch(m, BRANCH);
+            const bare = bareGitDirPath(m, BRANCH);
+            const c1 = commit(bare, 'c1');
+            git(['--git-dir', bare, 'update-ref', 'refs/heads/micro-history', c1]);
+            git(['--git-dir', bare, 'tag', 'mb-1', c1]);
+            git(['--git-dir', bare, 'tag', 'mb-2', c1]);
+            // 存在しないオブジェクトを指すタグ（クラッシュなどで起こりうる）。まとめた push は、これ 1 本で全部が失敗する
+            fs.mkdirSync(path.join(bare, 'refs', 'tags'), { recursive: true });
+            fs.writeFileSync(path.join(bare, 'refs', 'tags', 'mb-9'), `${'ab'.repeat(20)}\n`);
+            const p = parentMicroRefPrefix(BRANCH);
+            const logs: { m: string; l?: string }[] = [];
+            await publishToParentRefs(m, BRANCH, (msg, l) => logs.push({ m: msg, l }));
+            assert.deepStrictEqual(parentRefs(m).split('\n'), [`${p}/micro-history ${c1}`, `${p}/tags/mb-1 ${c1}`, `${p}/tags/mb-2 ${c1}`]);
+            assert.ok(logs.some((x) => x.l === 'WARN' && x.m.includes('mb-9')), 'mb-9 の失敗が警告に出ていない');
+            assert.ok(!logs.some((x) => x.l === 'WARN' && x.m.includes('mb-1 ')), '壊れていないタグまで警告になっている');
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true });
+        }
+    });
+
+    test('micro-history の共有に失敗したら、タグには進まない（前と同じ）', async () => {
+        const root = tmpRoot();
+        try {
+            const m = makeMain(root, 'm');
+            ensureShadowRepoForBranch(m, BRANCH);
+            const bare = bareGitDirPath(m, BRANCH);
+            const c1 = commit(bare, 'c1');
+            git(['--git-dir', bare, 'update-ref', 'refs/heads/micro-history', c1]);
+            git(['--git-dir', bare, 'tag', 'mb-1', c1]);
+            // 親の micro-history が他の Git に掴まれている（.lock がある）
+            const refDir = path.join(m, '.git', ...parentMicroRefPrefix(BRANCH).split('/'));
+            fs.mkdirSync(refDir, { recursive: true });
+            fs.writeFileSync(path.join(refDir, 'micro-history.lock'), '');
+            await assert.rejects(publishToParentRefs(m, BRANCH), /micro-history/);
+            assert.strictEqual(parentRefs(m).trim(), '', 'micro-history が失敗したのに、タグが親に入っている');
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true });
+        }
+    });
+
     test('ref を読む前・Git を起動する前に、速い記録の貯めている分を書き出させる（ADR-0015）', async () => {
         const root = tmpRoot();
         try {
@@ -386,6 +430,31 @@ describe('共有の列（PublishQueue、#72）', () => {
         await q.whenIdle();
         assert.strictEqual(maxRunning, 1);
         assert.deepStrictEqual(order, ['auto1:start', 'auto1:end', 'manual:start', 'manual:end', 'auto2:start', 'auto2:end']);
+    });
+
+    test('別のブランチの頼みは合流させず、両方走る。同じブランチの頼みは合流する', async () => {
+        const started: string[] = [];
+        const first = deferred();
+        const q = new PublishQueue<string>(async (job) => {
+            started.push(job);
+            if (job === 'x:1') { await first.promise; }
+        }, () => { /* なし */ }, (waiting, requested) => waiting.split(':')[0] === requested.split(':')[0]);
+        q.schedule('x:1');
+        await tick(); // x:1 が走り始めて止まっている
+        q.schedule('a:1');
+        q.schedule('a:2'); // 同じブランチ a の頼み → a:1 に合流して a:2 になる
+        q.schedule('b:1'); // 別のブランチ → 合流しない
+        q.schedule('b:2'); // b の待っている頼みに合流する
+        first.resolve();
+        await q.whenIdle();
+        assert.deepStrictEqual(started, ['x:1', 'a:2', 'b:2']);
+    });
+
+    test('閉じた列は isClosed が true になる（拡張機能が activate し直されたら作り直すため）', async () => {
+        const q = new PublishQueue<number>(async () => { /* なし */ }, () => { /* なし */ });
+        assert.strictEqual(q.isClosed, false);
+        await q.close();
+        assert.strictEqual(q.isClosed, true);
     });
 
     test('エラーはログに渡すだけで、列は止まらない。runExclusive の失敗は呼んだ側に返る', async () => {

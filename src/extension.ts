@@ -73,13 +73,18 @@ const PUBLISH_DEBOUNCE_MS = 1500;
  * 親 refs への共有を 1 本の列で流す（#72）。Git の起動を非同期にしたので、共有が走っている間に次の共有の時刻が来うる。
  * 重なったら終わってからもう 1 回だけ（最後の状態で）走らせ、利用者のコマンドの共有とも重ねない
  */
-const publishQueue = new PublishQueue<{ rootPath: string; branch: string }>(
-    (job) => publishToParentRefs(job.rootPath, job.branch, (m, l) => ExtensionLogger.log(m, l)),
-    (pubErr: unknown) => {
-        const msg = pubErr instanceof Error ? pubErr.message : String(pubErr);
-        ExtensionLogger.log(`親 refs への publish に失敗: ${msg}`, 'WARN');
-    },
-);
+function createPublishQueue(): PublishQueue<{ rootPath: string; branch: string }> {
+    return new PublishQueue<{ rootPath: string; branch: string }>(
+        (job) => publishToParentRefs(job.rootPath, job.branch, (m, l) => ExtensionLogger.log(m, l)),
+        (pubErr: unknown) => {
+            const msg = pubErr instanceof Error ? pubErr.message : String(pubErr);
+            ExtensionLogger.log(`親 refs への publish に失敗: ${msg}`, 'WARN');
+        },
+        // 別のブランチ（別のワークスペース）の共有は合流させない。合流すると、前のブランチの最後の共有が捨てられる
+        (a, b) => a.rootPath === b.rootPath && a.branch === b.branch,
+    );
+}
+let publishQueue = createPublishQueue();
 /** 終了（deactivate）のとき、走っている共有の git push を待つ上限 */
 const PUBLISH_DEACTIVATE_WAIT_MS = 5000;
 /**
@@ -138,6 +143,8 @@ function createBackendSelector(context: vscode.ExtensionContext): BackendSelecto
  */
 export function activate(context: vscode.ExtensionContext) {
     extensionContext = context;
+    // deactivate で閉じた列は二度と開かないので、同じ拡張機能ホストで activate し直されたら作り直す
+    if (publishQueue.isClosed) { publishQueue = createPublishQueue(); }
     ExtensionLogger.initialize('MicroGit Output');
     ExtensionLogger.log('MicroGit 拡張機能が起動しました');
 
