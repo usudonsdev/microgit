@@ -93,6 +93,12 @@ agent 1.1.0を使うため、この混在を見逃した。公開判定では手
 
 ## 3. 公開の手順
 
+**公開の記録を書く前に、確かめること**（2026-10-14 に、ストアの今の版を確かめずに「5.1.2 は出さなかった」と書いた誤りがあった。[work-record-2026-10-09-to-14.md](./work-record-2026-10-09-to-14.md) §3.2）：
+
+1. ストアの今の版：Marketplace（`https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery` に `filterType: 7`・`usudonsdev.microgit`・`flags: 51`）、Open VSX（`https://open-vsx.org/api/usudonsdev/microgit`）
+2. GitHub Release の状態（`gh release view <タグ> --json isDraft,publishedAt`）
+3. 利用者が別の機械（Mac など）で公開していないか。記録に書くのは、**観測できたこと**だけ。観測していないこと（公開のときの sha256 の確認など）は、「記録が無い」と書く
+
 **公開（Marketplace への `vsce publish`）と、`feature/kernel-portability` から `master` へのマージは、元に戻せない（Marketplace の版は取り消しても同じ版番号を使い直せない）。利用者が §4 を決めてから行う。**
 
 1. `feature/kernel-portability` を `master` にマージする（PR を作り、CI がすべて通ることを確かめる）
