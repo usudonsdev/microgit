@@ -4,6 +4,7 @@
 |---|---|
 | 目的 | 2026-09-30〜10-03 の調査と議論で分かったこと、検討した案とその状態、今後やるべきことを 1 か所にまとめる。次に作業を始める人（利用者・エージェント）が、ここから読み始められるようにする |
 | 版 | 初版（2026-10-03） |
+| 直近の記録 | [work-record-2026-10-09-to-14.md](./work-record-2026-10-09-to-14.md)：2026-10-09〜14 の作業（#61・#65〜#68・#72・#73、5.2.0）の記録と、残っている問題（§4） |
 | 詳しい検討 | [overlayfs-research-directions.md](./overlayfs-research-directions.md)（OverlayFS で何を速くできるか）、[perceptible-delay.md](./perceptible-delay.md)（人は何ミリ秒の遅れに気づくか） |
 | 関係 | [design-rationale.md](./design-rationale.md)、[why-save-is-fast.md](./why-save-is-fast.md)、[ADR-0001](./adr/0001-source-of-truth.md)・[0013](./adr/0013-guest-is-fallible-not-hostile.md)・[0014](./adr/0014-journal-single-fsync.md)・[0015](./adr/0015-defer-git-writes.md)、[build-verification-engine.md](./build-verification-engine.md)、[release.md](./release.md) |
 
