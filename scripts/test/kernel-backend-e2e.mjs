@@ -93,6 +93,7 @@ const extraScenarios = [
     },
 ];
 
+/** シナリオの操作（op）を、dir の Git の作業ツリーに当てる。rmdir は overlay.removeTree で消す。 */
 function applyOp(dir, op) {
     const [kind, a, b] = op;
     const abs = (rel) => path.join(dir, ...rel.split('/'));
@@ -136,6 +137,9 @@ function workspaceFiles(root) {
     return out;
 }
 
+/**
+ * 期待（パス → sha256）と実際を比べ、違う行を返す。「- 」は無い、「~ 」は中身が違う、「+ 」は余分。
+ */
 function diffMaps(expected, actual) {
     const lines = [];
     for (const [p, h] of expected) {
@@ -151,6 +155,10 @@ const isMicroGitArtifactPath = (abs, root) => {
     return top === '.microgit' || top.startsWith('.microgit_');
 };
 
+/**
+ * シナリオ s を、カーネル版（backend）と Node 版の両方で Git の各コミットに戻して、
+ * ワークスペースが Git のツリーと一致するかを確かめる。食い違いは failures に、件数は stats に足す。終わると一時フォルダを消す。
+ */
 async function runScenario(backend, s, failures, stats) {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'microgit-e2e-'));
     try {

@@ -60,6 +60,7 @@ for dll in libffi-8.dll libgio-2.0-0.dll libglib-2.0-0.dll zlib1.dll; do
     cp "$work/sysroot/$dll" "$work/dest/"
 done
 
+# 失敗の理由を「NG:」の行で標準エラーに出し、終了コード 1 で止める。
 fail() { echo "NG: $*" >&2; exit 1; }
 
 if PATH="$work/bin:$PATH" bash "$HERE/collect-licenses.sh" "$work/dest" "$work/src" "$work/sysroot" > "$work/out.txt"; then :; else

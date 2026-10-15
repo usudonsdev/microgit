@@ -10,6 +10,7 @@
  * findPastCommitForSave は履歴全体を読む（#32 で測って置き換える対象）。
  */
 
+/** Git を起動する関数の組。呼び出し側が差し込む（実装は同期。テストや差分比較で差し替えられる）。 */
 export type GitRunner = {
     /** 失敗したら例外 */
     run(cwd: string, args: string[], options?: { env?: NodeJS.ProcessEnv }): string;
@@ -17,6 +18,7 @@ export type GitRunner = {
     tryRun(cwd: string, args: string[]): string | undefined;
 };
 
+/** 1 回の保存の記録に渡す入力。shadow の作業ツリーには、保存したファイルの中身が先に書いてあること。 */
 export type MicroCommitInput = {
     shadowRepoPath: string;
     /** shadow の作業ツリーからの相対パス（/ 区切り） */
@@ -29,6 +31,7 @@ export type MicroCommitInput = {
     commitEnv: NodeJS.ProcessEnv;
 };
 
+/** 保存内容に一致した過去のコミット。見つかったときは新しいコミットを作らず、そこへ戻す。 */
 export type PastCommitMatch = {
     commit: string;
     /** tree: ワークツリー全体が一致 / file: 保存ファイルの内容のみ過去と一致（Ctrl+Z・手編集戻し） */
@@ -44,6 +47,11 @@ export type MicroCommitDelta = {
     files: Array<{ path: string; mode: '100644' | '100755'; content: Buffer }>;
 };
 
+/**
+ * 1 回の保存の記録の結果。
+ * unchanged は先端と同じで何もしなかった、rewound は過去のコミットへ戻した（新しいコミットは作らない）、
+ * created は新しいコミットを作った（delta は速い記録だけが付ける）。
+ */
 export type MicroCommitOutcome =
     | { kind: 'unchanged' }
     | { kind: 'rewound'; commit: string; reason: 'tree' | 'file'; tag: string }
@@ -93,6 +101,7 @@ export function findPastCommitForSave(
     return undefined;
 }
 
+/** 次の mb-<数字> を返す。既存の mb-<数字> の最大値に 1 を足す。タグが読めないとき（Git が失敗）は mb-1 を返し、例外にしない。 */
 export function getNextTagCode(git: GitRunner, shadowRepoPath: string): string {
     try {
         const stdout = git.run(shadowRepoPath, ['tag', '-l', 'mb-*']);

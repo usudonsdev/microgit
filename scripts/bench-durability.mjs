@@ -19,6 +19,10 @@ const env = {
     GIT_COMMITTER_NAME: 'bench', GIT_COMMITTER_EMAIL: 'bench@example.invalid',
 };
 
+/**
+ * extra（git の -c などの引数）を付けた Git で、保存 1 回ぶんの 4 手順を N 回くり返して時間を測り、結果を 1 行表示する。
+ * 一時フォルダに履歴を作り、終わると消す。
+ */
 function bench(label, extra) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'microgit-durability-bench-'));
     const git = (...a) => execFileSync('git', [...extra, ...a], { cwd: dir, encoding: 'utf8', env });

@@ -12,6 +12,8 @@
  *                   → その保存の前の状態に戻る（その保存は記録されなかった）
  *  3. external     ：オブジェクトだけ失われ、ref はほかの処理（過去に戻る操作など）が別の値に進めてある → ref は触らない
  *  4. checkpoint   ：途中でチェックポイントしてから停電。チェックポイント済みのジャーナルは消えていて、その後の分だけ作り直す
+ *  5. deferred     ：Git のファイルを書き出す前に停電した（ADR-0015）。停電した瞬間の写しをジャーナルから作り直し、書き出した場合と同じ履歴になるかを確かめる
+ *  （concurrent は停電ではなく、チェックポイントの最中に保存が重なる場面。その保存が速い記録で失敗しないかを確かめる）
  * どの場面も、作り直したあとにもう 1 回保存できること（作り直した index から正しい tree ができること）も確かめる。
  */
 import { execFileSync } from 'child_process';
@@ -34,6 +36,7 @@ const rand = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return see
 const ENV = { ...process.env, GIT_AUTHOR_NAME: 'MicroGit', GIT_AUTHOR_EMAIL: 'microgit@local', GIT_COMMITTER_NAME: 'MicroGit', GIT_COMMITTER_EMAIL: 'microgit@local' };
 const git = (dir, ...a) => execFileSync('git', ['-c', 'core.quotepath=false', ...a], { cwd: dir, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], env: ENV });
 
+/** 一時フォルダに micro-history の Git リポジトリを作り、最初のコミット（a.txt）を入れてそのパスを返す。 */
 function makeRepo() {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'microgit-crash-'));
     git(os.tmpdir(), 'init', '-q', '-b', 'micro-history', dir);
@@ -120,6 +123,7 @@ function simulateLoss(dir, before, opts) {
 
 const refsOf = (dir) => git(dir, 'for-each-ref', '--format=%(refname) %(objectname)').trim();
 const results = [];
+/** 結果の 1 行（ok か NG と label）を results に足す。cond が偽なら終了コードを 1 にする。 */
 function check(label, cond, detail = '') {
     results.push(`${cond ? 'ok' : 'NG'} ${label}${detail ? `  ${detail}` : ''}`);
     if (!cond) { process.exitCode = 1; }

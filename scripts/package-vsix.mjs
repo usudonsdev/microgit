@@ -49,6 +49,7 @@ const env = (file) => Object.fromEntries(fs.readFileSync(path.join(ROOT, file), 
 const kernel = env('guest/kernel/version.env');
 const qemu = env('windows/qemu/version.env');
 
+/** src のフォルダの中身を、dst へ再帰的にコピーする（dst が無ければ作る）。 */
 function copyTree(src, dst) {
     fs.mkdirSync(dst, { recursive: true });
     for (const ent of fs.readdirSync(src, { withFileTypes: true })) {
@@ -58,11 +59,13 @@ function copyTree(src, dst) {
     }
 }
 
+/** p が無ければ「成果物が無い」の例外を投げる。あれば p をそのまま返す。 */
 function need(p) {
     if (!fs.existsSync(p)) { throw new Error(`成果物が無い: ${p}`); }
     return p;
 }
 
+/** src を dst へコピーする（dst のフォルダは作る）。mode があれば、コピー先にその権限を付ける。 */
 function copyFile(src, dst, mode) {
     fs.mkdirSync(path.dirname(dst), { recursive: true });
     fs.copyFileSync(need(src), dst);

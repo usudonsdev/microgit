@@ -1,3 +1,8 @@
+/**
+ * 拡張機能テスト（VS Code を起動して流すテスト）の入口。npm test（node ./out/test/runTest.js）から呼ばれる。
+ * VS Code の本体を @vscode/test-electron で必要なら取ってきて起動し、src/test/suite/ のテストを流す。
+ * VS Code を使わない単体テストは、このファイルではなく node scripts/run-unit-tests.mjs で流す（src/test/unit/）。
+ */
 import { downloadAndUnzipVSCode, resolveCliPathFromVSCodeExecutablePath, runTests } from '@vscode/test-electron';
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
@@ -82,6 +87,10 @@ function installVsix(vscodeExecutablePath: string, vsix: string, extensionsDir: 
     return folder;
 }
 
+/**
+ * テストの本体。一時的な Git のワークスペースを作り、VS Code を起動して拡張機能テストを流し、最後にワークスペースを消す。
+ * 失敗したら終了コードを 1 にする。
+ */
 async function main() {
     // VS Code（や Electron のアプリ）の中からこのスクリプトを動かすと ELECTRON_RUN_AS_NODE=1 が引き継がれ、
     // テスト用の VS Code が普通の Node として起動して、ワークスペースのパスを JavaScript として読もうとする

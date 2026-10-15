@@ -1,10 +1,21 @@
+/**
+ * カーネル版を起動する計画（kernel/launchers.ts の planLaunch など）を、偽の OS と偽のファイル一覧で確かめる単体テスト。
+ * 実際には何も起動しない（計画の中身だけを見る）。
+ * 観点：カーネルの版の読み方。Linux は unshare -Urm で同梱の agent を起動し（6.6 以降で層を tmpfs に置く）、
+ * 起動前に実行ビットを確かめる。開発中はリポジトリのビルド結果を使う。使えない理由も返す。
+ * Windows は同梱の QEMU とゲストで、WHPX を試してだめなら TCG。名前付きパイプは毎回違う名前。設定の QEMU も使う。
+ * macOS は microgit-vm を使い、フレームの上限（48 KiB）を指定する。Intel Mac は対象外。PATH からの探し方も確かめる。
+ * 実行は node scripts/run-unit-tests.mjs（先に npm run compile が要る）。
+ */
 import * as assert from 'assert';
 import * as path from 'path';
 import { describe, test } from 'node:test';
 import { findInPath, kernelAtLeast, LauncherDeps, parseKernelVersion, planLaunch, qemuArgs } from '../../kernel/launchers';
 
+/** 拡張機能のフォルダの仮の場所。実在しなくてよい（ファイルの有無は deps の files で決める）。 */
 const EXT = path.join(path.sep, 'ext');
 
+/** LauncherDeps の偽の値。files に書いたパスだけが存在するものとして扱う。over で一部を差し替える。 */
 function deps(over: Partial<LauncherDeps> & { files?: string[] }): LauncherDeps {
     const files = new Set(over.files ?? []);
     return {
@@ -21,7 +32,9 @@ function deps(over: Partial<LauncherDeps> & { files?: string[] }): LauncherDeps 
     };
 }
 
+/** 同梱の部品（拡張機能の中の resources/kernel）の下のパス。 */
 const bundled = (...parts: string[]) => path.join(EXT, 'resources', 'kernel', ...parts);
+/** 開発中の部品（拡張機能のフォルダの直下の guest/ など）のパス。 */
 const dev = (...parts: string[]) => path.join(EXT, ...parts);
 
 describe('カーネルの版', () => {
@@ -88,6 +101,7 @@ describe('Linux: VM なし（unshare -Urm）', () => {
 });
 
 describe('Windows: QEMU', () => {
+    // 同梱の guest の Image と、同梱の QEMU のパス（どちらも存在するものとして deps に渡す）。
     const image = bundled('guest', 'x86_64', 'Image');
     const qemu = bundled('win32-x64', 'qemu', 'qemu-system-x86_64.exe');
 

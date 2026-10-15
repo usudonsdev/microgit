@@ -15,8 +15,10 @@ import * as net from 'net';
 import * as readline from 'readline';
 import { Readable, Writable } from 'stream';
 
+/** このホストが話す命令の形の版。agent の ready の protocol がこれと違えば waitReady が AgentUnavailableError にする */
 export const PROTOCOL_VERSION = 1;
 
+/** agent の起動のしかた。command・args・env で子プロセスを起動し、namedPipe があればそちらを命令の通り道にする */
 export type LaunchSpec = {
     command: string;
     args: string[];
@@ -35,6 +37,7 @@ export type LaunchSpec = {
     maxFrameBytes?: number;
 };
 
+/** agent が起動時に出す ready の中身（docs/agent-protocol.md）。どの項目も、無いこともある */
 export type AgentReady = {
     protocol?: number;
     agent?: string;
@@ -58,8 +61,10 @@ export class AgentUnavailableError extends Error {
     }
 }
 
+/** 応答待ちの要求 1 つ。timer は時間切れで reject するためのもの。応答が来る・落ちる・時間切れのどれかで片付ける */
 type Pending = { resolve: (v: Record<string, unknown>) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> };
 
+/** 名前付きパイプにつなぎ、つながったら Socket を返す。つながらなければ reject（呼ぶ側 connectNamedPipe がつなぎ直す） */
 function connectPipe(pipe: string): Promise<net.Socket> {
     return new Promise((resolve, reject) => {
         const s = net.connect(pipe);
@@ -68,6 +73,10 @@ function connectPipe(pipe: string): Promise<net.Socket> {
     });
 }
 
+/**
+ * agent の子プロセスを起動して、1 行 1 JSON で命令を送る接続。request は ok が false でも応答を返し、call は ok でなければ AgentError にする。
+ * 落ちた・つながらない・時間切れは AgentUnavailableError。constructor が起動までする（待たない）ので、使い終えたら dispose か kill を呼ぶ
+ */
 export class AgentConnection {
     private readonly child: ChildProcess;
     private output: Writable | undefined;
@@ -106,6 +115,7 @@ export class AgentConnection {
         this.connected.catch(() => undefined);
     }
 
+    /** 読み口の 1 行ごとに onLine を呼ぶようにし、書き口を覚える。行の長さに上限を付けない（大きな応答が来るため） */
     private attach(input: Readable, output: Writable): void {
         this.output = output;
         output.on('error', () => { /* 相手が落ちたとき。exit / close で扱う */ });
@@ -113,6 +123,7 @@ export class AgentConnection {
         readline.createInterface({ input, crlfDelay: Infinity }).on('line', (line) => this.onLine(line));
     }
 
+    /** 名前付きパイプに、timeoutMs のあいだ 50 ms 間隔でつなぎ直す。つながらなければ接続を落ちた扱いにして子プロセスを止め、AgentUnavailableError を投げる */
     private async connectNamedPipe(pipe: string, timeoutMs: number): Promise<void> {
         const deadline = Date.now() + timeoutMs;
         let lastError = '';
@@ -134,18 +145,22 @@ export class AgentConnection {
         throw new AgentUnavailableError(reason);
     }
 
+    /** 接続がまだ使えるか（子プロセスの終了・起動の失敗や、パイプの切断などで落ちた扱いになっていないか） */
     get alive(): boolean {
         return this.deadReason === undefined;
     }
 
+    /** agent が出した ready（まだ来ていなければ undefined） */
     get ready(): AgentReady | undefined {
         return this.readyInfo;
     }
 
+    /** agent の子プロセスが最後に stderr に出した内容（最大 2000 文字ほど。前後の空白は除く） */
     get lastStderr(): string {
         return this.stderrTail.trim();
     }
 
+    /** 接続を落ちた扱いにする（最初の 1 回だけ効く）。stderr があれば、理由に最後の 3 行を添え、応答待ちと ready 待ちをすべて AgentUnavailableError で reject する */
     private markDead(reason: string): void {
         if (this.deadReason !== undefined) { return; }
         this.deadReason = this.stderrTail.trim() ? `${reason}: ${this.stderrTail.trim().split('\n').slice(-3).join(' / ')}` : reason;
@@ -159,6 +174,7 @@ export class AgentConnection {
         this.readyWaiters = [];
     }
 
+    /** agent から来た 1 行を処理する。JSON でない行は無視し、event が ready なら ready 待ちを解き、それ以外は id が合う応答待ちを解く */
     private onLine(line: string): void {
         let msg: Record<string, unknown>;
         try {

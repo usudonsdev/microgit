@@ -1,3 +1,8 @@
+/**
+ * `.microgit/` の置き場所を決める。shadow・logs・overlay のパスを返す関数は、
+ * 呼ぶたびに古い 3 フォルダ（`.microgit_*`）の移行を先に済ませる（何度呼んでも同じ結果）。
+ * 以下の長いコメントは、置き場所をまとめた理由と、移行の規則。
+ */
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -11,35 +16,45 @@ import * as path from 'path';
  */
 export const MICROGIT_ROOT_NAME = '.microgit';
 
+/** 移行元の古いフォルダ名（5.1.1 より前）。キーは、移行先の `.microgit/` の下の名前（shadow・logs・overlay）と同じ。 */
 export const LEGACY_MICROGIT_DIRS = {
     shadow: '.microgit_shadow',
     logs: '.microgit_logs',
     overlay: '.microgit_overlay',
 } as const;
 
+/** `.microgit/` のパス（作らない）。 */
 export function microgitRoot(workspaceRoot: string): string {
     return path.join(workspaceRoot, MICROGIT_ROOT_NAME);
 }
 
+/** shadow のフォルダ `.microgit/shadow` のパス。呼ぶたびに、古い配置が残っていれば移す（migrateLegacyMicrogitLayout）。 */
 export function shadowDir(workspaceRoot: string): string {
     migrateLegacyMicrogitLayout(workspaceRoot);
     return path.join(microgitRoot(workspaceRoot), 'shadow');
 }
 
+/** ログ類のフォルダ `.microgit/logs` のパス。古い配置が残っていれば移す。 */
 export function logsDir(workspaceRoot: string): string {
     migrateLegacyMicrogitLayout(workspaceRoot);
     return path.join(microgitRoot(workspaceRoot), 'logs');
 }
 
+/** Overlay（層・ビュー・merge）のフォルダ `.microgit/overlay` のパス。古い配置が残っていれば移す。 */
 export function overlayDir(workspaceRoot: string): string {
     migrateLegacyMicrogitLayout(workspaceRoot);
     return path.join(microgitRoot(workspaceRoot), 'overlay');
 }
 
+/** AI 編集でマークされたパスの一覧 `.microgit/logs/ai-pending.json` のパス（extension.ts の consumeAiPending が読み、見つけたパスを 1 件外して書き戻す。このリポジトリにパスを足す処理は無い）。 */
 export function aiPendingPath(workspaceRoot: string): string {
     return path.join(logsDir(workspaceRoot), 'ai-pending.json');
 }
 
+/**
+ * src を dest へ移す。dest が無ければ丸ごと移す（rename、だめならコピーして消す）。
+ * dest があれば、dest に同名が無いものだけ 1 つずつ移し、同名は動かさない。移し終えて src が空になったら src を消す（空にならなければ残す）。
+ */
 function relocateTree(src: string, dest: string): void {
     if (!fs.existsSync(dest)) {
         fs.mkdirSync(path.dirname(dest), { recursive: true });

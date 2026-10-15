@@ -36,6 +36,10 @@ export class RefreshCoalescer {
         this.generation++;
     }
 
+    /**
+     * 更新を 1 つずつ回す。依頼が来ていれば、世代を取り直して work を呼ぶ。走っている間に来た依頼があれば、終わってからもう 1 回回す。
+     * work が例外を投げても止めず、待っている request() はすべて最後に解決する。
+     */
     private async loop(): Promise<void> {
         this.running = true;
         // 結果を捨てた更新の依頼も、やり直しの結果が出るまで解決しない（先に解決すると、グラフを開く前に

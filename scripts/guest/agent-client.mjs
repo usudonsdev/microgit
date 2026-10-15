@@ -32,6 +32,7 @@ export class AgentClient {
         });
     }
 
+    /** 応答を待っているすべての命令と、ready の待ちを、err で失敗させる。 */
     fail(err) {
         for (const { reject, timer } of this.pending.values()) { clearTimeout(timer); reject(err); }
         this.pending.clear();
@@ -39,6 +40,10 @@ export class AgentClient {
         this.readyWaiters = [];
     }
 
+    /**
+     * ゲストの 1 行の出力を読む。JSON でなければ無視する。ready の通知は記録して待ちを解く。
+     * それ以外は id が一致する、待っている命令に応答を返す。
+     */
     onLine(line) {
         let msg;
         try {

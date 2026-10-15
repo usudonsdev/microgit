@@ -49,6 +49,7 @@ const cli = {
     tryRun: (cwd, args) => { try { return git(cwd, args); } catch { return undefined; } },
 };
 
+/** 名前つきの一時フォルダに micro-history の Git リポジトリを作る。--crlf のときは info/attributes も置く。 */
 function makeRepo(name) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), `microgit-diff-${name}-`));
     git(os.tmpdir(), ['init', '-q', '-b', 'micro-history', dir]);
@@ -67,6 +68,7 @@ const B = makeRepo('fast');
 const fast = new FastMicroCommitter(B, () => true);
 let fallbacks = 0;
 
+/** 同じ内容を、CLI 側（A）と速い側（B）の両方の作業ツリーに書く。CRLF のときは改行を CRLF にする。 */
 function write(rel, content) {
     if (CRLF) { content = content.replace(/\r?\n/g, '\r\n'); }
     for (const d of [A, B]) {
@@ -84,6 +86,10 @@ let lastEdit;
 
 let deltas = 0;
 let diskChecks = 0;
+/**
+ * 保存 n の結果を比べる（oa は CLI、ob は速い実装）。違えば例外を投げる。
+ * 4 回に 1 回くらいは書き出したあとに、delta と git diff-tree の一致、HEAD・ref・index の一致も確かめる。
+ */
 function check(n, label, oa, ob) {
     const same = (x, y) => JSON.stringify(x) === JSON.stringify(y);
     // 速い記録だけが付ける「親からの変化」（delta、#37）は比べる前に外し、別に中身を確かめる
@@ -120,6 +126,10 @@ function check(n, label, oa, ob) {
     if (!same(sa, sb)) { throw new Error(`#${n} ${label}: 状態が違う\n cli : ${JSON.stringify(sa)}\n fast: ${JSON.stringify(sb)}`); }
 }
 
+/**
+ * 保存 1 回を、CLI と速い実装の両方に流し、結果を check で比べる。
+ * 速い実装が使えないとき（FastPathUnsupported）は、書き出したあと CLI で記録し直す（fallbacks に数える）。
+ */
 function save(n, rel, label) {
     const input = (dir, tag) => ({
         shadowRepoPath: dir, relativeFilePath: rel, currentTag: tag,

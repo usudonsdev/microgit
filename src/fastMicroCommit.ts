@@ -13,6 +13,13 @@
  * Git の設定などがこの実装の前提から外れる（autocrlf、属性ファイル、sha256、reftable、index の版 4 など）ときは
  * FastPathUnsupported を投げる。呼ぶ側は Git の CLI の実装に任せる。
  */
+/**
+ * 保存 1 回の流れ：record が、メモリの上で blob・tree・commit と ref の更新を計算して集め（Txn）、applyTxn で書く。
+ * 停電への備え（ADR-0014）：ジャーナルを使うとき（durability=power、既定）は、ジャーナルへの追記と fdatasync を先に行い、Git のファイルはそのあとで書く。
+ * 逆にすると、停電で中身の壊れたオブジェクトがジャーナルに記録の無いまま残りうる。この順番を変えない。
+ * さらに書き出しを遅らせる（ADR-0015）ときは、Git のファイルは stash で貯め、materialize で落ち着いてから書く。
+ * 隠しリポジトリを Git のコマンドや直接のファイル読みで見る処理は、その前に flush（pendingWrites.ts の flushPendingGitWrites）が要る。
+ */
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -24,11 +31,15 @@ import { isSafeGitRef, MicroCommitDelta, MicroCommitInput, MicroCommitOutcome } 
 import { SHADOW_ATTRIBUTES } from './shadowStore';
 import { fsyncStats } from './fastGit/fsyncStats';
 
+/** この速い実装の前提から外れた（Git の設定・index の形・保存の形など）ことを示す例外。呼ぶ側は Git の CLI の実装に切り替える */
 export class FastPathUnsupported extends Error { }
 
+/** 記録を積むブランチの ref（micro-history）。HEAD はこれを向ける */
 const BRANCH = 'refs/heads/micro-history';
+/** 「無い」を表す全部 0 の 40 文字のハッシュ（reflog の前の値、git log --raw で消えたファイルの印） */
 const ZERO = '0'.repeat(40);
 
+/** tree をメモリの上で組み立てるための、フォルダ 1 つ分の節。hash は計算した tree のハッシュの覚え（中身を変えたら undefined に戻す） */
 type Dir = { files: Map<string, { mode: string; hash: string }>; dirs: Map<string, Dir>; hash?: string };
 
 /**
@@ -55,13 +66,16 @@ type Pending = {
     saves: number;
 };
 
+/** 空の Dir を作る */
 function newDir(): Dir { return { files: new Map(), dirs: new Map() }; }
 
+/** ファイルが変わったかを見る印（更新時刻・サイズ・inode）。ファイルが無ければ undefined */
 type FileStamp = { mtimeMs: number; size: number; ino: number } | undefined;
 
 /** ref の状態。HEAD・micro-history・タグのファイルとフォルダ・packed-refs の stat が変わっていなければ、読み直さない */
 type RefState = { key: string; symbolic?: string; head?: string; branch?: string; tags: Map<string, string> };
 
+/** ファイルの FileStamp を取る。stat できなければ undefined */
 function stamp(file: string): FileStamp {
     try {
         const st = fs.statSync(file);
@@ -71,12 +85,17 @@ function stamp(file: string): FileStamp {
     }
 }
 
+/** 2 つの FileStamp が同じか（どちらも無い場合も同じ） */
 const sameStamp = (a: FileStamp, b: FileStamp) =>
     a === b || (!!a && !!b && a.mtimeMs === b.mtimeMs && a.size === b.size && a.ino === b.ino);
 
+/** 速い記録の計測用の数。記録のたびに足され、遅いときの切り分けに使う */
 export type FastCommitStats = {
+    /** 履歴の索引を git log で作り直した回数 */
     reloads: number;
+    /** index をファイルから読み直した回数 */
     indexReloads: number;
+    /** Git のプロセスを起動した回数（速い記録では、少ないほどよい） */
     gitSpawns: number;
     /** 書き出しを遅らせた分を書き出した回数と、書き出した保存の数（ADR-0015） */
     materializations: number;
@@ -87,16 +106,27 @@ export type FastCommitStats = {
     lastPhases: Record<string, number>;
 };
 
+/**
+ * 速い記録をする 1 つの作業ツリー用の状態を持つ。record で 1 回の保存を記録する。
+ * index・ref・履歴の索引をメモリに持ち、ファイルの stat が変わったときだけ読み直す。CLI の実装など外で記録したときは invalidate で状態を捨てる。
+ * 書き出しを遅らせている間のメモリの状態は、flush・checkpoint・checkpointSync で書き出す
+ */
 export class FastMicroCommitter {
+    /** workTree の Git のディレクトリ（コンストラクタで .git か gitfile から決める） */
     readonly gitDir: string;
+    /** git config --list の結果（キーは小文字）。loadConfig で読む */
     private config = new Map<string, string>();
+    /** メモリの上の index。記録のたびに更新し、書き出すときにファイルへ書く */
     private index: GitIndex = { version: 2, entries: [] };
+    /** 最後に読んだ（書いた）index ファイルの印。ほかの処理が書き換えたかの判定に使う */
     private indexStamp: FileStamp;
+    /** index から作った tree（Dir の木） */
     private root: Dir = newDir();
     /** 履歴の索引（最初に git log で作り、記録のたびに足す） */
     private commitTree = new Map<string, string>();
     private treeToCommit = new Map<string, string>();
     private fileIndex = new Map<string, Map<string, string>>();
+    /** ensureLoaded を済ませたか。invalidate で false に戻る */
     private loaded = false;
     /** info/attributes が変換を止めている（ADR-0012）。止めていれば .gitattributes があっても中身は変わらない */
     private attributesNeutral = false;
@@ -107,7 +137,9 @@ export class FastMicroCommitter {
      * 中身を Git に読ませずに済ませる（Git を起動すると、その前に貯めている分の書き出しも要る。ADR-0015）。新しい順に最大 128 個
      */
     private recentFlats = new Map<string, Map<string, string>>();
+    /** 計測用の数と、直近の record の段階ごとの時間 */
     readonly stats: FastCommitStats = { reloads: 0, indexReloads: 0, gitSpawns: 0, materializations: 0, materializedSaves: 0, externalWins: 0, lastPhases: {} };
+    /** 直前の phase の呼び出し時刻（performance.now） */
     private phaseAt = 0;
     /** 直前の印からここまでを、その段階の時間として記録する */
     private phase(name: string): void {
@@ -115,6 +147,7 @@ export class FastMicroCommitter {
         this.stats.lastPhases[name] = (this.stats.lastPhases[name] ?? 0) + (t - this.phaseAt);
         this.phaseAt = t;
     }
+    /** 書いた・あると分かったオブジェクトとフォルダの覚え（存在の確認とフォルダの作成を繰り返さないため） */
     private objCache: ObjectWriteCache = { present: new Set(), dirs: new Set() };
     /** この記録で書くもの（record の中だけ） */
     private txn: Txn | undefined;
@@ -123,13 +156,19 @@ export class FastMicroCommitter {
     private readonly useJournal: boolean;
     /** 最後の起動時の作り直しの結果（ADR-0014） */
     lastRecovery: RecoveryReport | undefined;
+    /** ref の状態の覚え。refKey が変わっていなければ読み直さない */
     private refState: RefState | undefined;
     /** あると分かった reflog のファイル */
     private reflogs = new Set<string>();
     /** まだ書き出していない Git のファイル（ADR-0015） */
     private pending: Pending | undefined;
+    /** Git のファイルの書き出しを遅らせるか（ADR-0015）。ジャーナルを使っているときだけ意味がある */
     private readonly deferWrites: boolean;
 
+    /**
+     * workTree：記録する作業ツリー。fsync：確定させるか（false は durability=process）を、呼ぶたびに返す関数。
+     * options.journal=false でジャーナルを使わず（ファイルごとの fsync）、options.deferWrites=false で書き出しの遅延を止める
+     */
     constructor(readonly workTree: string, private readonly fsync: () => boolean, options?: { journal?: boolean; deferWrites?: boolean }) {
         this.useJournal = options?.journal !== false;
         this.deferWrites = options?.deferWrites !== false;
@@ -139,6 +178,7 @@ export class FastMicroCommitter {
     /** まだ書き出していない Git のファイルがあるか */
     get hasPending(): boolean { return this.pending !== undefined; }
 
+    /** Git を同期で起動して標準出力を返す（失敗は例外）。起動の前に、貯めている分を書き出す */
     private git(args: string[]): string {
         // Git に履歴を読ませる前に、貯めている分を書き出す（まだ書いていないコミットを Git は知らない）
         this.materialize();
@@ -218,6 +258,10 @@ export class FastMicroCommitter {
         }
     }
 
+    /**
+     * index から root（Dir の木）を作り直す。競合（stage）や skip-worktree などがあれば FastPathUnsupported。
+     * モードは 120000・100755・160000・100644 のどれかにそろえる
+     */
     private buildTreeFromIndex(): void {
         this.root = newDir();
         for (const e of this.index.entries) {
@@ -234,6 +278,7 @@ export class FastMicroCommitter {
         }
     }
 
+    /** index ファイルの印が変わっていたとき（または最初・invalidate のあと）だけ読み直し、root も作り直す。読めない index、または（attributesNeutral でないときの）.gitattributes があれば FastPathUnsupported */
     private reloadIndexIfChanged(): void {
         const now = stamp(indexPath(this.gitDir));
         if (this.loaded && sameStamp(now, this.indexStamp)) { return; }
@@ -250,6 +295,7 @@ export class FastMicroCommitter {
         }
     }
 
+    /** 最初の 1 回（invalidate のあとは、もう一度）だけ、ジャーナルからの作り直し（ジャーナルを使うとき）→ 設定 → index → 履歴の索引の順に読み込む */
     private ensureLoaded(): void {
         if (this.loaded) { return; }
         // 停電などのあとなら、ジャーナルから Git のファイルを作り直す（ADR-0014。遅くてよい）
@@ -271,6 +317,7 @@ export class FastMicroCommitter {
         this.reflogs.clear();
     }
 
+    /** ref の状態が変わったかを見る文字列。HEAD・micro-history・refs/tags・packed-refs と、指定のタグのファイルの印をつなぐ */
     private refKey(tags?: Iterable<string>): string {
         const f = (file: string) => {
             try {
@@ -348,6 +395,7 @@ export class FastMicroCommitter {
         }
     }
 
+    /** Dir の tree のハッシュ（覚えがあればそれ）。write が true なら tree のオブジェクトも記録に集め（stageObject）、false なら計算だけ。空のフォルダは含めない */
     private treeHash(d: Dir, write: boolean): string {
         if (d.hash) { return d.hash; }
         const entries: TreeEntry[] = [];
@@ -361,6 +409,7 @@ export class FastMicroCommitter {
         return d.hash;
     }
 
+    /** GIT_AUTHOR_* / GIT_COMMITTER_* の環境変数から作者・記録者を作る。名前・メール・日付がそのまま使える形でなければ FastPathUnsupported */
     private ident(env: NodeJS.ProcessEnv, who: 'AUTHOR' | 'COMMITTER', now: Date): Ident {
         const name = env[`GIT_${who}_NAME`];
         const email = env[`GIT_${who}_EMAIL`];
@@ -372,6 +421,7 @@ export class FastMicroCommitter {
         return { name, email, ...date };
     }
 
+    /** reflog に書く識別（名前 <メール> 秒 時差）。core.logAllRefUpdates の設定（無ければ bare でないときだけ書く）で reflog を書かない場合は undefined */
     private reflogIdent(now: Date): string | undefined {
         const all = this.config.get('core.logallrefupdates');
         const bare = /^(true|yes|on|1)$/i.test(this.config.get('core.bare') ?? 'false');
@@ -412,6 +462,7 @@ export class FastMicroCommitter {
         const journalMode = this.fsync() && this.useJournal;
         if (journalMode && (t.objects.size > 0 || t.refs.length > 0 || t.head)) {
             if (!this.journal) { this.journal = new Journal(this.gitDir); }
+            // 順番が要点（ADR-0014）：ジャーナルを確定させてから Git のファイルを書く。逆だと、停電で壊れたオブジェクトが記録の無いまま残りうる
             this.journal.append({
                 objects: [...t.objects].map(([hash, o]) => ({ type: o.type, hash, body: o.body })),
                 refs: t.refs.map((r) => ({ name: r.name, old: r.old, new: r.new })),
@@ -429,6 +480,7 @@ export class FastMicroCommitter {
                 return;
             }
         }
+        // 確定させたいのにジャーナルを使わないとき（ジャーナルを止めたとき）は、ファイルごとに fsync する。ジャーナルのときは書いたファイルを noteWritten で知らせ、チェックポイントで確定させる
         const fsyncEach = this.fsync() && !journalMode;
         for (const [hash, o] of t.objects) {
             writeLooseObject(this.gitDir, o.type, o.body, { fsync: fsyncEach, cache: this.objCache, mode: journalMode ? 0o644 : undefined });
@@ -623,6 +675,10 @@ export class FastMicroCommitter {
         }
     }
 
+    /**
+     * record の本体。ensureLoaded → index にファイルを足す → tree を作る → 同じ tree なら unchanged、過去に同じ変更があれば rewound、そうでなければ commit を作って created。
+     * 書くものは this.txn に集め、applyTxn で書く
+     */
     private recordInner(input: MicroCommitInput): MicroCommitOutcome {
         this.stats.lastPhases = {};
         this.phaseAt = performance.now();

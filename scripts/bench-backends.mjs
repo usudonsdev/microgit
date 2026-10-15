@@ -40,6 +40,9 @@ const artifact = (abs, root) => {
     return top === '.microgit' || top.startsWith('.microgit_');
 };
 
+/**
+ * ミリ秒の配列から、p50・p90（添字で求める近似）と最大を、小数 2 桁の数値にして返す。空の配列は渡さない（例外になる）。
+ */
 function stats(ms) {
     const s = [...ms].sort((a, b) => a - b);
     const q = (p) => s[Math.min(s.length - 1, Math.floor(p * s.length))];

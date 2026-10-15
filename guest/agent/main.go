@@ -23,14 +23,20 @@ import (
 )
 
 const (
+	// agentVersion は hello と ready で返す agent の版。
 	agentVersion    = "1.1.0"
+	// protocolVersion は命令の形（docs/agent-protocol.md）の版。ready と hello の protocol に載る。
 	protocolVersion = 1
+	// portName はホストとつなぐ virtio-console ポートの名前。番号ではなくこの名前で探す（findPort）。
 	portName        = "microgit"
+	// stateRoot は PID 1 のときに層を積む場所（tmpfs の /run の下）。reset で中身ごと消える。
 	stateRoot       = "/run/microgit"
 	// 1 行の要求の上限。writeb64 で大きなファイルを送るので大きめにする
 	maxRequestBytes = 128 << 20
 )
 
+// request はホストから来る 1 行 1 つの JSON の要求。op で使う項目が決まり、
+// 使わない項目は省かれる。op ごとの項目は docs/agent-protocol.md の表を参照。
 type request struct {
 	ID        int        `json:"id"`
 	Op        string     `json:"op"`
@@ -48,6 +54,8 @@ type request struct {
 	Limit     int        `json:"limit,omitempty"`
 }
 
+// response は要求 1 つにつき 1 行返す JSON の応答。ok は常に出て、失敗のときだけ error と code が入る。
+// 他の項目は op ごとに必要なものだけが入る（omitempty）。event "ready" は要求なしで、serveStream が接続のたびに最初の 1 行として送る。
 type response struct {
 	ID    int    `json:"id,omitempty"`
 	Event string `json:"event,omitempty"`
@@ -79,6 +87,7 @@ type protoError struct {
 	msg  string
 }
 
+// Error は error の文面（msg）を返す。
 func (e *protoError) Error() string { return e.msg }
 
 // errorCode はエラーを記号にする。システムコールのエラーは errno の名前（ENOENT など）にする。
@@ -97,6 +106,7 @@ func errorCode(err error) string {
 	return "EINTERNAL"
 }
 
+// errnoNames は errorCode が記号にする errno の一覧。ここに無い errno は ERRNO_<番号> になる。
 var errnoNames = map[syscall.Errno]string{
 	syscall.ENOENT: "ENOENT", syscall.EEXIST: "EEXIST", syscall.ENOTDIR: "ENOTDIR", syscall.EISDIR: "EISDIR",
 	syscall.EXDEV: "EXDEV", syscall.ENOSPC: "ENOSPC", syscall.EACCES: "EACCES", syscall.EPERM: "EPERM",
@@ -104,10 +114,13 @@ var errnoNames = map[syscall.Errno]string{
 	syscall.EROFS: "EROFS", syscall.ENOMEM: "ENOMEM",
 }
 
+// logf は標準出力に "microgit-agent: " 付きで 1 行出す。
 func logf(format string, args ...any) {
 	fmt.Fprintf(os.Stdout, "microgit-agent: "+format+"\n", args...)
 }
 
+// main は PID 1 なら、システムを整え、ポートを開いて命令を受け続ける（戻らない）。
+// PID 1 でなければ runStdio で標準入出力から受ける。
 func main() {
 	if os.Getpid() != 1 {
 		runStdio()
@@ -134,11 +147,13 @@ func main() {
 	}
 }
 
+// fatal は致命的なエラーを記録して電源を切る。PID 1 が戻るとカーネルがパニックするため、終わるときは電源を切る。
 func fatal(err error) {
 	logf("fatal: %v", err)
 	powerOff()
 }
 
+// powerOff はディスクを同期して VM の電源を切る。戻らない（切れるまで止まる）。
 func powerOff() {
 	syscall.Sync()
 	// arm64 は PSCI の SYSTEM_OFF、x86_64 は ACPI で電源を切る。QEMU も Virtualization.framework も VM を止める
@@ -146,6 +161,8 @@ func powerOff() {
 	select {}
 }
 
+// setupSystem は PID 1 として、/proc・/sys・/dev・/run（tmpfs）を mount する。シェルが無いので agent 自身が行う。
+// どれかが失敗したらエラーを返す（呼び出し側は fatal にする）。
 func setupSystem() error {
 	mounts := []struct{ src, target, fstype, data string }{
 		{"proc", "/proc", "proc", ""},
@@ -183,6 +200,7 @@ func findPort(name string, timeout time.Duration) (string, error) {
 	}
 }
 
+// kernelRelease は uname のカーネルのリリース文字列を返す。取れなければ "unknown"。hello と起動ログに載る。
 func kernelRelease() string {
 	var u syscall.Utsname
 	if err := syscall.Uname(&u); err != nil {
@@ -226,6 +244,7 @@ func runStdio() {
 	}
 }
 
+// serve はポートのデバイスを開き、閉じるまで serveStream で命令を受ける。poweroff を受けたら powerOff を呼ぶ。
 func serve(port string, store *store) error {
 	f, err := os.OpenFile(port, os.O_RDWR, 0)
 	if err != nil {
@@ -235,6 +254,7 @@ func serve(port string, store *store) error {
 	return serveStream(f, f, store, powerOff)
 }
 
+// hello は hello の応答（起動時の ready の元でもある）を作る。protocol・agent の版・固定の mount オプションを載せる。
 func hello() response {
 	return response{OK: true, Protocol: protocolVersion, Kernel: kernelRelease(), Agent: agentVersion, MountOptions: overlayOpts}
 }
@@ -274,10 +294,13 @@ func serveStream(r io.Reader, w io.Writer, store *store, onPowerOff func()) erro
 	return nil
 }
 
+// fail はエラーを、種類の記号（errorCode）付きの失敗の応答にする。
 func fail(err error) response {
 	return response{Error: err.Error(), Code: errorCode(err)}
 }
 
+// handle は 1 つの要求を op で振り分けて store に渡し、応答を返す。失敗は応答の error と code にする（戻り値は常に応答）。
+// 知らない op は BAD_REQUEST。poweroff の電源を切る動きは serveStream が応答の後に行う。
 func handle(s *store, req request) response {
 	switch req.Op {
 	case "hello":

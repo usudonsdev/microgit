@@ -2,6 +2,7 @@
 # Mac 用の起動ツール microgit-vm をビルドし、ad-hoc 署名する（Issue #17）。
 # 必要なもの: Xcode Command Line Tools（xcode-select --install）
 # 出力: mac/.build/microgit-vm
+# 使い方: mac/build.sh（引数なし。どの場所から実行しても、スクリプトのフォルダに移ってから動く）
 #
 # ad-hoc 署名（-s -）で手元の実行に足りるかは O-8 の確認項目。配布には Developer ID と notarization が要る見込み。
 set -euo pipefail

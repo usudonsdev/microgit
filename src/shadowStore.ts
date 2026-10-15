@@ -1,3 +1,12 @@
+/**
+ * 隠しリポジトリ（shadow）の置き場と、親リポジトリの refs/microgit/<branch>/ との行き来を受け持つ。
+ * shadow は、作業ツリー側の .microgit/shadow/.git（gitfile）と、実体の bare（.git/microgit/repos/<branch>.git）の組。
+ * 親の通常コミットにネスト .git が載らないようにするための形である。
+ * 呼び出し側：保存・復元・同期の各処理。呼ぶ先：git コマンド、fastGit（ref の直読み）。
+ * 前提：Git を起動する前に flushPendingGitWrites で、速い記録が貯めている分を書き出させる（ADR-0015）。
+ * 履歴はマージしない（分岐のみ。docs/design-policy.md §4.1）。取り込みで手元の tip を上書きするのは fast-forward のときだけ。
+ */
+
 import { execFile, execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -6,22 +15,30 @@ import { flushPendingGitWrites } from './fastGit/pendingWrites';
 import { listTags, readRef } from './fastGit/refs';
 import { shadowDir } from './layout';
 
+/** ブランチ名を、ディレクトリ名・ref 名に使える形にする。英数字と . _ - 以外は _ に置き換える（別の名前が同じ形になりうる）。 */
 export function sanitizeBranchKey(branch: string): string {
     return branch.replace(/[^a-zA-Z0-9._-]/g, '_');
 }
 
+/** shadow の作業ツリー（.microgit/shadow）の絶対パスを返す。 */
 export function shadowWorkTreePath(mainRepoPath: string): string {
     return shadowDir(mainRepoPath);
 }
 
+/** 親ブランチごとの shadow の実体（bare リポジトリ）のパスを返す。親の .git の下にあり、作業ツリーには現れない。 */
 export function bareGitDirPath(mainRepoPath: string, mainBranch: string): string {
     return path.join(mainRepoPath, '.git', 'microgit', 'repos', `${sanitizeBranchKey(mainBranch)}.git`);
 }
 
+/** 親リポジトリに共有するときの ref の接頭辞（refs/microgit/<ブランチ>）を返す。 */
 export function parentMicroRefPrefix(mainBranch: string): string {
     return `refs/microgit/${sanitizeBranchKey(mainBranch)}`;
 }
 
+/**
+ * bare を指して Git を同期的に起動し、標準出力を返す。失敗（非 0 終了）は例外になる。
+ * 起動の直前に、貯めている ref の書き込みを先に書き出させる（ADR-0015）。
+ */
 function runGitDir(gitDir: string, args: string[], workTree?: string): string {
     // shadow の bare への書き込み（update-ref など）も、設定した永続性の水準で行う（#11 の O-11）
     const fullArgs = [...durabilityGitArgs(), '--git-dir', gitDir, ...(workTree ? ['--work-tree', workTree] : []), ...args];
@@ -33,6 +50,7 @@ function runGitDir(gitDir: string, args: string[], workTree?: string): string {
     }).toString();
 }
 
+/** runGitDir の、失敗しても例外にしない版。失敗したら undefined を返す（ref が無い場合の確認などに使う）。 */
 function tryGitDir(gitDir: string, args: string[], workTree?: string): string | undefined {
     try {
         return runGitDir(gitDir, args, workTree);
@@ -128,6 +146,7 @@ export function ensureShadowRepoForBranch(
     return workTree;
 }
 
+/** execGitAsync の結果。Git の失敗は例外でなく code（非 0）で表す。 */
 interface GitResult {
     /** 終了コード。Git を起動できなかったときは -1 */
     code: number;
@@ -140,6 +159,7 @@ interface GitResult {
  * （git push は一部の ref だけ失敗しても非 0 で終わるので、呼ぶ側が --porcelain の出力で ref ごとに判断する）
  */
 const GIT_ASYNC_TIMEOUT_MS = 5 * 60 * 1000;
+/** Git を非同期に起動し、終了コードと出力を返す（reject しない）。5 分で打ち切る。詳しくは直前の説明を参照。 */
 function execGitAsync(args: string[]): Promise<GitResult> {
     return new Promise((resolve) => {
         execFile('git', args, {
@@ -167,6 +187,7 @@ function runGitDirAsync(gitDir: string, args: string[]): Promise<GitResult> {
     return execGitAsync(fullArgs);
 }
 
+/** shadow の履歴の先端（tip）を指すブランチ。親には <接頭辞>/micro-history として共有する。 */
 const MICRO_HISTORY_REF = 'refs/heads/micro-history';
 
 /** 親へ共有するタグ。前から mb-<数字> だけ（mb-* でも、それ以外の名前は共有しない） */
@@ -225,6 +246,7 @@ function parsePushPorcelain(stdout: string): Map<string, { ok: boolean; summary:
  */
 const PUSH_REFSPEC_CHARS = 24000;
 
+/** refspec を、合計の文字数が maxChars を超えない塊に分ける（順序は保つ）。 */
 function chunkRefspecs(specs: string[], maxChars: number): string[][] {
     const chunks: string[][] = [];
     let cur: string[] = [];
@@ -320,15 +342,19 @@ export async function publishToParentRefs(
     log?.(`親 refs へ publish: ${prefix}/*`);
 }
 
+/** importFromParentRefs の結果の種類。no-remote は親に共有物が無い、initial は手元が空で採用、diverged は発散して mb-N タグで分岐を追加、error は失敗。 */
 export type ImportOutcome = 'no-remote' | 'up-to-date' | 'initial' | 'fast-forward' | 'diverged' | 'error';
 
+/** importFromParentRefs の戻り値。失敗しても例外にせず outcome に error を入れて返す。 */
 export interface ImportResult {
     outcome: ImportOutcome;
     /** outcome === 'diverged' のとき、取り込み先を指す新規タグ */
     forkTag?: string;
 }
 
+/** 取り込み中の tip を、現在の tip に触れずに一時的に受ける ref。祖先判定のあとで消す。 */
 const STAGING_TIP_REF = 'refs/microgit-remote/incoming';
+/** 取り込み中の mb-* タグを一時的に受ける ref の接頭辞。adoptIncomingTags が採用したあとで消す。 */
 const STAGING_TAG_PREFIX = 'refs/microgit-remote/tags';
 
 /** a が b の祖先（a → b が fast-forward）なら true */
@@ -465,6 +491,7 @@ export function importFromParentRefs(
     }
 }
 
+/** 親リポジトリ（mainRepoPath）で Git を同期的に起動し、標準出力を返す。失敗したら undefined（例外にしない）。 */
 function tryRunParent(mainRepoPath: string, args: string[]): string | undefined {
     try {
         flushPendingGitWrites(); // 速い記録が貯めている分を先に書き出させる（ADR-0015）
@@ -480,6 +507,10 @@ function tryRunParent(mainRepoPath: string, args: string[]): string | undefined 
 }
 
 /** origin があるとき refs/microgit/* を push（MicroGit 導入済み同士の companion 同期） */
+/**
+ * origin があるとき、親の refs/microgit/* を origin へ push する。成功なら true。
+ * origin が無い・失敗のときは false を返し、例外にはしない（失敗はログに WARN で残す）。
+ */
 export function pushMicrogitRefsToOrigin(
     mainRepoPath: string,
     log?: (message: string, level?: 'INFO' | 'WARN' | 'ERROR') => void,
@@ -507,6 +538,10 @@ export function pushMicrogitRefsToOrigin(
 }
 
 /** origin から refs/microgit/* を fetch */
+/**
+ * origin から refs/microgit/* を、親の同名の ref へ強制で fetch する。成功なら true。
+ * origin が無い・失敗のときは false を返し、例外にはしない。
+ */
 export function fetchMicrogitRefsFromOrigin(
     mainRepoPath: string,
     log?: (message: string, level?: 'INFO' | 'WARN' | 'ERROR') => void,

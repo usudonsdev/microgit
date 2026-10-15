@@ -22,6 +22,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const o = require(path.join(ROOT, 'out', 'overlay.js'));
 
 let failures = 0;
+// 1 件の確認（name）を表示する。cond が偽なら failures を 1 増やす（最後に 1 件でもあれば exit 1）。detail は失敗のときだけ出す。
 function check(name, cond, detail = '') {
   if (cond) {
     console.log(`  ok   ${name}`);

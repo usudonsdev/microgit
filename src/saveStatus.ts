@@ -7,6 +7,7 @@
  * VS Code に依存しない（単体テストで確かめるため）。
  */
 
+/** 保存の記録の結果のうち、文言に使う部分。created は新しいコミット、rewound は過去のコミットへ HEAD を戻した場合。 */
 export type SaveStatusResult =
     | { kind: 'created'; commit: string; tag: string }
     | { kind: 'rewound'; commit: string };

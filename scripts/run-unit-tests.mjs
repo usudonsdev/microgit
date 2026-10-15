@@ -15,6 +15,7 @@ import { fileURLToPath } from 'url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dir = path.join(ROOT, 'out', 'test', 'unit');
 
+/** フォルダ d の中の .test.js のパスを、再帰的に集めて返す。フォルダが無ければ空の配列。 */
 function find(d) {
     if (!fs.existsSync(d)) { return []; }
     return fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => {

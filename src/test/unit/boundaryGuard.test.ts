@@ -1,3 +1,12 @@
+/**
+ * ワークスペースへの書き込みの安全装置（boundaryGuard.ts）を確かめる単体テスト。VS Code を使わない。
+ * ゲスト（カーネル版の中の agent）から届いたパス・一覧・中身を信用せず、ワークスペースの外・.git・MicroGit の作業フォルダには書かないことを確かめる。
+ * 観点：パスの形（相対・空の段・.. ・長さ）、.git への書き込みの拒否（大文字小文字・末尾のドットや空白・8.3 の短い名前）、
+ * Windows で表せない名前、view の一覧の検証（種類・重複・大文字小文字と Unicode の正規化の衝突・件数の上限）、
+ * 中身の sha256 の照合、リンクでワークスペースの外へ出る書き込みの拒否、
+ * ワークスペースへの反映（違うものだけ書く・古いものを消す・ファイルとディレクトリの入れ替え・取得が落ちたら何もしない・キャッシュ）。
+ * 実行は node scripts/run-unit-tests.mjs（先に npm run compile が要る）。
+ */
 import * as assert from 'assert';
 import { createHash } from 'crypto';
 import * as fs from 'fs';
@@ -16,10 +25,13 @@ import {
     verifyContent,
 } from '../../boundaryGuard';
 
+/** 各 OS の性質（大文字小文字の区別、Unicode の正規化、Windows の名前の規則）。hostTraitsFor が OS の名前から作る。 */
 const linux = hostTraitsFor('linux');
 const windows = hostTraitsFor('win32');
 const mac = hostTraitsFor('darwin');
+/** 中身の sha256（16 進の文字列）。 */
 const sha = (s: string | Buffer) => createHash('sha256').update(s).digest('hex');
+/** view の 1 行（種類・パス・sha256 を TAB で区切ったもの）を作る。テストの一覧に使う。 */
 const f = (p: string, content = 'x') => `f\t${p}\t${sha(content)}`;
 
 describe('パスの形（SR-2）', () => {
@@ -138,6 +150,7 @@ describe('中身の照合', () => {
     });
 });
 
+/** 一時フォルダの中に、ワークスペース（ws）と、その外のフォルダ（outside）を作る。done で両方とも消す。 */
 function tempWorkspace(): { root: string; outside: string; done: () => void } {
     const base = fs.mkdtempSync(path.join(os.tmpdir(), 'microgit-guard-'));
     const root = path.join(base, 'ws');
@@ -168,6 +181,7 @@ describe('書き込み先がワークスペースの外に出ないか', () => {
 });
 
 describe('ワークスペースへの反映', () => {
+    /** ゲストの代わりに、与えた中身を返す関数を作る。与えていない path は返さない。 */
     const fetchFrom = (files: Record<string, string>) => async (paths: string[]) =>
         new Map(paths.filter((p) => p in files).map((p) => [p, Buffer.from(files[p])]));
 

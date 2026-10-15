@@ -10,6 +10,7 @@
 import Foundation
 import Virtualization
 
+// 標準エラーにメッセージを書いて、終了コード 2 で終了する。呼び出し元には戻らない（Never）。
 func fail(_ message: String) -> Never {
     FileHandle.standardError.write(Data((message + "\n").utf8))
     exit(2)
@@ -91,11 +92,14 @@ do {
     fail("invalid VM configuration: \(error)")
 }
 
+// VM の停止の通知を受ける。正常に止まったときは終了コード 0、エラーで止まったときは fail で終わる。
 final class Delegate: NSObject, VZVirtualMachineDelegate {
+    // ゲストが電源を切って止まったとき。プロセスを終了コード 0 で終わる。
     func guestDidStop(_ virtualMachine: VZVirtualMachine) {
         exit(0)
     }
 
+    // ゲストがエラーで止まったとき。理由を標準エラーに書いて終了する（fail）。
     func virtualMachine(_ virtualMachine: VZVirtualMachine, didStopWithError error: Error) {
         fail("VM stopped with error: \(error)")
     }

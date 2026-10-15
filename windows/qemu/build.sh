@@ -6,6 +6,7 @@
 #                       mingw64-gcc mingw64-glib2 mingw64-pixman mingw64-zlib mingw64-pkg-config
 # 出力: windows/qemu/out/qemu-win/ に qemu-system-x86_64.exe、必要な DLL、share/（ファームウェア）、
 #       licenses/（QEMU・SeaBIOS・DLL ごとのライセンスと、DLL の出どころの packages.tsv）。windows/qemu/out/sizes.txt
+# 環境変数: OUT（出力先。既定は windows/qemu/out）、MINIMAL_DEVICES（既定 1。0 にすると QEMU の既定の装置をすべて入れる）。
 #
 # 方針: 対象は x86_64 のエミュレーションだけ（--target-list=x86_64-softmmu）。アクセラレータは WHPX と TCG。
 # GUI・音声・USB・ネットワーク・VNC・SPICE・圧縮形式・暗号ライブラリなど、MicroGit の最小ゲスト

@@ -4,6 +4,7 @@
  */
 import * as fs from 'fs';
 
+/** fsync・fdatasync の累計（回数と、かかった合計ミリ秒）。プロセスの中で共有するグローバルな状態で、timedFdatasync・timedFsync が足す */
 export const fsyncStats = { count: 0, ms: 0 };
 
 /** fs.fdatasyncSync と同じ（ジャーナルの追記の確定）。回数と時間を fsyncStats に足す */

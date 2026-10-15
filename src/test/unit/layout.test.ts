@@ -1,3 +1,9 @@
+/**
+ * 生成物の置き場所の移行（layout.ts の migrateLegacyMicrogitLayout と shadowDir・logsDir）を確かめる単体テスト。VS Code を使わない。
+ * 観点：古い 3 フォルダ（.microgit_shadow・.microgit_logs・.microgit_overlay）を .microgit/ の下へ丸ごと移し、2 回目は何もしない。
+ * 新しい場所に同じ名前のファイルがあれば上書きしない。ぶつからないものだけ移し、残った古いフォルダは消さない。
+ * 実行は node scripts/run-unit-tests.mjs（先に npm run compile が要る）。
+ */
 import * as assert from 'assert';
 import * as fs from 'fs';
 import * as os from 'os';

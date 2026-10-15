@@ -17,12 +17,15 @@ import { randomBytes } from 'crypto';
 import * as path from 'path';
 import { LaunchSpec } from './agentConnection';
 
+/** 起動のしかたの種類。linux-native は unshare、qemu は Windows の QEMU、vz は macOS の microgit-vm（Virtualization.framework） */
 export type LaunchKind = 'linux-native' | 'qemu' | 'vz';
 
+/** planLaunch の結果。ok なら起動に使う spec と、ログに出す補足（notes）。ok でなければ、使えない理由（reason） */
 export type LaunchPlan =
     | { ok: true; kind: LaunchKind; spec: LaunchSpec; notes: string[] }
     | { ok: false; reason: string };
 
+/** 利用者の設定のうち、カーネル版の起動に関わるもの。どれも省略できる */
 export type KernelSettings = {
     /** QEMU の場所（空なら同梱・開発用の場所を探す） */
     qemuPath?: string;
@@ -32,6 +35,7 @@ export type KernelSettings = {
     memoryMb?: number;
 };
 
+/** planLaunch が外から受け取るもの（OS・ファイルの有無・コマンドの場所など）。VS Code やファイルシステムに直接依存せず、単体テストで差し替えられる */
 export type LauncherDeps = {
     platform: NodeJS.Platform;
     arch: string;
@@ -81,6 +85,7 @@ export function parseKernelVersion(release: string): [number, number] {
     return m ? [Number(m[1]), Number(m[2])] : [0, 0];
 }
 
+/** Linux のカーネルの版が major.minor 以上か。読めない版は 0.0 として、満たさないと答える */
 export function kernelAtLeast(release: string, major: number, minor: number): boolean {
     const [a, b] = parseKernelVersion(release);
     return a > major || (a === major && b >= minor);
@@ -91,6 +96,7 @@ function firstExisting(deps: LauncherDeps, candidates: string[]): string | undef
     return candidates.find((p) => deps.exists(p));
 }
 
+/** 拡張機能の resources/kernel の下のパスを作る（同梱物の置き場所） */
 function resource(deps: LauncherDeps, ...parts: string[]): string {
     return path.join(deps.extensionPath, 'resources', 'kernel', ...parts);
 }
@@ -108,6 +114,7 @@ function guestArch(arch: string): 'x86_64' | 'arm64' | undefined {
     return undefined;
 }
 
+/** ホストの OS に合わせて、agent の起動の計画を立てる。起動はしない（実際に使えるかは起動して確かめる。冒頭の説明）。対応しない OS は ok: false */
 export function planLaunch(deps: LauncherDeps): LaunchPlan {
     switch (deps.platform) {
         case 'linux': return planLinux(deps);
@@ -117,6 +124,10 @@ export function planLaunch(deps: LauncherDeps): LaunchPlan {
     }
 }
 
+/**
+ * Linux：unshare -Urm で agent を直接起動する計画（VM なし）。CPU・カーネルの版（5.11 以降）・agent（実行ビットを付けられないときも）・unshare のどれかが無ければ ok: false。
+ * カーネル 6.6 以降で XDG_RUNTIME_DIR があれば、層を tmpfs に置く（MICROGIT_AGENT_STATE_DIR）
+ */
 function planLinux(deps: LauncherDeps): LaunchPlan {
     const ga = guestArch(deps.arch);
     if (!ga) { return { ok: false, reason: `CPU ${deps.arch} is not supported` }; }
@@ -153,6 +164,7 @@ function planLinux(deps: LauncherDeps): LaunchPlan {
 
 /**
  * QEMU の引数（windows/run-golden.ps1 と同じ構成）。
+ * accel が auto なら WHPX を試し、だめなら TCG。メモリは settings.memoryMb（既定 256 MB）。ゲストのログは consoleLog に出す。
  * proto は命令の通り道: 'stdio'（QEMU の stdin/stdout。Linux の CI）か、{ pipe: 名前 }（Windows の名前付きパイプ）。
  */
 export function qemuArgs(image: string, consoleLog: string, settings: KernelSettings, proto: 'stdio' | { pipe: string } = 'stdio'): string[] {
@@ -175,6 +187,10 @@ export function qemuArgs(image: string, consoleLog: string, settings: KernelSett
     ];
 }
 
+/**
+ * Windows：QEMU で最小ゲストを起動する計画。x64 のみ。イメージか QEMU が見つからなければ ok: false。
+ * 命令の通り道は、起動のたびに名前が変わる名前付きパイプ（理由は関数の中のコメント）
+ */
 function planWindows(deps: LauncherDeps): LaunchPlan {
     if (deps.arch !== 'x64') { return { ok: false, reason: `Windows on ${deps.arch} is not supported yet` }; }
     const image = firstExisting(deps, [
@@ -209,6 +225,10 @@ function planWindows(deps: LauncherDeps): LaunchPlan {
     };
 }
 
+/**
+ * macOS：microgit-vm（Virtualization.framework）を起動する計画。arm64 のみ。イメージか microgit-vm が無ければ ok: false。
+ * maxFrameBytes を設定するので、LayerFeeder・KernelOverlayBackend は大きな中身を stage / readChunk に分けて運ぶ
+ */
 function planMac(deps: LauncherDeps): LaunchPlan {
     if (deps.arch !== 'arm64') { return { ok: false, reason: 'Intel Mac is not supported yet' }; }
     const image = firstExisting(deps, [

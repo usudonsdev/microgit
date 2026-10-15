@@ -1,3 +1,12 @@
+/**
+ * MicroGit 拡張機能のエントリーポイント（activate / deactivate）。
+ * VS Code のイベント（保存・ブランチ切替・設定変更）とコマンドを受け、保存を隠しリポジトリ（shadow）へ、内容が変わった保存ごとに 1 コミットで記録し、
+ * Overlay の層づくり・過去へ戻る操作・画面（MicroGitUi）の更新・親 refs への共有をつなぐ。
+ * Git の記録の中身は microCommit.ts と fastMicroCommit.ts、層は overlay.ts と kernel/、隠しリポジトリの置き場は shadowStore.ts と layout.ts に任せる。
+ * 前提：保存の記録は saveChain の 1 本の列で、1 件ずつ順番に行う。状態は、このファイルの変数と workspaceState に持つ。
+ * 隠しリポジトリを読む Git の呼び出しは、runGit 系（shadowStore.ts の同種の関数を含む）か flushPendingGitWrites を通す（速い記録が貯めた書き出しを、その手前で吐き出させるため。ADR-0015）。
+ * 内部コマンド microgit.internal.* は、テストと計測のためのもので、package.json には出さない。
+ */
 import { execFile, execFileSync } from 'child_process';
 import { createHash } from 'crypto';
 import { promisify } from 'util';
@@ -50,16 +59,23 @@ import { MicroGitUi, MicroGitUiSnapshot } from './ui';
 import { durabilityGitArgs, getDurability, setDurability } from './durability';
 import { PublishQueue } from './publishQueue';
 
+/** workspaceState のキー：MicroGit が有効か（真偽値） */
 const STATE_ENABLED = 'microgit.enabled';
+/** workspaceState のキー：いま載せているマイクロ空間のメインブランチ名 */
 const STATE_TARGET_BRANCH = 'microgit.targetBranch';
+/** 作業ツリーの直下にある MicroGit の成果物のフォルダ名（現在の .microgit と、古い 3 フォルダ）。保存の記録の対象から外し、ブランチ切替で退避・復元する */
 const ARTIFACT_ROOTS = [MICROGIT_ROOT_NAME, ...Object.values(LEGACY_MICROGIT_DIRS)] as const;
 
 /** 現在ユーザーがどのタイムライン（マイクロブランチ）の延長線上にいるか */
 let currentMicroBranchTag: string = 'mb-1';
 
+/** activate で受け取った拡張機能のコンテキスト。workspaceState や保存先の参照に使う（activate の前は undefined） */
 let extensionContext: vscode.ExtensionContext | undefined;
+/** 左下のステータスバーの項目（ON / OFF とブランチ名）。クリックすると microgit.toggle */
 let statusBarItem: vscode.StatusBarItem | undefined;
+/** サイドバーとグラフの画面。見えていないときは、force でなければ内容を作らない（refreshUi） */
 let microGitUi: MicroGitUi | undefined;
+/** 保存の記録を 1 件ずつ順番に流す列（enqueueSave）。microgit.internal.waitForSaves が、この列の終わりを待つ */
 let saveChain: Promise<void> = Promise.resolve();
 /** キュー上に残っている保存ジョブ数（同一内容の畳み込み判定に使う） */
 let pendingSaveJobs = 0;
@@ -69,7 +85,9 @@ let lastKnownBranch: string | undefined;
 let lastEnqueuedSave: { absPath: string; contentHash: string } | undefined;
 /** 親 refs への publish を間引く */
 let publishTimer: ReturnType<typeof setTimeout> | undefined;
+/** 間引き待ちの共有（親 refs への publish）の依頼。待つあいだに来た依頼は、最後の 1 件だけが残る */
 let pendingPublishJob: { rootPath: string; branch: string } | undefined;
+/** 最後の保存から、親 refs への共有を列に頼むまでの待ち時間（ミリ秒） */
 const PUBLISH_DEBOUNCE_MS = 1500;
 /**
  * 親 refs への共有を 1 本の列で流す（#72）。Git の起動を非同期にしたので、共有が走っている間に次の共有の時刻が来うる。
@@ -86,6 +104,7 @@ function createPublishQueue(): PublishQueue<{ rootPath: string; branch: string }
         (a, b) => a.rootPath === b.rootPath && a.branch === b.branch,
     );
 }
+/** 親 refs への共有の列。deactivate で閉じるので、activate で閉じていたら作り直す */
 let publishQueue = createPublishQueue();
 /** 終了（deactivate）のとき、走っている共有の git push を待つ上限 */
 const PUBLISH_DEACTIVATE_WAIT_MS = 5000;
@@ -94,7 +113,9 @@ const PUBLISH_DEACTIVATE_WAIT_MS = 5000;
  * 1 回 200 ms 前後かかって次の保存を待たせていた（#37 の計測）。保存が続く間はまとめ、落ち着いてから 1 回だけ行う
  */
 const AFTER_SAVE_REFRESH_MS = 300;
+/** 後片付けを予約しているタイマー（保存が続く間は張り直す） */
 let afterSaveTimer: ReturnType<typeof setTimeout> | undefined;
+/** 予約中の後片付けの対象。savedFile は、予約が重なったとき、あとの依頼に無ければ前の値を残す */
 let afterSaveJob: { rootPath: string; savedFile?: string } | undefined;
 /** 最後に記録した保存の結果（Overlay の状態の更新で、git rev-parse HEAD を起動しないため。#37） */
 let lastSaveOutcome: { head: string; layerByKernel: boolean } | undefined;
@@ -205,6 +226,9 @@ export function activate(context: vscode.ExtensionContext) {
         refreshUi(undefined);
     }
 
+    // 保存のたびに、保存の記録を列（saveChain）に足す。次のときは足さない：成果物のフォルダの中・ワークスペースの外、
+    // syncBranchPolicy が false（無効、または記録できないブランチ）、ルートに .git が無い（テスト用の test_dummy.py は除く）、
+    // 列に未処理の仕事（pendingSaveJobs > 0）がある間の、直前と同じパス・同じ内容の保存。足した仕事は、走るときにもう一度ブランチと有効状態を確かめる
     context.subscriptions.push(
         vscode.workspace.onDidSaveTextDocument((document) => {
             if (!workspaceFolders) { return; }
@@ -303,6 +327,7 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
+    // microgit.toggle：有効 / 無効を切り替える。有効にできるのは、名前付きブランチの上だけ（detached HEAD は不可）
     context.subscriptions.push(
         vscode.commands.registerCommand('microgit.toggle', async () => {
             if (!workspaceFolders) {
@@ -332,12 +357,14 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
+    // microgit.openPanel：サイドバーの画面を開く
     context.subscriptions.push(
         vscode.commands.registerCommand('microgit.openPanel', async () => {
             await vscode.commands.executeCommand(`${MicroGitUi.viewType}.focus`);
         })
     );
 
+    // microgit.enable：無効のときだけ microgit.toggle を呼んで有効にする
     context.subscriptions.push(
         vscode.commands.registerCommand('microgit.enable', async () => {
             if (!workspaceFolders) { return; }
@@ -352,6 +379,7 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
+    // microgit.disable：有効のときだけ microgit.toggle を呼んで無効にする
     context.subscriptions.push(
         vscode.commands.registerCommand('microgit.disable', async () => {
             if (!workspaceFolders) { return; }
@@ -364,6 +392,7 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
+    // microgit.jumpToCommit：指定のコミットまたは mb-* タグの時点へ戻る（有効で記録可能なブランチの上だけ）。引数が無ければ入力欄で聞く
     context.subscriptions.push(
         vscode.commands.registerCommand('microgit.jumpToCommit', async (explicitTarget?: string) => {
             if (!workspaceFolders) { return; }
@@ -383,6 +412,7 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
+    // microgit.exportLogs：ログを .microgit/logs/log_latest.json に書き出す（有効で、記録可能なブランチの上だけ。書き込みの失敗は exportLogFile が握りつぶすので、成功の通知は書けたかどうかを表さない）
     context.subscriptions.push(
         vscode.commands.registerCommand('microgit.exportLogs', async () => {
             if (!workspaceFolders) { return; }
@@ -402,6 +432,7 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
+    // microgit.showGraph：グラフの画面を開く
     context.subscriptions.push(
         vscode.commands.registerCommand('microgit.showGraph', async () => {
             if (!workspaceFolders) { return; }
@@ -413,6 +444,7 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
+    // microgit.publishMicroHistory：親 refs へ共有し、続けて origin の refs/microgit/* へ push する
     context.subscriptions.push(
         vscode.commands.registerCommand('microgit.publishMicroHistory', async () => {
             if (!workspaceFolders) { return; }
@@ -442,6 +474,7 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
+    // microgit.fetchMicroHistory：origin の refs/microgit/* を取り込み、隠しリポジトリへ反映する。履歴が発散していたら新しい分岐として取り込む
     context.subscriptions.push(
         vscode.commands.registerCommand('microgit.fetchMicroHistory', async () => {
             if (!workspaceFolders) { return; }
@@ -478,12 +511,15 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('microgit.internal.waitForSaves', async () => { await saveChain; }),
         // 処理を終えた保存の数と、最後に記録したコミット。テストが保存の最中に Git を起動しないため（#61）
         vscode.commands.registerCommand('microgit.internal.lastSave', () => ({ processed: savesProcessed, head: lastSaveOutcome?.head })),
+        // 保存の列の終わりを待ち、予約中の後片付けを今すぐ行う
         vscode.commands.registerCommand('microgit.internal.flushAfterSave', async () => { await saveChain; await flushAfterSaveRefresh(); }),
+        // 保存ごとの段階の時間を返す。clear が真なら、返したあとで消す
         vscode.commands.registerCommand('microgit.internal.saveTimings', (clear?: boolean) => {
             const all = [...saveTimings.all];
             if (clear) { saveTimings.clear(); }
             return all;
         }),
+        // microgit.overlayStatus：Overlay のバックエンド・記録の方式・保存の時間を文書に開いて見せる
         vscode.commands.registerCommand('microgit.overlayStatus', async () => {
             const kernelText = backendSelector ? await backendSelector.describe() : 'overlayBackend=?';
             const active = backendSelector?.readyKernel() ? 'kernel' : 'nodejs';
@@ -506,6 +542,7 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
+    // ブランチの切り替え（Git 拡張の HEAD の変化）を見て、マイクロ空間の載せ替えと画面の更新をする
     watchGitBranchChanges(context, () => {
         if (!workspaceFolders) { return; }
         const rootPath = workspaceFolders[0].uri.fsPath;
@@ -520,6 +557,7 @@ export function activate(context: vscode.ExtensionContext) {
  * 「同時に 1 つ・重なった依頼は 1 回にまとめる・世代が進んだ結果は捨てる」にする
  */
 let uiRefreshRoot: string | undefined;
+/** 画面の更新の本体。依頼が重なったときの調停は RefreshCoalescer に任せる。内容は uiRefreshRoot の最新の値で作る */
 const uiRefresher = new RefreshCoalescer(async (isCurrent) => {
     const snapshot = await buildUiSnapshot(uiRefreshRoot);
     if (!isCurrent()) { return; }
@@ -547,6 +585,7 @@ function refreshUi(rootPath: string | undefined, options?: { force?: boolean }):
     return uiRefresher.request();
 }
 
+/** ワークスペースが開かれていないときの画面の内容（記録なし・非アクティブ） */
 function emptyWorkspaceSnapshot(): MicroGitUiSnapshot {
     return {
         enabled: isEnabled(),
@@ -560,6 +599,7 @@ function emptyWorkspaceSnapshot(): MicroGitUiSnapshot {
     };
 }
 
+/** 画面に渡す内容を作る。Git は非同期で起動する。状態は最初に読んでおく */
 async function buildUiSnapshot(rootPath: string | undefined): Promise<MicroGitUiSnapshot> {
     if (!rootPath) { return emptyWorkspaceSnapshot(); }
 
@@ -652,6 +692,7 @@ async function flushAfterSaveRefresh(): Promise<void> {
     await refreshUi(job.rootPath);
 }
 
+/** 保存の記録を saveChain の後ろに足す。前の仕事が失敗しても、この仕事は走る */
 function enqueueSave(task: () => Promise<void>): void {
     saveChain = saveChain.then(task, task);
 }
@@ -683,6 +724,7 @@ function captureSaveSnapshot(document: vscode.TextDocument): Buffer {
     }
 }
 
+/** MicroGit が有効か。workspaceState から読む（未設定は無効） */
 function isEnabled(): boolean {
     return extensionContext?.workspaceState.get<boolean>(STATE_ENABLED, false) ?? false;
 }
@@ -692,20 +734,24 @@ function getActiveMicroSpaceBranch(): string | undefined {
     return extensionContext?.workspaceState.get<string>(STATE_TARGET_BRANCH);
 }
 
+/** いま載せているマイクロ空間のブランチ名を workspaceState に保存する。undefined で消す */
 async function setActiveMicroSpaceBranch(branch: string | undefined): Promise<void> {
     if (!extensionContext) { return; }
     await extensionContext.workspaceState.update(STATE_TARGET_BRANCH, branch);
 }
 
+/** 有効 / 無効を workspaceState に保存する */
 async function setEnabled(enabled: boolean): Promise<void> {
     if (!extensionContext) { return; }
     await extensionContext.workspaceState.update(STATE_ENABLED, enabled);
 }
 
+/** 記録してよいブランチか。名前付きブランチなら true。未取得と detached HEAD（'HEAD'）は false */
 function isRecordableBranch(branch: string | undefined): boolean {
     return Boolean(branch && branch !== 'HEAD');
 }
 
+/** ブランチ名をフォルダ名に使える形にする（shadowStore.ts の sanitizeBranchKey と同じ。英数字と . _ - 以外は _ になる） */
 function sanitizeBranchKey(branch: string): string {
     return sanitizeBranchKeyShared(branch);
 }
@@ -776,6 +822,7 @@ function prepareShadowForBranch(rootPath: string, mainBranch: string, importFrom
     }
 }
 
+/** 隠しリポジトリの HEAD から、いまのタグ（currentMicroBranchTag）を読み直す。隠しリポジトリが無い・読めないときは mb-1 */
 function reloadMicroTagFromShadow(rootPath: string): void {
     const shadowRepoPath = shadowWorkTreePath(rootPath);
     if (fs.existsSync(path.join(shadowRepoPath, '.git')) || fs.existsSync(shadowRepoPath)) {
@@ -789,14 +836,17 @@ function reloadMicroTagFromShadow(rootPath: string): void {
     }
 }
 
+/** 有効で、かつ記録してよいブランチの上にいるか */
 function isOnTargetBranch(rootPath: string): boolean {
     return isEnabled() && isRecordableBranch(getCurrentBranch(rootPath));
 }
 
+/** isOnTargetBranch と同じ判定を返す別名 */
 function isActiveOnCurrentBranch(rootPath: string): boolean {
     return isOnTargetBranch(rootPath);
 }
 
+/** ブランチ専属空間の退避先（拡張機能のストレージの下の branch-stash/<ブランチ名>）。activate の前は例外を投げる */
 function getArtifactStashRoot(mainBranch: string): string {
     if (!extensionContext) {
         throw new Error('Extension context is not initialized');
@@ -807,6 +857,7 @@ function getArtifactStashRoot(mainBranch: string): string {
     return path.join(base, 'branch-stash', safeBranch);
 }
 
+/** フォルダを src から dest へ移す。dest が既にあれば消して置き換える。rename できなければ、コピーして元を消す */
 function moveDirectory(src: string, dest: string): void {
     fs.mkdirSync(path.dirname(dest), { recursive: true });
     if (fs.existsSync(dest)) {
@@ -865,6 +916,7 @@ function restoreMicroGitArtifacts(rootPath: string, mainBranch: string): void {
     }
 }
 
+/** ステータスバーの表示を更新する。無効なら OFF、記録可能なブランチならブランチ名。有効でも記録できない（detached HEAD、またはブランチ名が取れない）ときは「detached」と書いて警告色にする */
 function updateStatusBar(rootPath: string | undefined): void {
     if (!statusBarItem) { return; }
 
@@ -885,6 +937,7 @@ function updateStatusBar(rootPath: string | undefined): void {
     }
 }
 
+/** 現在のブランチ名。detached なら 'HEAD'、取れなければ undefined。ふつうの（git worktree でない）リポジトリでは .git/HEAD を直接読み、できなければ・worktree なら git rev-parse に聞く */
 function getCurrentBranch(repoPath: string): string | undefined {
     // ふつうのリポジトリなら .git/HEAD を直接読む（保存のたびに Git を起動しない。#32）。
     // git rev-parse --abbrev-ref HEAD と同じく、detached なら 'HEAD' を返す
@@ -904,25 +957,30 @@ function getCurrentBranch(repoPath: string): string | undefined {
     }
 }
 
+/** VS Code の Git 拡張（vscode.git）で、リポジトリの HEAD が変わったときに onChange を呼ぶ。Git 拡張が無ければ何もしない。まだ有効でなければ、有効になってから付ける */
 function watchGitBranchChanges(context: vscode.ExtensionContext, onChange: () => void): void {
     const gitExtension = vscode.extensions.getExtension('vscode.git');
     if (!gitExtension) { return; }
 
+    /** Git 拡張の API のうち、ここで使うリポジトリの型 */
     type GitRepo = { rootUri: vscode.Uri; state: { HEAD?: { name?: string; commit?: string; type?: number }; onDidChange: (listener: () => void) => vscode.Disposable } };
     // Git 拡張の onDidChange は、作業ツリーの状態（変更ファイルの一覧など）が変わるたびに鳴る。画面（ブランチ名・
     // HEAD・メインのコミットの区間）に関係するのは HEAD の名前とコミットだけなので、その印が前と同じ通知は捨てる（#73）
     const dedupe = new ChangeDedupe();
+    /** 1 つのリポジトリの状態の変化を見て、HEAD の印が変わったときだけ onChange を呼ぶ */
     const watch = (repo: GitRepo) => {
         context.subscriptions.push(repo.state.onDidChange(() => {
             if (!dedupe.changed(repo.rootUri.fsPath, headSignature(repo.state.HEAD))) { return; }
             onChange();
         }));
     };
+    /** 既に開いているリポジトリと、あとから開かれるリポジトリの両方に watch を付ける */
     const attach = (api: { repositories: GitRepo[]; onDidOpenRepository: (listener: (repo: GitRepo) => void) => vscode.Disposable }) => {
         for (const repo of api.repositories) { watch(repo); }
         context.subscriptions.push(api.onDidOpenRepository((repo) => { watch(repo); }));
     };
 
+    /** Git 拡張が有効なら付けて true。まだ有効でない・API が取れない・失敗したときは false */
     const tryAttach = (): boolean => {
         try {
             if (!gitExtension.isActive) { return false; }
@@ -965,6 +1023,7 @@ function runGit(
     }).toString();
 }
 
+/** runGit が失敗したら、例外にせず undefined を返す版 */
 function tryRunGit(cwd: string, args: string[]): string | undefined {
     try {
         return runGit(cwd, args);
@@ -973,6 +1032,7 @@ function tryRunGit(cwd: string, args: string[]): string | undefined {
     }
 }
 
+/** execFile を Promise にしたもの（runGitAsync 用） */
 const execFileAsync = promisify(execFile);
 
 /**
@@ -991,6 +1051,7 @@ async function runGitAsync(cwd: string, args: string[]): Promise<string> {
     return stdout;
 }
 
+/** runGitAsync が失敗したら、例外にせず undefined を返す版 */
 async function tryRunGitAsync(cwd: string, args: string[]): Promise<string | undefined> {
     try {
         return await runGitAsync(cwd, args);
@@ -1118,6 +1179,7 @@ function readMainHead(mainRepoPath: string): string | undefined {
     return tryRunGit(mainRepoPath, ['rev-parse', 'HEAD'])?.trim();
 }
 
+/** absolutePath を、rootPath からの / 区切りの相対パスにする。ルートの外・ルートそのものなら undefined */
 function toPosixRelative(rootPath: string, absolutePath: string): string | undefined {
     if (!isPathInsideRoot(absolutePath, rootPath)) { return undefined; }
     const relative = path.relative(rootPath, absolutePath);
@@ -1125,12 +1187,14 @@ function toPosixRelative(rootPath: string, absolutePath: string): string | undef
     return relative.split(path.sep).join('/');
 }
 
+/** targetPath が rootPath と同じか、その下か（文字列としてパスを比べる。シンボリックリンクは解決しない） */
 function isPathInsideRoot(targetPath: string, rootPath: string): boolean {
     const resolvedTarget = path.resolve(targetPath);
     const resolvedRoot = path.resolve(rootPath);
     return resolvedTarget === resolvedRoot || resolvedTarget.startsWith(resolvedRoot + path.sep);
 }
 
+/** リポジトリ内の相対パスとして安全か。空・絶対パス・.. を含むもの・ルートの外に出るものは false。過去へ戻るときにファイルを書く前の確認に使う */
 function isSafeRepoRelativePath(relPath: string, rootPath: string): boolean {
     if (!relPath || path.isAbsolute(relPath)) { return false; }
     const normalized = path.normalize(relPath);
@@ -1138,6 +1202,7 @@ function isSafeRepoRelativePath(relPath: string, rootPath: string): boolean {
     return isPathInsideRoot(path.resolve(rootPath, normalized), rootPath);
 }
 
+/** MicroGit の成果物のフォルダ（ARTIFACT_ROOTS）の中のパスか。保存の記録と、過去へ戻るときの反映の対象から外すために使う */
 function isMicroGitArtifactPath(filePath: string, rootPath: string): boolean {
     const resolved = path.resolve(filePath);
     return ARTIFACT_ROOTS.some((dirName) => {
@@ -1146,6 +1211,7 @@ function isMicroGitArtifactPath(filePath: string, rootPath: string): boolean {
     });
 }
 
+/** 隠しリポジトリの履歴（git log --graph --all）を .microgit/logs/timeline.log に書く。失敗はログに出すだけで、例外にしない */
 async function generateMicroGitFileLog(rootPath: string, savedFilePath: string): Promise<void> {
     const shadowRepoPath = shadowWorkTreePath(rootPath);
     const fileName = path.basename(savedFilePath);
@@ -1179,6 +1245,7 @@ async function generateMicroGitFileLog(rootPath: string, savedFilePath: string):
     }
 }
 
+/** Overlay（層）を使うか。設定を overlay.ts の isOverlayCheckoutEnabled に渡して決める */
 function useOverlayCheckout(): boolean {
     return isOverlayCheckoutEnabled((key) =>
         vscode.workspace.getConfiguration().get<boolean>(key)
@@ -1321,6 +1388,12 @@ async function applyOverlayCheckout(
     }
 }
 
+/**
+ * 隠しリポジトリの micro-history を target（ハッシュまたは mb-* タグ）に付け替えて HEAD にし、ワークスペースのファイルを合わせる。microgit.jumpToCommit が呼ぶ。
+ * Overlay を使うかどうかに関わらず通る共通の入口で、使うときは applyOverlayCheckout に任せる。コミットは消さない。
+ * target が isSafeGitRef に合わない・隠しリポジトリが無いときは、画面に出して何もしない。途中の失敗も例外にせず、画面にエラーを出す。
+ * Overlay を使わないときは、target のコミットで変わったファイル（無ければ全ファイル）を git show で 1 つずつ書き戻す（Git に無いものは消す）
+ */
 async function sharedTimeTravel(target: string, rootPath: string): Promise<void> {
     const shadowRepoPath = shadowWorkTreePath(rootPath);
 
@@ -1397,6 +1470,10 @@ async function sharedTimeTravel(target: string, rootPath: string): Promise<void>
     }
 }
 
+/**
+ * runShadowCommit の結果。created=新しいコミットを作った / unchanged=変更なし / rewound=過去のコミットと同じ中身だったので、
+ * 新しいコミットを作らず HEAD を戻した / skipped=記録の対象外 / error=失敗
+ */
 type ShadowCommitResult = 'created' | 'unchanged' | 'rewound' | 'skipped' | 'error';
 
 /** 現在のメインブランチ向けに bare+gitfile シャドウを用意する */
@@ -1408,6 +1485,11 @@ function ensureShadowRepo(mainRepoPath: string): void {
     ensureShadowRepoForBranch(mainRepoPath, branch!, (m, l) => ExtensionLogger.log(m, l));
 }
 
+/**
+ * 保存された 1 ファイルを隠しリポジトリ（shadow）に記録する。snapshotContent（保存イベントの時点の内容）を shadow に書き、
+ * recordMicroCommit でコミットする。コミットを作ったときは、Overlay を使うなら層を書き出す。作った・HEAD を戻した（rewound）ときは、親 refs への共有を予約する。
+ * 失敗は例外にせず 'error' を返す（画面にもエラーを出す）。saveChain の中から、1 件ずつ呼ばれる
+ */
 async function runShadowCommit(
     mainRepoPath: string,
     savedFilePath: string,
@@ -1567,6 +1649,7 @@ async function runShadowCommit(
     }
 }
 
+/** 隠しリポジトリの HEAD に付いている mb-* タグ（複数なら先頭）。無ければ mb-1。ファイルかメモリから読み、読めなければ Git に聞く */
 function detectCurrentTag(shadowRepoPath: string): string {
     // git tag --points-at HEAD -l 'mb-*' の最初（名前の順）と同じ答えを、HEAD とタグのファイルを直接読んで出す
     // （保存のたびに Git を起動しない。#37）。読めなければ Git に任せる
@@ -1588,15 +1671,24 @@ function detectCurrentTag(shadowRepoPath: string): string {
     return 'mb-1';
 }
 
+/**
+ * 出力チャンネル MicroGit Output へのログと、メモリ上の記録（最大 maxRecords 件）。記録は exportLogFile で log_latest.json に書く。
+ * メンバーはすべて static
+ */
 class ExtensionLogger {
+    /** VS Code の出力チャンネル。initialize の前は undefined（その間の log は、出力せず記録だけ残す） */
     private static outputChannel: vscode.OutputChannel;
+    /** 書き出し用のメモリ上のログ。maxRecords を超えたら古いものから捨てる */
     private static logRecords: Array<{ timestamp: string; level: string; message: string }> = [];
+    /** logRecords に残す件数の上限 */
     private static readonly maxRecords = 2000;
 
+    /** 出力チャンネルを作る。activate の最初に 1 回呼ぶ */
     public static initialize(channelName: string) {
         this.outputChannel = vscode.window.createOutputChannel(channelName);
     }
 
+    /** 出力チャンネルとメモリ上の記録に 1 件足す。level は INFO / WARN / ERROR */
     public static log(message: string, level: 'INFO' | 'WARN' | 'ERROR' = 'INFO') {
         const timestamp = new Date().toISOString();
         if (this.outputChannel) {
@@ -1608,6 +1700,7 @@ class ExtensionLogger {
         }
     }
 
+    /** メモリ上のログを .microgit/logs/log_latest.json に書く。有効で記録可能なブランチの上でなければ何もしない。書き込みの失敗は無視する */
     public static async exportLogFile(workspaceRoot: string) {
         // 対象ブランチ以外では成果物を作らない（他ブランチへの混入防止）
         if (!isOnTargetBranch(workspaceRoot)) { return; }
@@ -1622,6 +1715,7 @@ class ExtensionLogger {
 /** メインのコミットの一覧の覚え。HEAD のコミットが同じなら一覧も同じなので、Git を起動しない（#73） */
 let mainCommitLogCache: { key: string; head: string; value: Array<{ hash: string; subject: string }> } | undefined;
 
+/** メインのリポジトリの直近 limit 件のコミット（hash と 1 行目の件名）。HEAD が前と同じなら覚えを返す。Git の失敗は空配列 */
 async function getMainCommitLog(mainRepoPath: string, limit: number): Promise<Array<{ hash: string; subject: string }>> {
     // git log -n <limit> の答えは HEAD のコミットだけで決まる（コミットは書き換えられない）。HEAD をファイルから読めたときだけ覚えを使う
     let head: string | undefined;
@@ -1698,6 +1792,7 @@ async function getMicroGraphData(shadowRepoPath: string): Promise<Array<{
     }
 }
 
+/** 拡張機能が止まるときに呼ばれる。ジャーナルの確定、走っている共有の待ち（上限 PUBLISH_DEACTIVATE_WAIT_MS）、カーネル版の停止を行い、すべて終わると解決する Promise を返す */
 export function deactivate(): Thenable<void> | undefined {
     // ジャーナルの分を確定させて消す（ADR-0014）。ここで止まっても、次の起動でジャーナルから作り直す
     for (const fc of fastCommitters.values()) {

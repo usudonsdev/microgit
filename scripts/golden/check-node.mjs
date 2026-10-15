@@ -47,6 +47,7 @@ const commit = (cwd, message) => execFileSync('git', ['commit', '-q', '--allow-e
     cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, env: COMMIT_ENV,
 });
 
+/** シナリオの 1 つの操作（op）を、dir の中のファイル・フォルダに当てる。 */
 function applyOp(dir, op) {
     const [kind, a, b] = op;
     const abs = (rel) => path.join(dir, ...rel.split('/'));
@@ -93,6 +94,7 @@ function dump(root) {
         .map((e) => e[1]);
 }
 
+/** test/golden/overlayfs/<name>.golden を読み、コミットごとの行の配列を並べて返す。改行は LF に直してから読む。 */
 function readGolden(name) {
     const commits = [];
     // core.autocrlf=true の Windows では CRLF で取り出される
@@ -104,6 +106,7 @@ function readGolden(name) {
     return commits;
 }
 
+/** build() でビューを作って dump した行を返す。例外なら ['! error'] を返す（--verbose のときは例外も表示する）。 */
 function viewOrError(build) {
     try {
         return dump(build());
@@ -115,6 +118,7 @@ function viewOrError(build) {
     }
 }
 
+/** 期待値（expected）と実際（actual）の違いを、「- 」（期待だけ）と「+ 」（実際だけ）の行にして、パスの順に返す。 */
 function diffLines(expected, actual) {
     const exp = new Set(expected);
     const act = new Set(actual);
@@ -125,6 +129,10 @@ function diffLines(expected, actual) {
     ].sort((x, y) => (key(x) < key(y) ? -1 : key(x) > key(y) ? 1 : x < y ? -1 : 1));
 }
 
+/**
+ * シナリオ s を、MicroGit の保存と同じ経路（exportCommitLayer → ensureExpandedView）で一時フォルダに流す。
+ * saved（保存時に伸ばしたビュー）と rebuilt（層だけから組み直したビュー）の食い違いを返す。終わると一時フォルダを消す。
+ */
 function runScenario(s) {
     const golden = readGolden(s.name);
     if (golden.length !== s.commits.length) {

@@ -1,9 +1,17 @@
+/**
+ * 保存 1 回の段階ごとの時間（saveTiming.ts の SaveTimer と SaveTimingLog）を確かめる単体テスト（#37）。VS Code を使わない。
+ * 観点：mark は直前の印からの時間をその段階に足し、skip は区間を飛ばす。recorded・restorable・total・結末（result）を残す。
+ * 直近 N 回だけを持ち、段階ごとの p50・p95 を出し、容量を超えたら古いものから捨てる。describe() の文言も確かめる。
+ * 時刻は注入した関数で決まるので、実際の時間には依らない。
+ * 実行は node scripts/run-unit-tests.mjs（先に npm run compile が要る）。
+ */
 import * as assert from 'assert';
 import { describe, test } from 'node:test';
 import { SaveTimer, SaveTimingLog } from '../../saveTiming';
 
 describe('保存 1 回の段階ごとの時間（#37）', () => {
     test('mark は直前の印からの時間をその段階に足し、skip は区間を飛ばす', () => {
+        // SaveTimer に渡す時計。テストの中で値を進めて、段階の時間を決める。
         let t = 100;
         const timer = new SaveTimer(100, () => t);
         t = 105; timer.mark('queue');

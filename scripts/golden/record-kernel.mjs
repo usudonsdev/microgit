@@ -33,6 +33,7 @@ const MOUNT_OPTS = 'userxattr,redirect_dir=nofollow,index=off,metacopy=off,xino=
 
 const q = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
 
+/** 操作（op）を、カーネル側で実行するシェルのコマンドの文字列にする。パスはシングルクォートで囲む。 */
 function opToShell(op) {
     const [kind, a, b] = op;
     switch (kind) {
@@ -45,6 +46,10 @@ function opToShell(op) {
     }
 }
 
+/**
+ * 全シナリオを順に、overlay を mount しながら実行するシェルのスクリプトを作る。
+ * 結果は「@」で始まる行（@kernel、@scenario、@commit、@end など）で区切って出力させる。
+ */
 function buildScript() {
     const lines = [
         'set -eu',
@@ -92,6 +97,10 @@ function buildScript() {
     return lines.join('\n') + '\n';
 }
 
+/**
+ * Linux の名前空間の中で script を bash に流し、標準出力を返す。Linux では unshare -Urm（--sudo なら sudo unshare -m）、
+ * Windows では wsl.exe を使う。失敗したら例外を投げる。
+ */
 function runInLinuxNamespace(script) {
     let cmd;
     if (process.platform === 'linux' && process.argv.includes('--sudo')) {
@@ -111,6 +120,7 @@ function runInLinuxNamespace(script) {
     return r.stdout;
 }
 
+/** 標準出力を読み、メタ情報（meta）と、シナリオ名ごとの期待値の行（goldens）に分けて返す。 */
 function parse(stdout) {
     const meta = {};
     const goldens = new Map();

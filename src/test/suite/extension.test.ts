@@ -1,3 +1,9 @@
+/**
+ * 拡張機能テスト（VS Code の中で流す）。一時フォルダの Git リポジトリを直接操作して「過去に戻る」の流れを真似し、
+ * ワークスペースのファイルの中身が戻った時点のものになるか、その Git の HEAD が戻した先のコミットに動くかを確かめる。
+ * MicroGit 本体のコマンドは呼ばず、戻す処理もテスト自身が書き写す（MicroGit のコマンドを使うテストは overlayBackend.test.ts にある）。
+ * 実行は npm test（node ./out/test/runTest.js）。node scripts/run-unit-tests.mjs では流れない。
+ */
 import * as assert from 'assert';
 import { execSync } from 'child_process';
 import * as fs from 'fs';

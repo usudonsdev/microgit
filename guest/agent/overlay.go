@@ -1,3 +1,8 @@
+// overlay.go は agent の層の置き場（store）と、層に当てる操作（op）の実装。
+// main.go の handle が命令ごとに store のメソッドを呼ぶ。コミットは OverlayFS の層で、
+// commit / view は本物の overlay を mount するので、root かユーザー名前空間の中でしか動かない。
+// mount 先 s.mnt() は 1 つで、commit も view も同じ場所を使い回す（使うたびに mount して unmount する）。
+
 package main
 
 import (
@@ -36,12 +41,15 @@ type store struct {
 	next   int
 }
 
+// layer は凍結した 1 つの層（コミット）の記録。層の中身は root の下の dir にある。
 type layer struct {
 	dir    string // root からの相対（"l0" など）
 	parent string // 親の id。空なら親なし（base の上）
 	depth  int    // 自分を含めた層の数（base を除く）
 }
 
+// commitInfo は commit の結果で、応答の existed・depth・mountOptions・exdevRenames になる。
+// existed が true のときは層を作り直さず、depth だけが入る。
 type commitInfo struct {
 	existed      bool
 	depth        int
@@ -68,19 +76,32 @@ const maxOptionBytes = 4096
 
 // maxReadBytes は read / readMany で 1 回に返す中身の合計の上限。応答は 1 行の JSON なので大きくしない。
 const maxReadBytes = 32 << 20
+// maxChunkBytes は stage の 1 断片と readChunk の 1 回の上限（32 KiB）。macOS の virtio-console の小さいフレーム向け（docs/agent-protocol.md）。
 const maxChunkBytes = 32 << 10
+// maxUploadBytes は stage で 1 つの upload に溜められる合計の上限。超えると TOO_LARGE にして upload を消す。
 const maxUploadBytes = 90 << 20
 
+// newStore は root を作業場所とする空の store を返す（reset を呼ぶので root の中身は消える）。
 func newStore(root string) (*store, error) {
 	s := &store{root: root}
 	return s, s.reset()
 }
 
+// abs は root からの相対パスを絶対パスにする。
 func (s *store) abs(rel string) string { return filepath.Join(s.root, rel) }
-func (s *store) mnt() string           { return s.abs("m") }
-func (s *store) base() string          { return s.abs("base") }
-func (s *store) uploads() string       { return s.abs("uploads") }
 
+// mnt は commit・view が overlay を mount する場所（root の下の m）。使うたびに mount して unmount する。
+func (s *store) mnt() string { return s.abs("m") }
+
+// base は全ての層の一番下に敷く空のディレクトリ（root の下の base）。
+func (s *store) base() string { return s.abs("base") }
+
+// uploads は stage で受け取った中身を upload の名前で置くディレクトリ（root の下の uploads）。
+func (s *store) uploads() string { return s.abs("uploads") }
+
+// reset は mount を外し、root を丸ごと消して、層を 1 つも無い状態に作り直す。
+// 層はキャッシュなので、ホストはいつでも reset して Git から作り直せる（ADR-0001）。
+// 受け取り済みの upload と staged ops も消える。
 func (s *store) reset() error {
 	_ = syscall.Unmount(s.mnt(), 0)
 	if err := os.RemoveAll(s.root); err != nil {
@@ -97,6 +118,8 @@ func (s *store) reset() error {
 	return nil
 }
 
+// validUploadID は upload の名前として使えるか返す。1〜128 文字の英数字・- ・_ だけ。
+// ファイル名としてそのまま使うので、/ や .. を通さないための制限。
 func validUploadID(id string) bool {
 	if id == "" || len(id) > 128 {
 		return false
@@ -171,6 +194,9 @@ func (s *store) stageOp(upload string, op []string, appendOp bool) error {
 	return nil
 }
 
+// resolveOps は commit の ops を決める。opsUpload が無ければ ops をそのまま返す。
+// opsUpload があれば stageOp で溜めた ops を取り出して（取り出すと消える）返す。
+// ops と opsUpload を同時に渡す、opsUpload の名前が不正、溜めた ops が無い、のどれでも BAD_REQUEST。
 func (s *store) resolveOps(direct [][]string, upload string) ([][]string, error) {
 	if upload == "" {
 		return direct, nil
@@ -196,6 +222,8 @@ func (s *store) lowerdirs(id string) []string {
 	return append(dirs, s.base())
 }
 
+// checkOptions は mount のオプション文字列が上限（maxOptionBytes）に収まるか調べる。
+// 収まらなければ OPTIONS_TOO_LONG。ホストは写しの層を作って深さを減らす（docs/agent-protocol.md）。
 func checkOptions(data string) error {
 	if len(data) >= maxOptionBytes {
 		return &protoError{code: "OPTIONS_TOO_LONG", msg: fmt.Sprintf("mount options are %d bytes (limit %d)", len(data), maxOptionBytes)}
@@ -203,6 +231,10 @@ func checkOptions(data string) error {
 	return nil
 }
 
+// commit は parent までの層を lowerdir に積み、空の upperdir に ops を書いて unmount し、id の層として記録する。
+// 同じ id が同じ親で既にあれば何もせず existed を返す（再送に強い）。親が違えば EEXIST。
+// ops が 1 つでも失敗したら層のディレクトリを消し、層は作られない（番号 s.next も進まない）。
+// 成功・失敗どちらでも、ops が参照した upload は消す。
 func (s *store) commit(id, parent string, ops [][]string) (commitInfo, error) {
 	var info commitInfo
 	defer s.cleanupUploads(ops)
@@ -276,6 +308,7 @@ func (s *store) commit(id, parent string, ops [][]string) (commitInfo, error) {
 	return info, nil
 }
 
+// cleanupUploads は ops の writeupload が参照する upload を消す。commit の成功・失敗の後に呼ぶ。
 func (s *store) cleanupUploads(ops [][]string) {
 	for _, op := range ops {
 		if len(op) >= 3 && op[0] == "writeupload" && validUploadID(op[2]) {
@@ -284,6 +317,8 @@ func (s *store) cleanupUploads(ops [][]string) {
 	}
 }
 
+// applyUploadOp は writeupload の op（["writeupload", path, upload, mode?]）を当てる。
+// stage で受け取った中身を path に書く。mode は 644 / 755 だけ（省略時 644）。
 func (s *store) applyUploadOp(root string, op []string) error {
 	if len(op) < 3 || len(op) > 4 || !validUploadID(op[2]) {
 		return &protoError{code: "BAD_REQUEST", msg: fmt.Sprintf("bad op %v", opSummary(op))}
@@ -328,6 +363,7 @@ func (s *store) withView(id string, fn func(root string) error) error {
 	return err
 }
 
+// view は id の時点のツリーを読み取り専用で mount し、dump の形式の一覧を返す。
 func (s *store) view(id string) ([]string, error) {
 	var entries []string
 	err := s.withView(id, func(root string) error {
@@ -338,6 +374,7 @@ func (s *store) view(id string) ([]string, error) {
 	return entries, err
 }
 
+// fileData は readMany が返す 1 ファイル分。Data は中身の base64。
 type fileData struct {
 	Path string `json:"path"`
 	Data string `json:"data"` // base64
@@ -474,6 +511,7 @@ func (s *store) inspect(id string) ([]string, error) {
 	return lines, err
 }
 
+// field は inspect の 1 行（タブ区切り）の i 番目の項目を返す。無ければ空文字。
 func field(line string, i int) string {
 	parts := strings.Split(line, "\t")
 	if i < len(parts) {
@@ -482,6 +520,7 @@ func field(line string, i int) string {
 	return ""
 }
 
+// xattrValue は p の拡張属性 name の値を返す。無い・読めない・空のときは空文字。値は 256 バイトまでしか読まない。
 func xattrValue(p, name string) string {
 	buf := make([]byte, 256)
 	n, err := syscall.Getxattr(p, name, buf)
@@ -504,6 +543,7 @@ func safeJoin(root, rel string) (string, error) {
 	return filepath.Join(root, filepath.FromSlash(rel)), nil
 }
 
+// opSummary は op をエラーメッセージ用に短くする（命令名とパスだけ。中身は載せない）。
 func opSummary(op []string) string {
 	if len(op) >= 2 {
 		return op[0] + " " + op[1]
@@ -618,6 +658,8 @@ func writeFileReplacing(root, p string, data []byte, mode os.FileMode) error {
 	return os.Chmod(p, mode)
 }
 
+// copyTree は src を dst へ再帰的にコピーする。ディレクトリ・シンボリックリンク・通常ファイルを扱い、
+// ファイルの権限は元のまま、ディレクトリは 0755 で作る。applyOp の mv が EXDEV になったときの代わりに使う。
 func copyTree(src, dst string) error {
 	return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -710,6 +752,7 @@ func dump(root string) ([]string, error) {
 	return lines, nil
 }
 
+// sha256File は p の中身の SHA-256 を 16 進で返す。dump が通常ファイルの行に載せる。
 func sha256File(p string) (string, error) {
 	f, err := os.Open(p)
 	if err != nil {

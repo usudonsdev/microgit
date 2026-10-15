@@ -15,8 +15,10 @@ import { AgentConnection, AgentError, AgentReady, LaunchSpec } from './agentConn
 import { MicroCommitDelta } from '../microCommit';
 import { DEFAULT_FEEDER_OPTIONS, EnsureResult, FeederOptions, LayerFeeder } from './layerFeeder';
 
+/** Git を cwd で実行して標準出力を返す関数。失敗したら例外でなく undefined を返す */
 type GitTryRunner = (cwd: string, args: string[]) => string | undefined;
 
+/** カーネル版の設定。bootTimeoutMs は agent の ready を待つ時間、requestTimeoutMs は命令 1 つの時間切れ（ミリ秒。ready のあとの確認の命令も含む）。traits はワークスペースを置くホストの名前の規則など（Boundary Guard が使う） */
 export type KernelBackendOptions = {
     bootTimeoutMs: number;
     requestTimeoutMs: number;
@@ -26,6 +28,7 @@ export type KernelBackendOptions = {
     traits: HostTraits;
 };
 
+/** KernelBackendOptions の既定値。start に渡した設定がこれを上書きする */
 export const DEFAULT_KERNEL_OPTIONS: KernelBackendOptions = {
     bootTimeoutMs: 60_000,
     requestTimeoutMs: 120_000,
@@ -34,6 +37,7 @@ export const DEFAULT_KERNEL_OPTIONS: KernelBackendOptions = {
     traits: hostTraitsFor(process.platform),
 };
 
+/** checkout の結果。written・deleted・unchanged・rejected は Boundary Guard の同期の結果、ensure は層の用意の結果、timings は段階ごとの時間（ミリ秒） */
 export type CheckoutResult = {
     written: string[];
     deleted: string[];
@@ -43,6 +47,7 @@ export type CheckoutResult = {
     timings: { ensureMs: number; viewMs: number; syncMs: number; totalMs: number };
 };
 
+/** agent（guest/agent）の層（OverlayFS）で、コミット時点のワークスペースを用意する。コンストラクタは private で、start で作る。使い終えたら dispose か kill */
 export class KernelOverlayBackend {
     private readonly feeder: LayerFeeder;
     private readonly startedAt = Date.now();
@@ -87,10 +92,12 @@ export class KernelOverlayBackend {
         return backend;
     }
 
+    /** agent の接続がまだ使えるか */
     get alive(): boolean {
         return this.agent.alive;
     }
 
+    /** agent が起動時に出した ready の内容（まだなら undefined） */
     get info(): AgentReady | undefined {
         return this.agent.ready;
     }
@@ -115,6 +122,10 @@ export class KernelOverlayBackend {
         await this.feeder.reset();
     }
 
+    /**
+     * layer の時点の paths の中身を agent から読む。maxFrameBytes が決まっているホスト（macOS）は、1 行の大きさの上限を超えないよう、ファイルごとに readChunk で 24 KiB ずつ読む。
+     * そうでなければ readMany でまとめて読み、応答が大きすぎる（TOO_LARGE）ときは半分に分けて頼み直す
+     */
     private async readFiles(layer: string, paths: string[]): Promise<Map<string, Buffer>> {
         const out = new Map<string, Buffer>();
         if (this.agent.spec.maxFrameBytes) {
@@ -242,10 +253,12 @@ export class KernelOverlayBackend {
         return lines.join('\n');
     }
 
+    /** agent に電源を切らせて終わるのを待つ（止まらなければ強制終了） */
     async dispose(): Promise<void> {
         await this.agent.dispose();
     }
 
+    /** 待たずに agent を終わらせる（VS Code の終了時など） */
     kill(): void {
         this.agent.kill();
     }

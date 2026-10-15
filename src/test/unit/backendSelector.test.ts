@@ -1,3 +1,11 @@
+/**
+ * バックエンドを選ぶ仕組み（kernel/backendSelector.ts の BackendSelector と parseBackendSetting）を確かめる単体テスト。
+ * 実際の VM や QEMU は使わず、偽の agent（Node のスクリプト。下の FAKE_AGENT）で、起動・ready・probe・再起動を再現する。
+ * 観点：設定の読み方（auto / kernel / nodejs。ほかは auto）、nodejs では起動しない、auto では起動して同じものを返す、
+ * 同時に呼んでも起動は 1 回。起動の計画が立たない・agent がすぐ終わる・mount できない・版が違うときは Node 版に切り替える
+ * （kernel のときは理由を知らせる）。落ちた agent は 2 回まで起動し直し、それ以上は諦める。
+ * 実行は node scripts/run-unit-tests.mjs（先に npm run compile が要る）。
+ */
 import * as assert from 'assert';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -30,11 +38,14 @@ require('readline').createInterface({ input: process.stdin }).on('line', (line) 
 });
 `;
 
+/** 偽の agent のスクリプトを書き出す一時フォルダ。テストの後で消す（下の after）。 */
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'microgit-fake-agent-'));
+/** 偽の agent の場所（Node で動くスクリプト）。 */
 const script = path.join(dir, 'fake-agent.js');
 fs.writeFileSync(script, FAKE_AGENT);
 after(() => fs.rmSync(dir, { recursive: true, force: true }));
 
+/** 偽の agent を起動する LaunchPlan を作る。mode は FAKE_MODE に渡す値（ok・v2・exit・noprobe。FAKE_AGENT の説明を参照）。 */
 function fakePlan(mode: string): LaunchPlan {
     return {
         ok: true,
@@ -44,6 +55,7 @@ function fakePlan(mode: string): LaunchPlan {
     };
 }
 
+/** BackendSelector を偽の計画と記録つきで作る。logs と notes に log と notify の内容が集まり、planned() は計画を立てた回数を返す。 */
 function selector(setting: BackendSetting, plan: () => LaunchPlan) {
     const logs: string[] = [];
     const notes: string[] = [];

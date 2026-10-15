@@ -32,24 +32,30 @@ const FILES = Number(process.env.FILES || 200);
 const COMMITS = Number(process.env.COMMITS || 30);
 const SWITCHES = Number(process.env.SWITCHES || 20);
 
+/** 高精度の時計の値（ナノ秒の BigInt）を返す。ms() と組にして使う。 */
 function hr() {
   return process.hrtime.bigint();
 }
+/** start（hr() の値）から今までの経過時間を、ミリ秒の数値で返す。 */
 function ms(start) {
   return Number(hr() - start) / 1e6;
 }
+/** 数値の配列の平均を返す。空の配列なら 0。 */
 function avg(arr) {
   return arr.reduce((a, b) => a + b, 0) / (arr.length || 1);
 }
+/** 数値の配列の 95 パーセンタイルを、添字で求めて返す。空の配列なら 0。 */
 function p95(arr) {
   if (!arr.length) return 0;
   const s = [...arr].sort((a, b) => a - b);
   return s[Math.min(s.length - 1, Math.floor(s.length * 0.95))];
 }
+/** 数値を「12.34 ms」の形の文字列にする。 */
 function fmt(n) {
   return `${n.toFixed(2)} ms`;
 }
 
+/** cwd で git（args）を実行し、標準出力を返す。作者と committer は Bench に固定する。失敗すると例外になる。 */
 function runGit(cwd, args) {
   return execFileSync('git', args, {
     cwd,
@@ -66,10 +72,12 @@ function runGit(cwd, args) {
   }).toString();
 }
 
+/** 乱数から作る、SHA-1 の形（40 桁の 16 進数）の文字列を返す。層の名前に使う。毎回違う値になる（n は混ぜるだけ）。 */
 function hashHex(n = 20) {
   return createHash('sha1').update(randomBytes(32)).update(String(n)).digest('hex');
 }
 
+/** hash の層のフォルダに files（パス → 中身。null は whiteout）を書く。whiteout は addWhiteout で層の外のメタデータに持つ。 */
 function writeLayer(paths, hash, files) {
   const dir = layerDir(paths, hash);
   fs.mkdirSync(dir, { recursive: true });

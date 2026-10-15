@@ -1,3 +1,15 @@
+/**
+ * Node.js ユーザー空間の Overlay（OverlayFS の意味論を Node.js で実装したもの）。
+ * shadow の Git のコミットを「層」（layers/<hash>/）に書き出し、層を重ねた「ビュー」（views/<hash>/、
+ * 1 コミット時点の完全な展開）と、その上に書き込み層（write/<mb-タグ>/。タグはブランチごとの mb-1 など）を載せた merge/ を作り、
+ * merge/ をワークスペースへ同期する。置き場所は layout.ts の overlayDir（`.microgit/overlay/`）。
+ *
+ * 前提: 層・ビュー・merge は shadow の Git から作り直せるキャッシュで、正本は Git（#11）。
+ * 書き込み層だけは Git から作れないが、いまの呼び出し元には、書き込み層へファイルを入れる処理は無い（保存の記録で外す側だけ）。
+ * 層の形式は v2 で、消えたファイルは層の外のメタデータ（`<層のディレクトリ>.json`）の whiteout に持つ。
+ * このファイルの関数は同期的に動き、ファイルシステムを直接書き換える。呼び出し側は extension.ts と、
+ * 差分の読み取り（listCommitChanges）だけを使う kernel/layerFeeder.ts。
+ */
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -13,6 +25,7 @@ import { overlayDir } from './layout';
  */
 export const LAYER_FORMAT_VERSION = 2;
 
+/** 層 1 つぶんのメタデータ。層のディレクトリの外の `<層のディレクトリ>.json` に保存する。 */
 type LayerMeta = {
     version: number;
     /** この層で消えたパス（`/` 区切りの相対パス）。下の層のファイルやディレクトリを隠す */
@@ -22,6 +35,11 @@ type LayerMeta = {
 /** 展開済みビューの完成マーカー（list / sync 対象外） */
 const VIEW_OK_MARKER = '.microgit_view_ok';
 
+/**
+ * DAG の 1 ノード。shadow のコミット 1 つに当たる。
+ * parents は親のコミット（exportCommitLayer が入れるのは親 1 つだけ）、changedFiles はそのコミットで変わったパス、
+ * branchTag は層を書き出したときに呼び出し側が渡した `mb-*` タグ（渡されなければ無い）。
+ */
 export type OverlayDagNode = {
     hash: string;
     parents: string[];
@@ -29,6 +47,11 @@ export type OverlayDagNode = {
     branchTag?: string;
 };
 
+/**
+ * `meta/dag.json` の中身。nodes はコミットのハッシュ → ノード。
+ * managedFiles は MicroGit が扱ってきたパスで、ワークスペースから消すべきファイルの判定に使う。
+ * current・currentTag は最後に書き出し・更新したコミットとそのタグ。
+ */
 export type OverlayDag = {
     nodes: Record<string, OverlayDagNode>;
     managedFiles: string[];
@@ -36,6 +59,10 @@ export type OverlayDag = {
     currentTag?: string;
 };
 
+/**
+ * Overlay の置き場所。root は overlayDir。meta は dag.json などの管理情報、layers は layers/<hash>（コミットごとの差分）、
+ * write は write/<ブランチのタグ>（まだコミットしていない書き込み）、merge は層を重ねた結果、views は views/<hash>（完全な展開）。
+ */
 export type OverlayPaths = {
     root: string;
     meta: string;
@@ -46,8 +73,13 @@ export type OverlayPaths = {
     views: string;
 };
 
+/**
+ * ビューの用意のしかた。full は使える祖先ビューが無く全層を適用、incremental は層の列で最も先端に近い完成済みのビューをコピーして残りの層だけ適用、
+ * cached-view は完成済みのビューをそのまま使う。
+ */
 export type CheckoutMethod = 'full' | 'incremental' | 'cached-view';
 
+/** checkoutLayers の結果。 */
 export type CheckoutResult = {
     /** 常に Node.js ユーザー空間エンジン */
     backend: 'nodejs';
@@ -59,6 +91,7 @@ export type CheckoutResult = {
     viewHash?: string;
 };
 
+/** 直近の checkout の記録（`meta/checkout.json`）。checkoutLayers が、同じ checkout のやり直しを省くために読む。 */
 type CheckoutState = {
     backend: 'nodejs';
     layerPath: string[];
@@ -67,13 +100,20 @@ type CheckoutState = {
     at: string;
 };
 
+/** cwd で git を args 付きで実行し、標準出力を返す関数。失敗の扱いは渡す実装による。 */
 type GitRunner = (cwd: string, args: string[]) => string;
+/** GitRunner の版で、失敗したときは例外ではなく undefined を返す想定。 */
 type GitTryRunner = (cwd: string, args: string[]) => string | undefined;
 
+/** 設定 `microgit.useOverlayCheckout` が false でない（未設定を含む）とき true。 */
 export function isOverlayCheckoutEnabled(getConfig: (key: string) => boolean | undefined): boolean {
     return getConfig('microgit.useOverlayCheckout') !== false;
 }
 
+/**
+ * workspaceRoot の Overlay の各パスを返す（Overlay のディレクトリは作らない）。
+ * overlayDir を通るので、古い `.microgit_shadow`・`.microgit_logs`・`.microgit_overlay` のうち残っているものを、すべて `.microgit/` の下へ移す副作用がある。
+ */
 export function getOverlayPaths(workspaceRoot: string): OverlayPaths {
     const root = overlayDir(workspaceRoot);
     return {
@@ -87,6 +127,7 @@ export function getOverlayPaths(workspaceRoot: string): OverlayPaths {
     };
 }
 
+/** Overlay のディレクトリと、無ければ空の dag.json を作り、古い層の形式を捨てる（migrateLayerFormat）。何度呼んでもよい。 */
 export function ensureOverlayDirs(workspaceRoot: string): OverlayPaths {
     const paths = getOverlayPaths(workspaceRoot);
     for (const dir of [paths.root, paths.meta, paths.layers, paths.write, paths.merge, paths.views]) {
@@ -101,6 +142,7 @@ export function ensureOverlayDirs(workspaceRoot: string): OverlayPaths {
     return paths;
 }
 
+/** 層の形式の版を記録するファイル（`meta/format.json`）のパス。 */
 function formatFile(paths: OverlayPaths): string {
     return path.join(paths.meta, 'format.json');
 }
@@ -128,6 +170,7 @@ function migrateLayerFormat(paths: OverlayPaths): void {
     fs.writeFileSync(formatFile(paths), JSON.stringify({ layerFormat: LAYER_FORMAT_VERSION }, null, 2), 'utf8');
 }
 
+/** dag.json を読む。無い・読めない・壊れているときは、例外にせず空の DAG を返す。 */
 export function readDag(paths: OverlayPaths): OverlayDag {
     try {
         if (!fs.existsSync(paths.dagFile)) {
@@ -145,21 +188,25 @@ export function readDag(paths: OverlayPaths): OverlayDag {
     }
 }
 
+/** dag.json を書く（上書き）。 */
 export function writeDag(paths: OverlayPaths, dag: OverlayDag): void {
     fs.mkdirSync(paths.meta, { recursive: true });
     fs.writeFileSync(paths.dagFile, JSON.stringify(dag, null, 2), 'utf8');
 }
 
+/** ブランチの書き込み層 `write/<branchTag>` のディレクトリを（無ければ作って）返す。 */
 export function writeLayerDir(paths: OverlayPaths, branchTag: string): string {
     const dir = path.join(paths.write, branchTag);
     fs.mkdirSync(dir, { recursive: true });
     return dir;
 }
 
+/** コミットの層のディレクトリ `layers/<commitHash>` のパス（作らない）。 */
 export function layerDir(paths: OverlayPaths, commitHash: string): string {
     return path.join(paths.layers, commitHash);
 }
 
+/** コミットのビューのディレクトリ `views/<commitHash>` のパス（作らない）。 */
 export function viewDir(paths: OverlayPaths, commitHash: string): string {
     return path.join(paths.views, commitHash);
 }
@@ -169,6 +216,10 @@ export function layerMetaPath(layerDirPath: string): string {
     return `${layerDirPath.replace(/[\\/]+$/, '')}.json`;
 }
 
+/**
+ * 層のメタデータを読む。無い・壊れているときは undefined。
+ * メタデータは書き出しの最後に置くので、undefined は「層が未完成か、まだ無い」ことを表す。
+ */
 export function readLayerMeta(layerDirPath: string): LayerMeta | undefined {
     try {
         const parsed = JSON.parse(fs.readFileSync(layerMetaPath(layerDirPath), 'utf8')) as Partial<LayerMeta>;
@@ -181,6 +232,7 @@ export function readLayerMeta(layerDirPath: string): LayerMeta | undefined {
     }
 }
 
+/** 層のメタデータを書く。whiteout は重複を除いて並べ替える。 */
 export function writeLayerMeta(layerDirPath: string, whiteouts: Iterable<string>): void {
     const meta: LayerMeta = { version: LAYER_FORMAT_VERSION, whiteouts: Array.from(new Set(whiteouts)).sort() };
     fs.mkdirSync(path.dirname(layerMetaPath(layerDirPath)), { recursive: true });
@@ -200,20 +252,24 @@ export function removeWhiteout(layerDirPath: string, rel: string): void {
     writeLayerMeta(layerDirPath, meta.whiteouts.filter((w) => w !== rel));
 }
 
+/** 層・ビューを走査するときに無視する名前（`.git`・`.DS_Store`・ビューの完成マーカー）。 */
 function isSkippedName(name: string): boolean {
     return name === '.git' || name === '.DS_Store' || name === VIEW_OK_MARKER;
 }
 
+/** ビューが最後まで展開済みか。完成マーカーの有無で決める（途中で止まったビューは false）。 */
 export function isViewReady(paths: OverlayPaths, commitHash: string): boolean {
     return fs.existsSync(path.join(viewDir(paths, commitHash), VIEW_OK_MARKER));
 }
 
+/** ビューに完成マーカーを置く。展開が終わった最後に呼ぶこと（途中で呼ぶと不完全なビューが使われる）。 */
 function markViewReady(paths: OverlayPaths, commitHash: string): void {
     const dir = viewDir(paths, commitHash);
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, VIEW_OK_MARKER), commitHash, 'utf8');
 }
 
+/** 直近の checkout の記録を読む。無い・壊れているときは undefined。 */
 function readCheckoutState(paths: OverlayPaths): CheckoutState | undefined {
     const stateFile = path.join(paths.meta, 'checkout.json');
     try {
@@ -224,6 +280,7 @@ function readCheckoutState(paths: OverlayPaths): CheckoutState | undefined {
     }
 }
 
+/** 直近の checkout の記録を書く（上書き）。 */
 function writeCheckoutState(paths: OverlayPaths, state: CheckoutState): void {
     fs.mkdirSync(paths.meta, { recursive: true });
     fs.writeFileSync(path.join(paths.meta, 'checkout.json'), JSON.stringify(state, null, 2), 'utf8');
@@ -359,6 +416,7 @@ export function expandViewAfterExport(
     return 'full';
 }
 
+/** 書き込み層に、ファイルか whiteout が 1 つでもあるか。 */
 function writeLayerHasFiles(paths: OverlayPaths, writeBranchTag: string): boolean {
     const writeSrc = writeLayerDir(paths, writeBranchTag);
     // whiteout だけの書き込みレイヤも「空ではない」（v1 では whiteout だけだと空扱いになり、削除が無視されていた）
@@ -475,6 +533,7 @@ export function checkoutLayers(
     };
 }
 
+/** 診断・ログ用の、エンジンの説明の文字列を返す。 */
 export function describeOverlayEngine(): string {
     return `backend=nodejs space-for-time=views merge=junction-or-link platform=${process.platform}`;
 }
@@ -592,6 +651,7 @@ export function applyLayerOntoMerge(srcDir: string, mergeDir: string): void {
     walk(srcDir, '');
 }
 
+/** lstat（リンクを辿らない）の結果を返す。無い・失敗のときは undefined。リンク先が消えたリンクも検出できる。 */
 function lstatOrUndefined(p: string): fs.Stats | undefined {
     try {
         return fs.lstatSync(p);
@@ -644,12 +704,17 @@ function ensureDirectoryPath(mergeDir: string, relDir: string): void {
     }
 }
 
+/** mergeDir の下の rel（ファイルでもディレクトリでも）を消す。無ければ何もしない。 */
 function removeMergePath(mergeDir: string, rel: string): void {
     const target = path.join(mergeDir, ...rel.split('/'));
     if (!lstatOrUndefined(target)) { return; }
     removeTree(target);
 }
 
+/**
+ * rootDir の下の通常ファイルを、`/` 区切りの相対パスで返す。rootDir が無ければ空。
+ * 無視する名前は isSkippedName。ディレクトリでも通常ファイルでもないもの（リンクなど）は含めない。
+ */
 export function listFilesRecursive(rootDir: string): string[] {
     const result: string[] = [];
     if (!fs.existsSync(rootDir)) { return result; }
@@ -671,6 +736,7 @@ export function listFilesRecursive(rootDir: string): string[] {
     return result;
 }
 
+/** dir の中身を全部消す（dir 自体は残す）。dir が無ければ作る。 */
 export function clearDirContents(dir: string): void {
     if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
@@ -681,10 +747,12 @@ export function clearDirContents(dir: string): void {
     }
 }
 
+/** applyLayerOntoMerge の別名。 */
 export function copyMerge(srcDir: string, destDir: string): void {
     applyLayerOntoMerge(srcDir, destDir);
 }
 
+/** 2 つのファイルの中身が同じか。どちらかが通常ファイルでない・読めないときは false。 */
 function filesContentEqual(a: string, b: string): boolean {
     try {
         const sa = fs.statSync(a);
@@ -699,12 +767,18 @@ function filesContentEqual(a: string, b: string): boolean {
     }
 }
 
+/**
+ * ワークスペースへ同期したファイルの記録（相対パス → merge 側のサイズと更新時刻）。
+ * syncMergeToWorkspace が、同じファイルをもう一度読んで比べるのを避けるために使う。
+ */
 type WorkspaceSyncCache = Record<string, { size: number; mtimeMs: number }>;
 
+/** 同期の記録のファイル（`meta/workspace-sync.json`）のパス。 */
 function syncCachePath(paths: OverlayPaths): string {
     return path.join(paths.meta, 'workspace-sync.json');
 }
 
+/** 同期の記録を読む。無い・壊れているときは空の記録を返す。 */
 function readSyncCache(paths: OverlayPaths): WorkspaceSyncCache {
     try {
         const p = syncCachePath(paths);
@@ -716,6 +790,7 @@ function readSyncCache(paths: OverlayPaths): WorkspaceSyncCache {
     }
 }
 
+/** 同期の記録を書く（上書き）。 */
 function writeSyncCache(paths: OverlayPaths, cache: WorkspaceSyncCache): void {
     fs.mkdirSync(paths.meta, { recursive: true });
     fs.writeFileSync(syncCachePath(paths), JSON.stringify(cache), 'utf8');
@@ -740,6 +815,7 @@ function isSafeLayerPath(rel: string): boolean {
     return rel.split('/').every((seg) => seg !== '' && seg !== '.' && seg !== '..');
 }
 
+/** rel の祖先のディレクトリのパス（`a/b/c` なら `a` と `a/b`）が set に含まれるか。rel 自身は見ない。 */
 function hasAncestorIn(rel: string, set: Set<string>): boolean {
     const parts = rel.split('/');
     for (let i = 1; i < parts.length; i++) {
@@ -901,6 +977,7 @@ export function ensureLayerExists(
     exportCommitLayer(shadowRepoPath, paths, commitHash, parentHash, tag, runGit, tryRunGit);
 }
 
+/** 書き込み層から、ファイルと、そのパスの whiteout を外す。どちらも無ければ何もしない。 */
 export function removeFromWriteLayer(
     paths: OverlayPaths,
     branchTag: string,
@@ -1070,6 +1147,7 @@ export function syncMergeToWorkspace(
     return { written, deleted, skipped, conflicts };
 }
 
+/** dag.json の現在のコミットとタグを更新して書く。 */
 export function updateDagCurrent(
     paths: OverlayPaths,
     commitHash: string,

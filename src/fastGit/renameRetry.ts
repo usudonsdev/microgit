@@ -10,14 +10,21 @@
  */
 import * as fs from 'fs';
 
+/** やり直す対象のエラーコード。Windows で置き換え先を別のプロセスが開いているときに出る */
 const RETRY_CODES = new Set(['EPERM', 'EACCES', 'EBUSY']);
 /** 待つ時間（ミリ秒）。合わせて約 0.2 秒 */
 const DELAYS_MS = [1, 2, 4, 8, 16, 32, 64, 80];
 
+/** やり直した回数の累計（プロセスの中で共有するグローバルな状態） */
 export const renameRetryStats = { retries: 0 };
 
+/** 同期で ms ミリ秒待つ（Atomics.wait。イベントループも止まる） */
 const sleepSync = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
+/**
+ * from を to へ rename して上書きする（同期）。Windows で EPERM・EACCES・EBUSY のときだけ、DELAYS_MS の間隔で待ってやり直す。
+ * それ以外のエラー、Windows 以外、やり直しの回数が尽きたときは、そのまま例外を投げる
+ */
 export function renameReplaceSync(from: string, to: string): void {
     for (let i = 0; ; i++) {
         try {

@@ -55,6 +55,7 @@ const COMMIT_ENV = {
     GIT_COMMITTER_NAME: 'MicroGit', GIT_COMMITTER_EMAIL: 'microgit@local',
 };
 
+/** 名前（name）つきの一時フォルダに micro-history ブランチの Git リポジトリを作り、そのパスを返す。改行の変換は無効にする。 */
 function makeRepo(name) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), `microgit-bench-${name}-`));
     execFileSync('git', ['init', '-q', '-b', 'micro-history', dir]);
@@ -97,6 +98,7 @@ for (let n = 0; n < SAVES; n++) {
     saves.push({ rel, content });
 }
 
+/** dir に初期のファイル（FILES 個）を書き、最初のコミット（initial）を作る。 */
 function seedTree(dir) {
     for (let i = 0; i < FILES; i++) {
         const p = path.join(dir, 'src', `dir${i % 10}`, `file${i}.ts`);
@@ -110,6 +112,10 @@ function seedTree(dir) {
 const pct = (xs, p) => { const s = [...xs].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.floor((s.length - 1) * p))]; };
 const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
 
+/**
+ * 保存の列を 1 つの実装（record。prepare が作る ctx を使う）に流し、CHECKPOINTS ごとの結果の行を返す。
+ * ctx.checkpoint は IDLE 回ごとに、計測の外で呼ぶ。終わったら、git 以外の実装について git fsck --strict を流す。
+ */
 async function run(name, record, prepare) {
     const dir = makeRepo(name);
     seedTree(dir);

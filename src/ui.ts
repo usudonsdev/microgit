@@ -1,6 +1,16 @@
+/**
+ * サイドバー（Activity Bar の専用ビュー）とグラフパネルの Webview を持つ層。
+ * 拡張機能の本体（extension.ts）が作った表示用の内容（MicroGitUiSnapshot）を受け取り、postMessage で Webview へ渡す。
+ * Webview からの操作（コマンド実行・区間の切り替え・再描画の依頼）は、メッセージで受けて VS Code のコマンドに橋渡しする。
+ * 画面の HTML・CSS・Webview 内のスクリプトは、getSidebarHtml・getGraphHtml のテンプレート文字列に入っている
+ * （中身は文字列なので、手を入れると表示と動作が変わる）。
+ * 前提：画面が見えていないあいだは内容を作らない（Git の起動が要るため。#73）。見えるようになったら refreshRequester で再作成を頼む。
+ */
+
 import * as vscode from 'vscode';
 import { filterCommitsByMainInterval, type MainIntervalOption } from './mainHead';
 
+/** グラフに出す 1 コミット。tags は mb-<数字> など、そのコミットを指すタグ。timestamp は表示用に整えた日時の文字列。 */
 export interface GraphCommit {
     hash: string;
     parents: string[];
@@ -11,6 +21,11 @@ export interface GraphCommit {
     mainHead?: string;
 }
 
+/**
+ * 画面に出す内容の全体。extension.ts が作って update に渡す。
+ * active は、有効で、記録できるブランチにいるときだけ true。hasShadow は、active のうえで shadow が存在するときだけ true。
+ * workspaceOpen が false のときは、ワークスペースが開かれていない。
+ */
 export interface MicroGitUiSnapshot {
     enabled: boolean;
     targetBranch?: string;
@@ -30,6 +45,7 @@ export interface MicroGitUiSnapshot {
  * Activity Bar の専用ビューとグラフパネルを管理し、状態変更をリアルタイム反映する
  */
 export class MicroGitUi implements vscode.WebviewViewProvider {
+    /** サイドバーのビューの識別子。package.json の views の id（microgit.sidebar）と一致していること。 */
     public static readonly viewType = 'microgit.sidebar';
 
     private view?: vscode.WebviewView;
@@ -43,8 +59,10 @@ export class MicroGitUi implements vscode.WebviewViewProvider {
      */
     private refreshRequester?: () => void;
 
+    /** extensionUri は、サイドバーの Webview が読んでよいローカルのリソースの根（localResourceRoots）に使う。 */
     constructor(private readonly extensionUri: vscode.Uri) {}
 
+    /** 画面が見えるようになったときに呼ぶ関数を登録する。呼ばれた側（extension.ts）が、最新の内容を作って update を呼ぶ。 */
     setRefreshRequester(requester: () => void): void {
         this.refreshRequester = requester;
     }
@@ -54,6 +72,10 @@ export class MicroGitUi implements vscode.WebviewViewProvider {
         return Boolean(this.view?.visible || this.graphPanel?.visible);
     }
 
+    /**
+     * サイドバーが開かれたときに VS Code から呼ばれる。Webview に HTML を設定し、メッセージの受信・破棄・表示の切り替えを結びつけ、いまの内容を送る。
+     * 起動のときの更新は、まだ見えていなくて内容を作っていないため、開かれたこの時点で最新を作らせる。
+     */
     resolveWebviewView(
         webviewView: vscode.WebviewView,
         _context: vscode.WebviewViewResolveContext,
@@ -81,12 +103,14 @@ export class MicroGitUi implements vscode.WebviewViewProvider {
         this.refreshRequester?.();
     }
 
+    /** 新しい内容を受け取り、サイドバーとグラフ（開いていれば）へ送る。 */
     update(snapshot: MicroGitUiSnapshot): void {
         this.latest = snapshot;
         this.postToSidebar();
         this.postToGraph();
     }
 
+    /** グラフパネルを開く（開いていれば前面に出す）。ワークスペースが無い・MicroGit が無効または記録できないブランチ・shadow が無いときは、警告を出して開かない。 */
     showGraphPanel(): void {
         if (!this.latest.workspaceOpen) {
             vscode.window.showWarningMessage('ワークスペースを開いてからグラフを表示してください。');
@@ -127,6 +151,7 @@ export class MicroGitUi implements vscode.WebviewViewProvider {
         this.postToGraph();
     }
 
+    /** 選択中のメインコミット区間を返す。内容に無い区間が選ばれていたら（ブランチを変えたときなど）、「すべて」に戻す。 */
     private resolveInterval(): MainIntervalOption {
         const intervals = this.latest.mainIntervals?.length
             ? this.latest.mainIntervals
@@ -139,6 +164,7 @@ export class MicroGitUi implements vscode.WebviewViewProvider {
         return intervals.find((i) => i.id === 'all') ?? { id: 'all', label: 'すべて（ブランチ全体）', mainHead: null };
     }
 
+    /** Webview へ送る内容を作る。選択中の区間でコミットを絞り込み、絞り込んだ数と全体の数を添える。 */
     private viewPayload(): MicroGitUiSnapshot & { selectedIntervalId: string; filteredCount: number; totalCount: number } {
         const interval = this.resolveInterval();
         const filtered = filterCommitsByMainInterval(this.latest.commits, interval.mainHead);
@@ -151,10 +177,12 @@ export class MicroGitUi implements vscode.WebviewViewProvider {
         };
     }
 
+    /** サイドバーが開いていれば、いまの内容を送る（開いていなければ何もしない）。 */
     private postToSidebar(): void {
         this.view?.webview.postMessage({ type: 'update', payload: this.viewPayload() });
     }
 
+    /** グラフパネルが開いていれば、グラフに要る項目だけを送る（開いていなければ何もしない）。 */
     private postToGraph(): void {
         const payload = this.viewPayload();
         this.graphPanel?.webview.postMessage({
@@ -173,12 +201,17 @@ export class MicroGitUi implements vscode.WebviewViewProvider {
         });
     }
 
+    /** メインコミット区間の選択を変え、サイドバーとグラフの両方に反映する。空の id は「すべて」にする。サイドバーとグラフで選択を共有する。 */
     private setIntervalFilter(intervalId: string): void {
         this.selectedIntervalId = intervalId || 'all';
         this.postToSidebar();
         this.postToGraph();
     }
 
+    /**
+     * サイドバーの Webview からのメッセージを処理する。command ごとに VS Code のコマンドを呼ぶか、区間・再描画の処理をする。
+     * 知らない command は無視する。hash・intervalId は文字列のときだけ使う（Webview からの入力は型を確かめる）。
+     */
     private async handleSidebarMessage(message: {
         command?: string;
         hash?: string;
@@ -213,6 +246,7 @@ export class MicroGitUi implements vscode.WebviewViewProvider {
         }
     }
 
+    /** グラフの Webview からのメッセージを処理する。扱うのは jumpToCommit（hash が文字列のとき）、setInterval、ready（再送の依頼）だけ。 */
     private async handleGraphMessage(message: {
         command?: string;
         hash?: string;
@@ -232,6 +266,7 @@ export class MicroGitUi implements vscode.WebviewViewProvider {
     }
 }
 
+/** 何も記録が無い状態の内容。画面を作る前の初期値と、区間の一覧が空のときの代わりに使う（区間は「すべて」だけ）。 */
 function emptySnapshot(): MicroGitUiSnapshot {
     return {
         enabled: false,
@@ -245,6 +280,7 @@ function emptySnapshot(): MicroGitUiSnapshot {
     };
 }
 
+/** サイドバーの Webview の HTML 全体（スタイルとスクリプトを含む）を返す。中身はテンプレート文字列で、そのまま HTML になる（文字列の中にコメントを足すと、画面と動作が変わりうる）。 */
 function getSidebarHtml(): string {
     return `<!DOCTYPE html>
 <html lang="ja">
@@ -566,6 +602,7 @@ function getSidebarHtml(): string {
 </html>`;
 }
 
+/** グラフパネルの Webview の HTML 全体（スタイルとスクリプトを含む）を返す。注意はサイドバー側（getSidebarHtml）と同じ。 */
 function getGraphHtml(): string {
     return `<!DOCTYPE html>
 <html lang="ja">
