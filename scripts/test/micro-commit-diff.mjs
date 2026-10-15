@@ -28,14 +28,17 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 const { recordMicroCommitViaGitCli } = require(path.join(ROOT, 'out', 'microCommit.js'));
 const { FastMicroCommitter, FastPathUnsupported } = require(path.join(ROOT, 'out', 'fastMicroCommit.js'));
 
+/** コマンドラインに name があればその次の引数を、無ければ def を返す。 */
 const arg = (name, def) => (process.argv.includes(name) ? process.argv[process.argv.indexOf(name) + 1] : def);
 const SAVES = Number(arg('--saves', '400'));
 const CRLF = process.argv.includes('--crlf');
 const { SHADOW_ATTRIBUTES } = require(path.join(ROOT, 'out', 'shadowStore.js'));
 let seed = 7;
+/** 固定の種（7）から始まる線形合同法で、0 以上 1 以下の数を返す。呼ぶたびにモジュールの seed が進む。 */
 const rand = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
 
 const BASE = 1_800_000_000;
+/** n 番目のコミット用の環境を返す。作者・コミッターを固定し、日時を BASE + n 秒（+0900）にして、ハッシュが再現できるようにする。 */
 const envAt = (n) => ({
     ...process.env,
     GIT_AUTHOR_NAME: 'MicroGit', GIT_AUTHOR_EMAIL: 'microgit@local',
@@ -43,6 +46,7 @@ const envAt = (n) => ({
     GIT_AUTHOR_DATE: `${BASE + n} +0900`, GIT_COMMITTER_DATE: `${BASE + n} +0900`,
 });
 
+/** dir で git を実行して標準出力の文字列を返す（env 省略時は process.env）。失敗は例外のまま投げる。 */
 const git = (dir, args, env) => execFileSync('git', ['-c', 'core.quotepath=false', ...args], { cwd: dir, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], env: env ?? process.env });
 const cli = {
     run: (cwd, args, o) => git(cwd, args, o?.env),

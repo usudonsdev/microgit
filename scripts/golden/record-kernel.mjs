@@ -31,6 +31,7 @@ const OUT_DIR = path.join(ROOT, 'test', 'golden', 'overlayfs');
 // カーネルが受け付けない。index・metacopy・xino はカーネルの版や設定で既定値が変わりうるので明示する
 const MOUNT_OPTS = 'userxattr,redirect_dir=nofollow,index=off,metacopy=off,xino=off';
 
+/** シェルに渡す文字列を、シングルクォートで囲む（文字列の中のシングルクォートはエスケープする）。 */
 const q = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
 
 /** 操作（op）を、カーネル側で実行するシェルのコマンドの文字列にする。パスはシングルクォートで囲む。 */

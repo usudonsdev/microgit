@@ -24,11 +24,13 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 const { planLaunch, findInPath } = require(path.join(ROOT, 'out', 'kernel', 'launchers.js'));
 const { BackendSelector } = require(path.join(ROOT, 'out', 'kernel', 'backendSelector.js'));
 
+/** コマンドラインに name があればその次の引数を、無ければ undefined を返す。 */
 const arg = (name) => (process.argv.includes(name) ? process.argv[process.argv.indexOf(name) + 1] : undefined);
 const expect = arg('--expect');
 const reasonPattern = arg('--reason');
 // Windows の QEMU の動かし方（設定 microgit.kernel.accel と同じ）。whpx だけ・tcg だけを試して、どちらが使えるかを確かめる
 const accel = arg('--accel');
+/** パスが存在するか（planLaunch に渡す）。 */
 const exists = (p) => fs.existsSync(p);
 const plan = planLaunch({
     platform: process.platform,
@@ -43,6 +45,7 @@ const plan = planLaunch({
 });
 console.log('plan:', plan.ok ? `${plan.kind} — ${plan.spec.description}` : `unavailable — ${plan.reason}`);
 
+/** cwd で git を実行して標準出力を返す。失敗したら例外にせず undefined を返す。 */
 const tryRunGit = (cwd, args) => { try { return execFileSync('git', args, { cwd, encoding: 'utf8' }); } catch { return undefined; } };
 const selector = new BackendSelector({
     setting: 'auto',

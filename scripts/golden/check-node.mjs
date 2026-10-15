@@ -30,9 +30,11 @@ const VIEW_OK_MARKER = '.microgit_view_ok';
 const require = createRequire(import.meta.url);
 const o = require(path.join(ROOT, 'out', 'overlay.js'));
 
+/** cwd で git を実行して標準出力を返す。失敗は例外のまま投げる。 */
 const runGit = (cwd, args) => execFileSync('git', args, {
     cwd, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
 });
+/** runGit と同じ。失敗したら例外にせず undefined を返す。 */
 const tryRunGit = (cwd, args) => {
     try { return runGit(cwd, args); } catch { return undefined; }
 };
@@ -43,6 +45,7 @@ const COMMIT_ENV = {
     GIT_AUTHOR_NAME: 'golden', GIT_AUTHOR_EMAIL: 'golden@example.invalid', GIT_AUTHOR_DATE: '2000-01-01T00:00:00Z',
     GIT_COMMITTER_NAME: 'golden', GIT_COMMITTER_EMAIL: 'golden@example.invalid', GIT_COMMITTER_DATE: '2000-01-01T00:00:00Z',
 };
+/** cwd に、message の空コミットを作る（COMMIT_ENV で作者と日時を固定する）。失敗は例外。 */
 const commit = (cwd, message) => execFileSync('git', ['commit', '-q', '--allow-empty', '-m', message], {
     cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, env: COMMIT_ENV,
 });

@@ -32,6 +32,7 @@ function check(name, cond, detail = '') {
   }
 }
 
+/** ファイルを UTF-8 の文字列で読む。 */
 const read = (p) => fs.readFileSync(p, 'utf8');
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'microgit-overlay-'));
 

@@ -33,6 +33,7 @@ const { recordMicroCommitViaGitCli } = require(path.join(ROOT, 'out', 'microComm
 const { durabilityGitArgs, setDurability } = require(path.join(ROOT, 'out', 'durability.js'));
 const { FastMicroCommitter } = require(path.join(ROOT, 'out', 'fastMicroCommit.js'));
 
+/** コマンドラインに name があればその次の引数を、無ければ def を返す。 */
 const arg = (name, def) => (process.argv.includes(name) ? process.argv[process.argv.indexOf(name) + 1] : def);
 const FILES = Number(arg('--files', '200'));
 const SAVES = Number(arg('--saves', '1000'));
@@ -47,6 +48,7 @@ setDurability(DURABILITY);
 
 // 擬似乱数（種は固定）
 let seed = 20261001;
+/** 固定の種（seed）から始まる線形合同法で、0 以上 1 以下の数を返す。呼ぶたびにモジュールの seed が進む。 */
 const rand = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
 
 const COMMIT_ENV = {
@@ -109,7 +111,9 @@ function seedTree(dir) {
     execFileSync('git', ['-C', dir, 'commit', '-q', '-m', 'initial'], { env: COMMIT_ENV });
 }
 
+/** xs を昇順にした並びの、割合 p の位置（添字を切り捨てて求める近似）の値を返す。xs は変えない。空だと undefined。 */
 const pct = (xs, p) => { const s = [...xs].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.floor((s.length - 1) * p))]; };
+/** xs の平均を返す。空だと NaN。 */
 const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
 
 /**

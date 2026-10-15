@@ -28,12 +28,15 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 const { FastMicroCommitter } = require(path.join(ROOT, 'out', 'fastMicroCommit.js'));
 const { recoverJournals, journalDir } = require(path.join(ROOT, 'out', 'fastGit', 'journal.js'));
 
+/** コマンドラインに name があればその次の引数を、無ければ def を返す。 */
 const arg = (name, def) => (process.argv.includes(name) ? process.argv[process.argv.indexOf(name) + 1] : def);
 const SAVES = Number(arg('--saves', '60'));
 let seed = Number(arg('--seed', '1'));
+/** 種（--seed）から始まる線形合同法で、0 以上 1 以下の数を返す。呼ぶたびにモジュールの seed が進む。 */
 const rand = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
 
 const ENV = { ...process.env, GIT_AUTHOR_NAME: 'MicroGit', GIT_AUTHOR_EMAIL: 'microgit@local', GIT_COMMITTER_NAME: 'MicroGit', GIT_COMMITTER_EMAIL: 'microgit@local' };
+/** dir で、作者を固定した環境（ENV）で git を実行し、標準出力の文字列を返す。失敗は例外のまま投げる。 */
 const git = (dir, ...a) => execFileSync('git', ['-c', 'core.quotepath=false', ...a], { cwd: dir, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], env: ENV });
 
 /** 一時フォルダに micro-history の Git リポジトリを作り、最初のコミット（a.txt）を入れてそのパスを返す。 */
@@ -121,6 +124,7 @@ function simulateLoss(dir, before, opts) {
     return damaged;
 }
 
+/** dir のすべての ref を「名前 オブジェクト名」の行にして返す（前後の空白は除く）。 */
 const refsOf = (dir) => git(dir, 'for-each-ref', '--format=%(refname) %(objectname)').trim();
 const results = [];
 /** 結果の 1 行（ok か NG と label）を results に足す。cond が偽なら終了コードを 1 にする。 */

@@ -31,10 +31,14 @@ const COMMITS = Number(process.env.COMMITS || 40);
 const SWITCHES = Number(process.env.SWITCHES || 30);
 const SIZE = Number(process.env.SIZE || 4096);
 
+/** git を実行して標準出力の文字列を返す。core.quotepath=false を付ける。失敗は例外のまま投げる。 */
 const runGit = (cwd, args) => execFileSync('git', ['-c', 'core.quotepath=false', ...args], { cwd, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+/** runGit と同じ。失敗したら例外にせず undefined を返す。 */
 const tryRunGit = (cwd, args) => { try { return runGit(cwd, args); } catch { return undefined; } };
 const env = { ...process.env, GIT_AUTHOR_NAME: 'b', GIT_AUTHOR_EMAIL: 'b@example.invalid', GIT_COMMITTER_NAME: 'b', GIT_COMMITTER_EMAIL: 'b@example.invalid' };
+/** 相対パスで、`..` の要素を含まなければ真（空・絶対パスは偽）。syncMergeToWorkspace の安全判定に渡す。 */
 const safe = (rel) => !!rel && !path.isAbsolute(rel) && !rel.split('/').includes('..');
+/** abs が root 直下の .microgit か .microgit_ で始まるもの（MicroGit の作業用）の中なら真。syncMergeToWorkspace に渡す。 */
 const artifact = (abs, root) => {
     const top = path.relative(root, abs).split(path.sep)[0];
     return top === '.microgit' || top.startsWith('.microgit_');
@@ -48,8 +52,10 @@ function stats(ms) {
     const q = (p) => s[Math.min(s.length - 1, Math.floor(p * s.length))];
     return { p50: +q(0.5).toFixed(2), p90: +q(0.9).toFixed(2), max: +s[s.length - 1].toFixed(2) };
 }
+/** process.hrtime.bigint() で取った開始時刻 t0 からの経過を、ミリ秒の数値で返す。 */
 const timeMs = (t0) => Number(process.hrtime.bigint() - t0) / 1e6;
 
+/** パスが存在するか（planLaunch に渡す）。 */
 const exists = (p) => fs.existsSync(p);
 const plan = planLaunch({
     platform: process.platform, arch: process.arch, osRelease: os.release(), extensionPath: ROOT, env: process.env,

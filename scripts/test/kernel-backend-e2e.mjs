@@ -58,7 +58,9 @@ if (opts.includes('--plan')) {
 }
 const maxDepth = opts.includes('--max-depth') ? Number(opts[opts.indexOf('--max-depth') + 1]) : 2;
 
+/** git を実行して標準出力の文字列を返す。core.quotepath=false を付ける。失敗は例外のまま投げる。 */
 const runGit = (cwd, args) => execFileSync('git', ['-c', 'core.quotepath=false', ...args], { cwd, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+/** runGit と同じ。失敗したら例外にせず undefined を返す。 */
 const tryRunGit = (cwd, args) => { try { return runGit(cwd, args); } catch { return undefined; } };
 const COMMIT_ENV = {
     ...process.env,
@@ -108,6 +110,7 @@ function applyOp(dir, op) {
     }
 }
 
+/** バッファの sha256 を 16 進の文字列で返す。 */
 const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
 
 /** Git のツリーのファイル（パス → sha256） */
@@ -149,7 +152,9 @@ function diffMaps(expected, actual) {
     return lines.sort();
 }
 
+/** 相対パスで、正規化しても `..` の要素を含まなければ真（空・絶対パスは偽）。Node 版の syncMergeToWorkspace に渡す。 */
 const isSafeRepoRelativePath = (rel) => !!rel && !path.isAbsolute(rel) && !path.normalize(rel).split(path.sep).includes('..');
+/** abs が root 直下の .microgit か .microgit_ で始まるもの（MicroGit の作業用）の中なら真。Node 版の syncMergeToWorkspace に渡す。 */
 const isMicroGitArtifactPath = (abs, root) => {
     const top = path.relative(root, abs).split(path.sep)[0];
     return top === '.microgit' || top.startsWith('.microgit_');
