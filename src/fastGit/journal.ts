@@ -16,10 +16,14 @@ import { hashObject, looseObjectPath, ObjectType, writeLooseObject } from './obj
 import { readIndex } from './gitIndex';
 import { readRef, readSymbolicHead, writeRef, writeSymbolicRef } from './refs';
 
+/** 1 つの記録の先頭の 4 バイト。読むときに記録の境目と形を確かめる */
 const MAGIC = Buffer.from('MGJ1', 'ascii');
 
+/** 記録に入れるオブジェクト 1 つ。body は中身そのもの（圧縮前）で、起動時の作り直しで loose object を書き直すのに使う */
 export type JournalObject = { type: ObjectType; hash: string; body: Buffer };
+/** ref の 1 回の更新。old は更新の前の値（無かったときは null）、new は更新後の値。作り直しで ref を進めてよいか決めるのに使う */
 export type JournalRefChange = { name: string; old: string | null; new: string };
+/** 保存 1 回分の記録。seq はジャーナルの中の通し番号、at は ISO 形式の時刻（複数のジャーナルがあるとき、どの記録が新しいかの判断に使う） */
 export type JournalEntry = {
     seq: number;
     at: string;
@@ -29,10 +33,15 @@ export type JournalEntry = {
     head?: string;
 };
 
+/** ジャーナルのファイルを置くフォルダ（<Git のディレクトリ>/microgit-journal） */
 export function journalDir(gitDir: string): string {
     return path.join(gitDir, 'microgit-journal');
 }
 
+/**
+ * 記録 1 つを、ファイルに書く形（MAGIC・長さ・JSON・SHA-256）にする。形式は冒頭の説明のとおり。
+ * JSON の項目名は短くしてあり（t・h・d など）、parseJournal がそれを元に戻す。変えると、すでにあるジャーナルが読めなくなる
+ */
 export function serializeEntry(e: JournalEntry): Buffer {
     const payload = Buffer.from(JSON.stringify({
         v: 1,
@@ -104,7 +113,9 @@ export class Journal {
 
     constructor(private readonly gitDir: string) { }
 
+    /** 今のジャーナルに入っている、まだチェックポイントで片付けていない記録の数 */
     get pendingEntries(): number { return this.entries; }
+    /** 今のジャーナルに入っている、まだ片付けていない記録のバイト数 */
     get pendingBytes(): number { return this.bytes; }
 
     /**
@@ -214,6 +225,7 @@ export class Journal {
     }
 }
 
+/** ファイルの一覧から、親のフォルダの集合を作る（名前の確定＝ディレクトリの fsync の対象） */
 const parentDirs = (files: string[]) => new Set(files.map((f) => path.dirname(f)));
 
 /**
@@ -231,6 +243,7 @@ function fsyncDirSync(dir: string): void {
     }
 }
 
+/** fsyncDirSync の非同期版。チェックポイントなど、保存を待たせない所で使う。Windows では何もしない */
 async function fsyncDir(dir: string): Promise<void> {
     if (process.platform === 'win32') { return; }
     let h: fs.promises.FileHandle | undefined;
@@ -242,6 +255,7 @@ async function fsyncDir(dir: string): Promise<void> {
     }
 }
 
+/** パスが loose object（objects/<2 文字>/<38 文字>）か。ref や index など、上書きされうるファイルと区別するのに使う */
 const isObjectFile = (f: string) => /[\\/]objects[\\/][0-9a-f]{2}[\\/][0-9a-f]{38}$/.test(f);
 
 /**
@@ -269,6 +283,7 @@ async function flushFile(f: string): Promise<void> {
     if (isObjectFile(f)) { await fs.promises.chmod(f, 0o444).catch(() => undefined); }
 }
 
+/** flushFile の同期版。開く・fdatasync・閉じるまでを同期で一度に行う（上書きされうるファイルを、開いたままにしないため） */
 function flushFileSync(f: string): void {
     for (const flags of ['r+', 'r']) {
         let fd = -1;
@@ -288,6 +303,7 @@ function flushFileSync(f: string): void {
     if (isObjectFile(f)) { try { fs.chmodSync(f, 0o444); } catch { /* 読み取り専用にできなくても中身は確定している */ } }
 }
 
+/** recoverJournals が何をしたかの数。起動時の作り直しの結果の報告に使う */
 export type RecoveryReport = {
     files: number;
     entries: number;
@@ -426,6 +442,7 @@ export function recoverJournals(gitDir: string): RecoveryReport {
     return report;
 }
 
+/** 1 つの ref について、ジャーナル全体で出てきた値（values）、いちばん新しい記録の値（final）とその時刻（lastAt） */
 type RefChain = { values: Set<string>; final: string; lastAt: number };
 
 /**

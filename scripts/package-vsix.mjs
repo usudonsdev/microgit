@@ -33,6 +33,7 @@ import { fileURLToPath } from 'url';
 
 const require = createRequire(import.meta.url);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+/** コマンドラインに name があればその次の引数を、無ければ def を返す。 */
 const arg = (name, def) => (process.argv.includes(name) ? process.argv[process.argv.indexOf(name) + 1] : def);
 const artifacts = path.resolve(arg('--artifacts', 'artifacts'));
 const out = path.resolve(arg('--out', 'dist'));
@@ -43,12 +44,15 @@ const kernelRes = path.join(ROOT, 'resources', 'kernel');
 const cache = path.join(ROOT, '.cache', 'package-vsix');
 const vsceBin = path.join(path.dirname(require.resolve('@vscode/vsce/package.json')), 'vsce');
 
+/** ファイルの sha256 を 16 進の文字列で返す。 */
 const sha256 = (file) => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+/** ROOT からの相対パス file の `KEY=値` の行（KEY は大文字・数字・`_`）を、{ KEY: 値 } にして返す。version.env を読むのに使う。 */
 const env = (file) => Object.fromEntries(fs.readFileSync(path.join(ROOT, file), 'utf8').split(/\r?\n/)
     .filter((l) => /^[A-Z0-9_]+=/.test(l)).map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1).trim()]));
 const kernel = env('guest/kernel/version.env');
 const qemu = env('windows/qemu/version.env');
 
+/** src のフォルダの中身を、dst へ再帰的にコピーする（dst が無ければ作る）。 */
 function copyTree(src, dst) {
     fs.mkdirSync(dst, { recursive: true });
     for (const ent of fs.readdirSync(src, { withFileTypes: true })) {
@@ -58,11 +62,13 @@ function copyTree(src, dst) {
     }
 }
 
+/** p が無ければ「成果物が無い」の例外を投げる。あれば p をそのまま返す。 */
 function need(p) {
     if (!fs.existsSync(p)) { throw new Error(`成果物が無い: ${p}`); }
     return p;
 }
 
+/** src を dst へコピーする（dst のフォルダは作る）。mode があれば、コピー先にその権限を付ける。 */
 function copyFile(src, dst, mode) {
     fs.mkdirSync(path.dirname(dst), { recursive: true });
     fs.copyFileSync(need(src), dst);
@@ -82,9 +88,11 @@ function fetchVerified(url, sha, dest) {
     return dest;
 }
 
+/** Linux カーネルのソースの tar.xz を cache に取ってきて（あれば再利用）、version.env の KERNEL_SHA256 と照らし、そのパスを返す。 */
 const kernelTarball = () => fetchVerified(
     `https://cdn.kernel.org/pub/linux/kernel/v${kernel.KERNEL_VERSION.split('.')[0]}.x/linux-${kernel.KERNEL_VERSION}.tar.xz`,
     kernel.KERNEL_SHA256, path.join(cache, `linux-${kernel.KERNEL_VERSION}.tar.xz`));
+/** QEMU のソースの tar.xz を cache に取ってきて（あれば再利用）、version.env の QEMU_SHA256 と照らし、そのパスを返す。 */
 const qemuTarball = () => fetchVerified(
     `https://download.qemu.org/qemu-${qemu.QEMU_VERSION}.tar.xz`,
     qemu.QEMU_SHA256, path.join(cache, `qemu-${qemu.QEMU_VERSION}.tar.xz`));

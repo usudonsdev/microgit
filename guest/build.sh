@@ -74,6 +74,7 @@ fragment="$OUT/fragment.config"
 cat "$HERE/kernel/microgit.config" "$HERE/kernel/microgit-$ARCH.config" > "$fragment"
 echo "CONFIG_INITRAMFS_SOURCE=\"$OUT/initramfs.list\"" >> "$fragment"
 
+# カーネルのソース（$src）で make を実行する。出力先は $OUT/build、アーキテクチャは $KARCH、クロスコンパイラの接頭辞は $CROSS。
 kmake() { make -C "$src" O="$OUT/build" ARCH="$KARCH" CROSS_COMPILE="$CROSS" "$@"; }
 kmake -s allnoconfig
 "$src/scripts/kconfig/merge_config.sh" -m -O "$OUT/build" "$OUT/build/.config" "$fragment" >/dev/null

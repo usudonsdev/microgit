@@ -1,3 +1,16 @@
+/**
+ * 拡張機能テスト（VS Code の中で流す）。MicroGit を有効にして、VS Code の編集機能で保存し、過去に戻るコマンドで
+ * ワークスペースが戻るかを確かめる（#14）。
+ * 観点：保存した 2 つの時点を行き来でき、あとから作ったファイルは消え、日本語の名前も戻る。3 MiB のファイルも戻る。
+ * 保存の時間の計測（環境変数で走る。既定は飛ばす）。Overlay Status に、使ったバックエンドと速い記録の前提が出る。
+ * 実行は npm test（node ./out/test/runTest.js）。node scripts/run-unit-tests.mjs では流れない。
+ * 環境変数（どれも任意。付けないときは既定の動き）:
+ *   MICROGIT_TEST_BACKEND_SETTING=auto / kernel / nodejs   設定 microgit.overlayBackend をその値にしてから試す
+ *   MICROGIT_TEST_EXPECT_BACKEND=kernel / nodejs           使ったバックエンドが、その値であることも確かめる（kernel のときは checkout の記録も見る）
+ *   MICROGIT_TEST_SAVE_BENCH=<回数>                        保存の時間の計測を、その回数だけ行う（0 か未設定なら飛ばす）
+ *   MICROGIT_TEST_SAVE_BENCH_OUT=<パス>                    計測の 1 回ごとの記録を、そのパスに JSON で書く
+ * どのバックエンドを使うかは、ファイルの有無で決まる（suite の説明を参照）。
+ */
 import * as assert from 'assert';
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
@@ -20,6 +33,7 @@ suite('MicroGit Overlay backend (save → jump)', function () {
     let root: string;
     let shadow: string;
 
+    /** shadow（.microgit/shadow）の HEAD のハッシュを返す。最初のコミットの前は undefined。 */
     const shadowHead = (): string | undefined => {
         try {
             // 最初のコミットの前は HEAD が無い。その失敗の stderr は出さない
@@ -29,7 +43,9 @@ suite('MicroGit Overlay backend (save → jump)', function () {
         }
     };
 
+    /** microgit.internal.lastSave の戻り値。processed は処理を終えた保存の数、head は最後に作ったコミット。 */
     type LastSave = { processed: number; head?: string };
+    /** テスト専用の内部コマンド microgit.internal.lastSave で、最後の保存の状態を拡張機能から受け取る。 */
     const lastSave = async () => (await vscode.commands.executeCommand<LastSave>('microgit.internal.lastSave'))!;
 
     /**
@@ -53,6 +69,7 @@ suite('MicroGit Overlay backend (save → jump)', function () {
      * そろえて保存するので、入力した文字列ではなく、ディスクの中身と比べる（ADR-0012：保存したバイト列がそのまま戻る）
      */
     const savedBytes = new Map<string, Buffer>();
+    /** コミット head のファイル rel の中身が、保存したときのバイト列と同じかを確かめる（editAndSave が覚えたもの）。 */
     const assertRestored = (head: string, rel: string) => {
         const want = savedBytes.get(`${head}:${rel}`);
         assert.ok(want, `${head}:${rel} の保存した中身を覚えていない`);
@@ -161,9 +178,11 @@ suite('MicroGit Overlay backend (save → jump)', function () {
         const all = await vscode.commands.executeCommand<T[]>('microgit.internal.saveTimings');
         const out = process.env.MICROGIT_TEST_SAVE_BENCH_OUT;
         if (out) { fs.writeFileSync(out, JSON.stringify({ platform: `${process.platform}-${process.arch}`, saves: all, travels }, null, 2)); }
+        // 中央値（p50）と 95 パーセンタイル（p95）。saveTiming.ts の SaveTimingLog.summary と同じ求め方。
         const pct = (xs: number[], p: number) => { const s = [...xs].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.floor((s.length - 1) * p))] ?? 0; };
         const names = ['queue', 'policy', 'write', 'ensure', 'commit', 'layer', 'fileLog', 'overlay', 'logFile', 'ui'];
         const windowSize = Math.min(20, all.length);
+        // 段階ごとの時間の表を console に出す（最初の区間と最後の区間に使う）。
         const table = (label: string, items: T[]) => {
             const row = (n: string, xs: number[]) => `  ${n.padEnd(11)} p50 ${pct(xs, 0.5).toFixed(1).padStart(7)}  p95 ${pct(xs, 0.95).toFixed(1).padStart(7)}`;
             console.log(`[save-bench] ${label}（${items.length} 回、recorder=${[...new Set(items.map((i) => i.recorder))].join('/')} layer=${[...new Set(items.map((i) => i.layer))].join('/')}）`);

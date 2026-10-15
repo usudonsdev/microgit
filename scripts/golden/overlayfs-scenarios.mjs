@@ -134,6 +134,7 @@ export function chainOf(scenario, i) {
     return chain;
 }
 
+/** シナリオの名前・親・パス・内容を確かめ、不正なものがあれば Error を投げる。副作用はない。 */
 export function validateScenarios() {
     const names = new Set();
     for (const s of scenarios) {

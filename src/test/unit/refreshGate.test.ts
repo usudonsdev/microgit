@@ -1,7 +1,15 @@
+/**
+ * 画面の更新の合流と、Git 拡張の変更通知の重複の除去（refreshGate.ts の RefreshCoalescer・ChangeDedupe・headSignature）を確かめる単体テスト（#73）。
+ * 観点：走っている間の依頼は 1 回にまとめて、終わってから 1 回だけやり直す。結果を捨てた依頼も新しい結果が出てから解決する。
+ * 古い更新は表示を上書きしない（isCurrent）。invalidate で走っている更新を捨てる。失敗しても次の依頼は動く。
+ * HEAD の印（headSignature）が同じなら変わっていないと数える。VS Code は使わない。
+ * 実行は node scripts/run-unit-tests.mjs（先に npm run compile が要る）。
+ */
 import { strict as assert } from 'assert';
 import { describe, it } from 'node:test';
 import { ChangeDedupe, headSignature, RefreshCoalescer } from '../../refreshGate';
 
+/** 次のイベントループ（setImmediate）まで待つ。非同期の依頼がどこまで進んだかを見るために使う。 */
 const tick = () => new Promise<void>((r) => setImmediate(r));
 
 describe('画面の更新を 1 つずつ・最新だけにする（#73）', () => {

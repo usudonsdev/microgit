@@ -1,7 +1,13 @@
+/**
+ * 拡張機能テストの Mocha の入口（TDD スタイル）。直接は呼ばない。
+ * src/test/runTest.ts が extensionTestsPath としてこのファイルを指定し、VS Code のテストランナーが run を呼ぶ。
+ * out/test/suite/ の *.test.js をすべて読んで流す。
+ */
 import * as fs from 'fs';
 import Mocha from 'mocha';
 import * as path from 'path';
 
+/** out/test/suite の *.test.js を Mocha で流す。失敗が 1 つでもあれば reject し、VS Code のテストランナーは失敗として終わる。 */
 export function run(): Promise<void> {
     // Mochaの初期設定 (VS Code標準の TDD スタイル)
     const mocha = new Mocha({

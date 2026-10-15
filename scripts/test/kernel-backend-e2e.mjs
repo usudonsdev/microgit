@@ -58,7 +58,9 @@ if (opts.includes('--plan')) {
 }
 const maxDepth = opts.includes('--max-depth') ? Number(opts[opts.indexOf('--max-depth') + 1]) : 2;
 
+/** git を実行して標準出力の文字列を返す。core.quotepath=false を付ける。失敗は例外のまま投げる。 */
 const runGit = (cwd, args) => execFileSync('git', ['-c', 'core.quotepath=false', ...args], { cwd, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+/** runGit と同じ。失敗したら例外にせず undefined を返す。 */
 const tryRunGit = (cwd, args) => { try { return runGit(cwd, args); } catch { return undefined; } };
 const COMMIT_ENV = {
     ...process.env,
@@ -93,6 +95,7 @@ const extraScenarios = [
     },
 ];
 
+/** シナリオの操作（op）を、dir の Git の作業ツリーに当てる。rmdir は overlay.removeTree で消す。 */
 function applyOp(dir, op) {
     const [kind, a, b] = op;
     const abs = (rel) => path.join(dir, ...rel.split('/'));
@@ -107,6 +110,7 @@ function applyOp(dir, op) {
     }
 }
 
+/** バッファの sha256 を 16 進の文字列で返す。 */
 const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
 
 /** Git のツリーのファイル（パス → sha256） */
@@ -136,6 +140,9 @@ function workspaceFiles(root) {
     return out;
 }
 
+/**
+ * 期待（パス → sha256）と実際を比べ、違う行を返す。「- 」は無い、「~ 」は中身が違う、「+ 」は余分。
+ */
 function diffMaps(expected, actual) {
     const lines = [];
     for (const [p, h] of expected) {
@@ -145,12 +152,18 @@ function diffMaps(expected, actual) {
     return lines.sort();
 }
 
+/** 相対パスで、正規化しても `..` の要素を含まなければ真（空・絶対パスは偽）。Node 版の syncMergeToWorkspace に渡す。 */
 const isSafeRepoRelativePath = (rel) => !!rel && !path.isAbsolute(rel) && !path.normalize(rel).split(path.sep).includes('..');
+/** abs が root 直下の .microgit か .microgit_ で始まるもの（MicroGit の作業用）の中なら真。Node 版の syncMergeToWorkspace に渡す。 */
 const isMicroGitArtifactPath = (abs, root) => {
     const top = path.relative(root, abs).split(path.sep)[0];
     return top === '.microgit' || top.startsWith('.microgit_');
 };
 
+/**
+ * シナリオ s を、カーネル版（backend）と Node 版の両方で Git の各コミットに戻して、
+ * ワークスペースが Git のツリーと一致するかを確かめる。食い違いは failures に、件数は stats に足す。終わると一時フォルダを消す。
+ */
 async function runScenario(backend, s, failures, stats) {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'microgit-e2e-'));
     try {

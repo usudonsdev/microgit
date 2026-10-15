@@ -16,12 +16,15 @@ import { AgentUnavailableError } from './agentConnection';
 import { KernelBackendOptions, KernelOverlayBackend } from './kernelBackend';
 import { LaunchPlan } from './launchers';
 
+/** 設定 microgit.overlayBackend の値 */
 export type BackendSetting = 'auto' | 'kernel' | 'nodejs';
 
+/** 設定の値を BackendSetting にする。kernel・nodejs 以外（未設定や不正な値）は auto */
 export function parseBackendSetting(value: unknown): BackendSetting {
     return value === 'kernel' || value === 'nodejs' ? value : 'auto';
 }
 
+/** BackendSelector が外から受け取るもの。plan は起動の計画（毎回呼ぶので、環境の変化を拾える）、log・notify は VS Code に依存しないための出口 */
 export type SelectorDeps = {
     setting: BackendSetting;
     plan: () => LaunchPlan;
@@ -32,8 +35,13 @@ export type SelectorDeps = {
     kernelOptions?: Partial<KernelBackendOptions>;
 };
 
+/** 動いていた agent が落ちたあと、起動し直す回数の上限 */
 const MAX_RESTARTS = 2;
 
+/**
+ * カーネル版（KernelOverlayBackend）を、必要になったときに 1 つだけ起動して持つ。使えなければ fail で諦め、呼ぶ側は Node 版を使う。
+ * 同時に何度 ensureKernel を呼んでも、起動は 1 回（starting を共有する）
+ */
 export class BackendSelector {
     private kernel: KernelOverlayBackend | undefined;
     private starting: Promise<KernelOverlayBackend | undefined> | undefined;
@@ -43,6 +51,7 @@ export class BackendSelector {
 
     constructor(private readonly deps: SelectorDeps) { }
 
+    /** 設定の値 */
     get setting(): BackendSetting {
         return this.deps.setting;
     }
@@ -77,6 +86,7 @@ export class BackendSelector {
         return this.starting;
     }
 
+    /** 起動の計画を立てて、カーネル版を起動する。計画が立たない・起動に失敗したら fail して undefined。起動中に dispose された場合は、起動したものを止めて undefined */
     private async start(): Promise<KernelOverlayBackend | undefined> {
         const plan = this.deps.plan();
         if (!plan.ok) {
@@ -120,10 +130,12 @@ export class BackendSelector {
         }
     }
 
+    /** カーネル版を諦めた理由（諦めていなければ undefined） */
     get failureReason(): string | undefined {
         return this.failure;
     }
 
+    /** Overlay Status に出す説明。設定・諦めた理由か、動いているカーネル版の説明 */
     async describe(): Promise<string> {
         const lines = [`overlayBackend=${this.deps.setting}`];
         if (this.deps.setting === 'nodejs') {
@@ -139,6 +151,7 @@ export class BackendSelector {
         return lines.join('\n');
     }
 
+    /** 以後カーネル版を使わない状態にして、動いているカーネル版に電源を切らせる */
     async dispose(): Promise<void> {
         this.disposed = true;
         const kernel = this.kernel;

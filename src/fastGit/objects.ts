@@ -10,8 +10,10 @@ import { timedFsync } from './fsyncStats';
 import * as path from 'path';
 import * as zlib from 'zlib';
 
+/** このファイルが作れるオブジェクトの種類（タグのオブジェクトは扱わない） */
 export type ObjectType = 'blob' | 'tree' | 'commit';
 
+/** オブジェクトの先頭に付ける「<種類> <長さ> と NUL 1 バイト」。ハッシュの計算と、圧縮する中身の両方で使う */
 export function objectHeader(type: ObjectType, length: number): Buffer {
     return Buffer.from(`${type} ${length}\0`, 'ascii');
 }
@@ -21,6 +23,7 @@ export function hashObject(type: ObjectType, body: Buffer): string {
     return crypto.createHash('sha1').update(objectHeader(type, body.length)).update(body).digest('hex');
 }
 
+/** loose object のパス（objects/<ハッシュの先頭 2 文字>/<残り>） */
 export function looseObjectPath(gitDir: string, hash: string): string {
     return path.join(gitDir, 'objects', hash.slice(0, 2), hash.slice(2));
 }
@@ -74,6 +77,7 @@ export function writeLooseObject(
  */
 export type ObjectWriteCache = { present: Set<string>; dirs: Set<string> };
 
+/** tree の 1 エントリ。hash は 16 進 40 文字 */
 export type TreeEntry = {
     /** 100644・100755・120000・160000・40000（ディレクトリ） */
     mode: string;
@@ -86,6 +90,7 @@ function treeSortKey(e: TreeEntry): Buffer {
     return Buffer.from(e.mode === '40000' ? `${e.name}/` : e.name, 'utf8');
 }
 
+/** tree の中身にする。エントリは Git の並び順（treeSortKey）に並べ替えてから、「<mode> <名前> NUL 20 バイトのハッシュ」をつなぐ。渡した配列は変えない */
 export function serializeTree(entries: TreeEntry[]): Buffer {
     const sorted = [...entries].sort((a, b) => Buffer.compare(treeSortKey(a), treeSortKey(b)));
     const parts: Buffer[] = [];
@@ -95,6 +100,7 @@ export function serializeTree(entries: TreeEntry[]): Buffer {
     return Buffer.concat(parts);
 }
 
+/** author・committer の識別情報。seconds は UNIX 秒、tz は「+0900」の形 */
 export type Ident = { name: string; email: string; seconds: number; tz: string };
 
 /** 「名前 <メール> 秒 +0900」 */

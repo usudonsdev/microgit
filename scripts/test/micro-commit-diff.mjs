@@ -28,14 +28,17 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 const { recordMicroCommitViaGitCli } = require(path.join(ROOT, 'out', 'microCommit.js'));
 const { FastMicroCommitter, FastPathUnsupported } = require(path.join(ROOT, 'out', 'fastMicroCommit.js'));
 
+/** コマンドラインに name があればその次の引数を、無ければ def を返す。 */
 const arg = (name, def) => (process.argv.includes(name) ? process.argv[process.argv.indexOf(name) + 1] : def);
 const SAVES = Number(arg('--saves', '400'));
 const CRLF = process.argv.includes('--crlf');
 const { SHADOW_ATTRIBUTES } = require(path.join(ROOT, 'out', 'shadowStore.js'));
 let seed = 7;
+/** 固定の種（7）から始まる線形合同法で、0 以上 1 以下の数を返す。呼ぶたびにモジュールの seed が進む。 */
 const rand = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
 
 const BASE = 1_800_000_000;
+/** n 番目のコミット用の環境を返す。作者・コミッターを固定し、日時を BASE + n 秒（+0900）にして、ハッシュが再現できるようにする。 */
 const envAt = (n) => ({
     ...process.env,
     GIT_AUTHOR_NAME: 'MicroGit', GIT_AUTHOR_EMAIL: 'microgit@local',
@@ -43,12 +46,14 @@ const envAt = (n) => ({
     GIT_AUTHOR_DATE: `${BASE + n} +0900`, GIT_COMMITTER_DATE: `${BASE + n} +0900`,
 });
 
+/** dir で git を実行して標準出力の文字列を返す（env 省略時は process.env）。失敗は例外のまま投げる。 */
 const git = (dir, args, env) => execFileSync('git', ['-c', 'core.quotepath=false', ...args], { cwd: dir, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], env: env ?? process.env });
 const cli = {
     run: (cwd, args, o) => git(cwd, args, o?.env),
     tryRun: (cwd, args) => { try { return git(cwd, args); } catch { return undefined; } },
 };
 
+/** 名前つきの一時フォルダに micro-history の Git リポジトリを作る。--crlf のときは info/attributes も置く。 */
 function makeRepo(name) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), `microgit-diff-${name}-`));
     git(os.tmpdir(), ['init', '-q', '-b', 'micro-history', dir]);
@@ -67,6 +72,7 @@ const B = makeRepo('fast');
 const fast = new FastMicroCommitter(B, () => true);
 let fallbacks = 0;
 
+/** 同じ内容を、CLI 側（A）と速い側（B）の両方の作業ツリーに書く。CRLF のときは改行を CRLF にする。 */
 function write(rel, content) {
     if (CRLF) { content = content.replace(/\r?\n/g, '\r\n'); }
     for (const d of [A, B]) {
@@ -84,6 +90,10 @@ let lastEdit;
 
 let deltas = 0;
 let diskChecks = 0;
+/**
+ * 保存 n の結果を比べる（oa は CLI、ob は速い実装）。違えば例外を投げる。
+ * 4 回に 1 回くらいは書き出したあとに、delta と git diff-tree の一致、HEAD・ref・index の一致も確かめる。
+ */
 function check(n, label, oa, ob) {
     const same = (x, y) => JSON.stringify(x) === JSON.stringify(y);
     // 速い記録だけが付ける「親からの変化」（delta、#37）は比べる前に外し、別に中身を確かめる
@@ -120,6 +130,10 @@ function check(n, label, oa, ob) {
     if (!same(sa, sb)) { throw new Error(`#${n} ${label}: 状態が違う\n cli : ${JSON.stringify(sa)}\n fast: ${JSON.stringify(sb)}`); }
 }
 
+/**
+ * 保存 1 回を、CLI と速い実装の両方に流し、結果を check で比べる。
+ * 速い実装が使えないとき（FastPathUnsupported）は、書き出したあと CLI で記録し直す（fallbacks に数える）。
+ */
 function save(n, rel, label) {
     const input = (dir, tag) => ({
         shadowRepoPath: dir, relativeFilePath: rel, currentTag: tag,

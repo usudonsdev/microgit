@@ -18,6 +18,7 @@ if (dirs.length === 0) {
     process.exit(2);
 }
 
+/** xs の中央値を返す（偶数個なら中央の 2 つの平均）。空だと NaN。 */
 const median = (xs) => {
     if (xs.length === 0) { return NaN; }
     const s = [...xs].sort((a, b) => a - b);
@@ -47,6 +48,7 @@ function summarize(dir) {
 }
 
 const runs = dirs.map((d) => ({ dir: d, envs: summarize(d) }));
+/** 有限の数なら小数 1 桁の文字列に、そうでなければ `-` にする。 */
 const fmt = (v) => (Number.isFinite(v) ? v.toFixed(1) : '-');
 const envs = [...new Set(runs.flatMap((r) => [...r.envs.keys()]))];
 const cols = ['total', 'commit', 'recorded', 'fsyncCount', 'fsyncMs', 'journal'];

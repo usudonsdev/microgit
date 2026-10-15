@@ -32,6 +32,7 @@ const opts = argv.slice(0, sep);
 const [cmd, ...cmdArgs] = argv.slice(sep + 1);
 const jsonOut = opts.includes('--json') ? opts[opts.indexOf('--json') + 1] : undefined;
 
+/** test/golden/overlayfs/<name>.golden を読み、コミットごとの行の配列を並べて返す。空行と「# 」で始まる行は捨てる。 */
 function readGolden(name) {
     const commits = [];
     const text = fs.readFileSync(path.join(GOLDEN_DIR, `${name}.golden`), 'utf8').replace(/\r\n/g, '\n');
@@ -43,6 +44,7 @@ function readGolden(name) {
     return commits;
 }
 
+/** 値の配列の p パーセンタイル（0〜100）を、添字で求めて返す。空の配列なら 0。 */
 function percentile(values, p) {
     if (!values.length) { return 0; }
     const s = [...values].sort((a, b) => a - b);
@@ -66,6 +68,10 @@ const UPPER_EXPECT = {
     'file-to-dir': { 2: ['O\tp', 'f\tp/q.txt'] },
 };
 
+/**
+ * ゲストを起動し、全シナリオを流して、カーネルの期待値と照合する。
+ * 食い違いは標準エラーに出して exit 1。要約は標準出力に JSON で出し、--json があればそのファイルにも書く。
+ */
 async function main() {
     validateScenarios();
     const started = process.hrtime.bigint();

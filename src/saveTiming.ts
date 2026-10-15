@@ -18,9 +18,11 @@
  * VS Code に依存しない（単体テストで確かめるため）。
  */
 
+/** 計る段階の名前。冒頭の説明の順に並ぶ（summary の行もこの順で出る）。 */
 export const SAVE_STAGES = ['queue', 'policy', 'write', 'ensure', 'commit', 'layer', 'fileLog', 'overlay', 'logFile', 'ui'] as const;
 export type SaveStage = typeof SAVE_STAGES[number];
 
+/** 保存 1 回の計測結果（ms）。stages は通った段階だけを持つ。result は保存の結末を表す文字列（呼び出し側が決める）。 */
 export type SaveTiming = {
     stages: Partial<Record<SaveStage, number>>;
     /** 保存のイベントから記録（コミット）が終わるまで */
@@ -36,8 +38,10 @@ export type SaveTiming = {
     layer?: string;
 };
 
+/** 現在時刻（ms）を返す関数。テストで時間を差し替えるために注入する。 */
 type Clock = () => number;
 
+/** 保存 1 回ぶんの計測器。保存のイベントごとに 1 つ作り、段階の終わりで mark し、最後に finish で結果を取る。 */
 export class SaveTimer {
     private last: number;
     readonly timing: SaveTiming = { stages: {}, totalMs: 0, result: 'unknown' };
@@ -59,14 +63,17 @@ export class SaveTimer {
         this.last = this.now();
     }
 
+    /** 保存のイベントから、いままでを「記録が終わるまで」として残す。 */
     recorded(): void {
         this.timing.recordedMs = this.now() - this.eventAt;
     }
 
+    /** 保存のイベントから、いままでを「その時点に戻れるようになるまで」として残す。 */
     restorable(): void {
         this.timing.restorableMs = this.now() - this.eventAt;
     }
 
+    /** 全体の時間と結末（result）を確定し、計測結果を返す。 */
     finish(result: string): SaveTiming {
         this.timing.totalMs = this.now() - this.eventAt;
         this.timing.result = result;
@@ -80,15 +87,18 @@ export class SaveTimingLog {
 
     constructor(private readonly capacity = 200) { }
 
+    /** 1 回分を足す。容量（既定 200）を超えたら古いものから捨てる。 */
     add(t: SaveTiming): void {
         this.items.push(t);
         if (this.items.length > this.capacity) { this.items.shift(); }
     }
 
+    /** いま持っている計測結果（古い順）。読み取り専用。 */
     get all(): readonly SaveTiming[] {
         return this.items;
     }
 
+    /** 持っている計測結果をすべて捨てる。 */
     clear(): void {
         this.items.length = 0;
     }

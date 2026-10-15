@@ -1,3 +1,10 @@
+/**
+ * 永続性の水準（durability.ts の power と process）を確かめる単体テスト。VS Code を使わない。
+ * 観点：既定と不明な値は power で、Git に fsync の引数を付ける。process では引数を足さない。
+ * power の引数を付けても、保存 1 回と同じ Git の手順（add・write-tree・commit-tree・update-ref）が通る。
+ * 水準の理由は durability.ts の冒頭に書いてある（#11、docs/adr/0002-durability.md）。
+ * 実行は node scripts/run-unit-tests.mjs（先に npm run compile が要る）。Git の実行ファイルが要る。
+ */
 import * as assert from 'assert';
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
@@ -6,6 +13,7 @@ import * as path from 'path';
 import { afterEach, test } from 'node:test';
 import { durabilityGitArgs, getDurability, setDurability } from '../../durability';
 
+// 各テストの後で水準を既定（power）に戻す。setDurability(undefined) は power になる。
 afterEach(() => setDurability(undefined));
 
 test('既定（設定なし・不明な値）は power で、ばらのオブジェクトと ref を fsync する', () => {

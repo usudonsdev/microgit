@@ -30,9 +30,11 @@ const VIEW_OK_MARKER = '.microgit_view_ok';
 const require = createRequire(import.meta.url);
 const o = require(path.join(ROOT, 'out', 'overlay.js'));
 
+/** cwd で git を実行して標準出力を返す。失敗は例外のまま投げる。 */
 const runGit = (cwd, args) => execFileSync('git', args, {
     cwd, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
 });
+/** runGit と同じ。失敗したら例外にせず undefined を返す。 */
 const tryRunGit = (cwd, args) => {
     try { return runGit(cwd, args); } catch { return undefined; }
 };
@@ -43,10 +45,12 @@ const COMMIT_ENV = {
     GIT_AUTHOR_NAME: 'golden', GIT_AUTHOR_EMAIL: 'golden@example.invalid', GIT_AUTHOR_DATE: '2000-01-01T00:00:00Z',
     GIT_COMMITTER_NAME: 'golden', GIT_COMMITTER_EMAIL: 'golden@example.invalid', GIT_COMMITTER_DATE: '2000-01-01T00:00:00Z',
 };
+/** cwd に、message の空コミットを作る（COMMIT_ENV で作者と日時を固定する）。失敗は例外。 */
 const commit = (cwd, message) => execFileSync('git', ['commit', '-q', '--allow-empty', '-m', message], {
     cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, env: COMMIT_ENV,
 });
 
+/** シナリオの 1 つの操作（op）を、dir の中のファイル・フォルダに当てる。 */
 function applyOp(dir, op) {
     const [kind, a, b] = op;
     const abs = (rel) => path.join(dir, ...rel.split('/'));
@@ -93,6 +97,7 @@ function dump(root) {
         .map((e) => e[1]);
 }
 
+/** test/golden/overlayfs/<name>.golden を読み、コミットごとの行の配列を並べて返す。改行は LF に直してから読む。 */
 function readGolden(name) {
     const commits = [];
     // core.autocrlf=true の Windows では CRLF で取り出される
@@ -104,6 +109,7 @@ function readGolden(name) {
     return commits;
 }
 
+/** build() でビューを作って dump した行を返す。例外なら ['! error'] を返す（--verbose のときは例外も表示する）。 */
 function viewOrError(build) {
     try {
         return dump(build());
@@ -115,6 +121,7 @@ function viewOrError(build) {
     }
 }
 
+/** 期待値（expected）と実際（actual）の違いを、「- 」（期待だけ）と「+ 」（実際だけ）の行にして、パスの順に返す。 */
 function diffLines(expected, actual) {
     const exp = new Set(expected);
     const act = new Set(actual);
@@ -125,6 +132,10 @@ function diffLines(expected, actual) {
     ].sort((x, y) => (key(x) < key(y) ? -1 : key(x) > key(y) ? 1 : x < y ? -1 : 1));
 }
 
+/**
+ * シナリオ s を、MicroGit の保存と同じ経路（exportCommitLayer → ensureExpandedView）で一時フォルダに流す。
+ * saved（保存時に伸ばしたビュー）と rebuilt（層だけから組み直したビュー）の食い違いを返す。終わると一時フォルダを消す。
+ */
 function runScenario(s) {
     const golden = readGolden(s.name);
     if (golden.length !== s.commits.length) {

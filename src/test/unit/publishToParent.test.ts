@@ -1,3 +1,11 @@
+/**
+ * 親のリポジトリへの共有（shadowStore.ts の publishToParentRefs と publishQueue.ts の PublishQueue）を確かめる単体テスト（#72）。
+ * 観点：Git の起動を非同期にして push をまとめても、親の refs/microgit/<ブランチ>/… が直す前の方法（legacyPublish）と同じになること。
+ * reftable の隠しリポジトリでも同じになること。micro-history とタグの失敗の扱い（タグは警告だけ、micro-history は例外）。
+ * 速い記録の書き出し（ADR-0015）。共有の間もイベントループが回ること。PublishQueue は同時に 1 つだけ走り、まとめ、
+ * ブランチごとに合流し、close し、エラーでも止まらないこと。
+ * 実行は node scripts/run-unit-tests.mjs（先に npm run compile が要る。git の実行ファイルが要る）。
+ */
 import * as assert from 'assert';
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
@@ -13,6 +21,7 @@ import { bareGitDirPath, ensureShadowRepoForBranch, parentMicroRefPrefix, publis
  * 親にできる refs/microgit/<ブランチ>/…（名前と指す先）が前とまったく同じになることを確かめる。
  */
 
+/** テストで使うメインのブランチ名。 */
 const BRANCH = 'main';
 // 2 つのリポジトリで同じコミット（同じハッシュ）を作るため、日時と名前を固定する
 const ENV = {
@@ -21,6 +30,7 @@ const ENV = {
     GIT_AUTHOR_DATE: '2026-01-01T00:00:00Z', GIT_COMMITTER_DATE: '2026-01-01T00:00:00Z',
 };
 
+/** 一時リポジトリに対して git を呼び、出力を trim して返す。ENV で作者と日時を固定する。input があれば標準入力に渡す。 */
 function git(args: string[], input?: string): string {
     return execFileSync('git', args, { encoding: 'utf8', env: ENV, input, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }).trim();
 }
@@ -49,10 +59,12 @@ function legacyPublish(mainRepoPath: string, mainBranch: string, log?: (m: strin
     }
 }
 
+/** 親の refs/microgit/ の一覧を「ref 名 ハッシュ」の行にして返す。直す前と直した後の比べる対象。 */
 function parentRefs(mainRepoPath: string): string {
     return git(['-C', mainRepoPath, 'for-each-ref', '--format=%(refname) %(objectname)', 'refs/microgit/']);
 }
 
+/** root の下に親のリポジトリ（ブランチ main）を作り、そのパスを返す。 */
 function makeMain(root: string, name: string): string {
     const main = path.join(root, name);
     fs.mkdirSync(main, { recursive: true });
@@ -72,6 +84,7 @@ function both(mains: string[], fn: (bare: string) => void): void {
     for (const m of mains) { fn(bareGitDirPath(m, BRANCH)); }
 }
 
+/** テスト用の一時フォルダを作る。消すのは呼び出し側（各テストの finally）。 */
 function tmpRoot(): string {
     return fs.mkdtempSync(path.join(os.tmpdir(), 'microgit-publish-'));
 }
@@ -101,6 +114,7 @@ describe('親 refs への共有（#72）：直す前と同じ refs ができる'
             });
 
             const p = parentMicroRefPrefix(BRANCH);
+            // 直す前の方法と直した後の方法で親に共有し、親の refs が同じで、期待する一覧どおりかを確かめる。
             const check = async (label: string, expected: string[]) => {
                 legacyPublish(a);
                 await publishToParentRefs(b, BRANCH);
@@ -372,6 +386,7 @@ describe('親 refs への共有（#72）：直す前と同じ refs ができる'
     });
 });
 
+/** 直す前の方法（legacyPublish）を、テストから呼びやすい形にしたもの。比べる相手として使う。 */
 function legacyPublishFn(mainRepoPath: string, mainBranch: string): void {
     legacyPublish(mainRepoPath, mainBranch);
 }
@@ -383,6 +398,7 @@ describe('共有の列（PublishQueue、#72）', () => {
         const promise = new Promise<void>((r) => { resolve = r; });
         return { promise, resolve };
     }
+    /** 次のイベントループまで待つ。キューが次の仕事を始める時間を作る。 */
     const tick = () => new Promise((r) => setImmediate(r));
 
     test('走っている間に何度頼まれても、終わってからもう 1 回だけ、最後の内容で走る', async () => {

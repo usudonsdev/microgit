@@ -16,12 +16,15 @@
  */
 export type Durability = 'power' | 'process';
 
+/** いまの水準。モジュールの中の状態で、setDurability で変わる。既定は power。 */
 let current: Durability = 'power';
 
+/** 水準を設定する。'process' 以外（不明な値・未設定を含む）はすべて power にする。 */
 export function setDurability(value: unknown): void {
     current = value === 'process' ? 'process' : 'power';
 }
 
+/** いまの水準を返す。 */
 export function getDurability(): Durability {
     return current;
 }

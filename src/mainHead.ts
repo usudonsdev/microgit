@@ -1,12 +1,15 @@
 /** マイクロコミットとメイン HEAD の紐づけ（Main-Head trailer） */
 
+/** マイクロコミットのメッセージ末尾に付ける trailer のキー。 */
 export const MAIN_HEAD_TRAILER = 'Main-Head';
 
+/** メインの Git のコミット 1 つ（区間の選択肢を作る入力）。 */
 export interface MainCommitInfo {
     hash: string;
     subject: string;
 }
 
+/** パネルの「メインコミット区間」の選択肢 1 つ。 */
 export interface MainIntervalOption {
     /** 'all' | 'unclassified' | フルハッシュ */
     id: string;
@@ -15,8 +18,10 @@ export interface MainIntervalOption {
     mainHead: string | null;
 }
 
+/** 40 桁の 16 進数（大文字小文字を区別しない）に当てはまる正規表現。完全なコミットハッシュの判定に使う。短縮ハッシュは trailer に書かない（buildMicroCommitMessage）。 */
 const FULL_SHA = /^[0-9a-f]{40}$/i;
 
+/** `Main-Head: <sha>` の 1 行を作る。 */
 export function formatMainHeadTrailer(sha: string): string {
     return `${MAIN_HEAD_TRAILER}: ${sha}`;
 }
@@ -31,6 +36,10 @@ export function parseMainHeadFromMessage(subject: string, body = ''): string | u
     return m[1].toLowerCase();
 }
 
+/**
+ * マイクロコミットのメッセージを作る。件名は `micro: [AI] saved <パス> at <時刻>`（AI の編集のとき [AI] が付く）。
+ * mainHead が 40 桁の完全なハッシュのときだけ、空行のあとに Main-Head trailer を付ける（それ以外は黙って付けない）。
+ */
 export function buildMicroCommitMessage(
     relativeFilePath: string,
     fromAi: boolean,
@@ -46,6 +55,7 @@ export function buildMicroCommitMessage(
     return subject;
 }
 
+/** ハッシュを先頭 len 文字に縮める。未指定・空のときは `-`。 */
 export function shortHash(hash: string | undefined, len = 7): string {
     if (!hash) {
         return '-';
@@ -53,6 +63,7 @@ export function shortHash(hash: string | undefined, len = 7): string {
     return hash.substring(0, len);
 }
 
+/** 件名の空白を 1 つにまとめて max 文字以内に切る。切ったときは末尾を `…` にする。 */
 function truncateSubject(subject: string, max = 40): string {
     const s = subject.replace(/\s+/g, ' ').trim();
     if (s.length <= max) {
@@ -121,6 +132,10 @@ export function buildMainIntervalOptions(
     return options;
 }
 
+/**
+ * コミットを Main-Head の区間で絞る。null は絞らない、空文字は Main-Head の無いもの、
+ * それ以外はその Main-Head に一致するもの（大文字小文字を区別しない）。
+ */
 export function filterCommitsByMainInterval<T extends { mainHead?: string }>(
     commits: T[],
     intervalMainHead: string | null,

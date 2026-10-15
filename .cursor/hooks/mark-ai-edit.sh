@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Agent / Tab がファイルを編集したら pending に記録し、MicroGit 保存時に [AI] 付きで残す。
 # stdout は空 JSON。
+# 入力: フックの JSON を stdin から読み、file_path（無ければ path）を取り出す。JSON でなければ何もしない。
+# 記録先: リポジトリ直下の .microgit/logs/ai-pending.json（相対パスの一覧）。.microgit・.cursor/ 配下と、リポジトリの外は記録しない。
 
 set -euo pipefail
 

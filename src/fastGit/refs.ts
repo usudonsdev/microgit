@@ -17,6 +17,7 @@ export function resolveGitDir(workTree: string): string {
     return path.resolve(workTree, m[1]);
 }
 
+/** packed-refs を「ref の名前 → コミット」の Map にして返す。ファイルが無ければ空。peeled の行（^ で始まる行）は読み飛ばす */
 function readPackedRefs(gitDir: string): Map<string, string> {
     const map = new Map<string, string>();
     const file = path.join(gitDir, 'packed-refs');
@@ -131,6 +132,7 @@ export function logRefUpdate(
     } catch { /* HEAD が読めなければ足さない */ }
 }
 
+/** reflog のファイル（logs/<名前>）に 1 行足す。そのファイルがまだ無ければ何もしない（reflog を新しく作らない） */
 function appendReflog(gitDir: string, name: string, oldHash: string, newHash: string, ident: string, message?: string): void {
     const log = path.join(gitDir, 'logs', ...name.split('/'));
     if (!fs.existsSync(log)) { return; }

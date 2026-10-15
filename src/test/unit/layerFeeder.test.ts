@@ -1,3 +1,10 @@
+/**
+ * LayerFeeder（kernel/layerFeeder.ts）のフレーム分割を確かめる単体テスト。実際の agent は使わず、送った要求を記録する偽の agent で見る。
+ * 観点：1 行の上限（maxFrameBytes）がある通り道では、中身を stage に分けて commit は writeupload だけを送る。
+ * 上限が無ければ従来どおり writeb64 を 1 回で送る。ファイル数が多く commit のメタデータも上限を超えるときは stageOp に分ける。
+ * 一時的な Git リポジトリを作って使うので、git の実行ファイルが要る。
+ * 実行は node scripts/run-unit-tests.mjs（先に npm run compile が要る）。
+ */
 import * as assert from 'assert';
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
@@ -7,8 +14,10 @@ import { describe, test } from 'node:test';
 import { AgentConnection } from '../../kernel/agentConnection';
 import { LayerFeeder } from '../../kernel/layerFeeder';
 
+/** agent に送る要求（JSON の 1 行）。op で種類が分かる。 */
 type Request = Record<string, unknown>;
 
+/** 100 KiB のファイルを 1 つ含む一時リポジトリを作り、その場所と HEAD のハッシュを返す。 */
 function repositoryWithLargeFile(): { root: string; head: string } {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'microgit-feeder-test-'));
     const git = (...args: string[]) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
@@ -19,6 +28,7 @@ function repositoryWithLargeFile(): { root: string; head: string } {
     return { root, head: git('rev-parse', 'HEAD') };
 }
 
+/** 700 個の名前の長いファイルを含む一時リポジトリを作り、その場所と HEAD のハッシュを返す。commit のメタデータが 1 行の上限を超える形。 */
 function repositoryWithManyFiles(): { root: string; head: string } {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'microgit-feeder-many-'));
     const git = (...args: string[]) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
@@ -31,6 +41,7 @@ function repositoryWithManyFiles(): { root: string; head: string } {
     return { root, head: git('rev-parse', 'HEAD') };
 }
 
+/** 送られた要求を requests に記録し、commit には成功を返す偽の AgentConnection。maxFrameBytes で 1 行の上限の有無を決める（undefined なら上限なし）。 */
 function fakeAgent(maxFrameBytes: number | undefined, requests: Request[]): AgentConnection {
     return {
         spec: { command: 'fake', args: [], description: 'fake', maxFrameBytes },
@@ -41,6 +52,7 @@ function fakeAgent(maxFrameBytes: number | undefined, requests: Request[]): Agen
     } as unknown as AgentConnection;
 }
 
+/** git を呼び、失敗したら undefined を返す（stderr は捨てる）。LayerFeeder に渡す。 */
 const tryRunGit = (cwd: string, args: string[]): string | undefined => {
     try {
         return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });

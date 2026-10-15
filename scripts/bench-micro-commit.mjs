@@ -33,6 +33,7 @@ const { recordMicroCommitViaGitCli } = require(path.join(ROOT, 'out', 'microComm
 const { durabilityGitArgs, setDurability } = require(path.join(ROOT, 'out', 'durability.js'));
 const { FastMicroCommitter } = require(path.join(ROOT, 'out', 'fastMicroCommit.js'));
 
+/** コマンドラインに name があればその次の引数を、無ければ def を返す。 */
 const arg = (name, def) => (process.argv.includes(name) ? process.argv[process.argv.indexOf(name) + 1] : def);
 const FILES = Number(arg('--files', '200'));
 const SAVES = Number(arg('--saves', '1000'));
@@ -47,6 +48,7 @@ setDurability(DURABILITY);
 
 // 擬似乱数（種は固定）
 let seed = 20261001;
+/** 固定の種（seed）から始まる線形合同法で、0 以上 1 以下の数を返す。呼ぶたびにモジュールの seed が進む。 */
 const rand = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
 
 const COMMIT_ENV = {
@@ -55,6 +57,7 @@ const COMMIT_ENV = {
     GIT_COMMITTER_NAME: 'MicroGit', GIT_COMMITTER_EMAIL: 'microgit@local',
 };
 
+/** 名前（name）つきの一時フォルダに micro-history ブランチの Git リポジトリを作り、そのパスを返す。改行の変換は無効にする。 */
 function makeRepo(name) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), `microgit-bench-${name}-`));
     execFileSync('git', ['init', '-q', '-b', 'micro-history', dir]);
@@ -97,6 +100,7 @@ for (let n = 0; n < SAVES; n++) {
     saves.push({ rel, content });
 }
 
+/** dir に初期のファイル（FILES 個）を書き、最初のコミット（initial）を作る。 */
 function seedTree(dir) {
     for (let i = 0; i < FILES; i++) {
         const p = path.join(dir, 'src', `dir${i % 10}`, `file${i}.ts`);
@@ -107,9 +111,15 @@ function seedTree(dir) {
     execFileSync('git', ['-C', dir, 'commit', '-q', '-m', 'initial'], { env: COMMIT_ENV });
 }
 
+/** xs を昇順にした並びの、割合 p の位置（添字を切り捨てて求める近似）の値を返す。xs は変えない。空だと undefined。 */
 const pct = (xs, p) => { const s = [...xs].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.floor((s.length - 1) * p))]; };
+/** xs の平均を返す。空だと NaN。 */
 const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
 
+/**
+ * 保存の列を 1 つの実装（record。prepare が作る ctx を使う）に流し、CHECKPOINTS ごとの結果の行を返す。
+ * ctx.checkpoint は IDLE 回ごとに、計測の外で呼ぶ。終わったら、git 以外の実装について git fsck --strict を流す。
+ */
 async function run(name, record, prepare) {
     const dir = makeRepo(name);
     seedTree(dir);

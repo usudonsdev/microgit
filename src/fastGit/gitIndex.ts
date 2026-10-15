@@ -11,6 +11,7 @@ import { timedFsync } from './fsyncStats';
 import * as path from 'path';
 import { renameReplaceSync } from './renameRetry';
 
+/** index の 1 エントリ（1 ファイル分）。数値の項目は index の形式どおり 32 ビットで持つ */
 export type IndexEntry = {
     ctimeSec: number; ctimeNsec: number;
     mtimeSec: number; mtimeNsec: number;
@@ -23,10 +24,16 @@ export type IndexEntry = {
     path: string;
 };
 
+/** index の全体。version は 2 か 3。読んだものはファイルの版のまま、serializeIndex は拡張フラグを持つエントリがあるときだけ 3 で書く */
 export type GitIndex = { version: number; entries: IndexEntry[] };
 
+/** このファイルが扱えない index（版 4、link 拡張など）を見つけたときの例外。呼ぶ側はこれを受けて Git の CLI に任せる */
 export class UnsupportedIndexError extends Error { }
 
+/**
+ * index ファイルを読む。無ければ空の index（版 2）を返す。
+ * 形が違う・版 2 と 3 以外・split index の拡張があるときは UnsupportedIndexError を投げる。TREE などほかの拡張は読み飛ばす（返さない）
+ */
 export function readIndex(file: string): GitIndex {
     if (!fs.existsSync(file)) { return { version: 2, entries: [] }; }
     const buf = fs.readFileSync(file);
@@ -77,6 +84,10 @@ export function compareIndexEntries(a: IndexEntry, b: IndexEntry): number {
     return c !== 0 ? c : ((a.flags >> 12) & 3) - ((b.flags >> 12) & 3);
 }
 
+/**
+ * index をファイルの中身（末尾に SHA-1 のチェックサム付き）にする。拡張フラグを持つエントリがあれば版 3、なければ版 2。
+ * エントリは渡された順に書く（ここでは並べ替えない。Git の並びは compareIndexEntries）
+ */
 export function serializeIndex(index: GitIndex): Buffer {
     const parts: Buffer[] = [];
     const head = Buffer.alloc(12);
@@ -140,6 +151,7 @@ export function entryFromStat(relPath: string, absPath: string, hash: string, mo
     };
 }
 
+/** Git のディレクトリの中の index ファイルのパス */
 export function indexPath(gitDir: string): string {
     return path.join(gitDir, 'index');
 }

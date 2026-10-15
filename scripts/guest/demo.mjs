@@ -30,20 +30,27 @@ let agent;
 /** 層の名前はホストが決める（命令の形 v1）。MicroGit では Git のコミットのハッシュを使うが、デモでは番号 */
 let nextLayer = 0;
 
+/** 段の見出し（「========== n. title ==========」）を表示する。 */
 function heading(n, title) {
     console.log(`\n========== ${n}. ${title} ==========`);
 }
 
+/** 引数の行を、字下げして 1 行ずつ表示する。 */
 function say(...lines) {
     for (const l of lines) { console.log(`  ${l}`); }
 }
 
+/** --step のときだけ、Enter が押されるまで待つ。それ以外は何もしない。 */
 async function pause() {
     if (!stepMode) { return; }
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     await new Promise((resolve) => rl.question('\n  (Enter で次へ) ', () => { rl.close(); resolve(); }));
 }
 
+/**
+ * ops を「書く」「消す」などの文として表示してから、agent に保存（commit）させる。
+ * parent が -1 なら親は無し。層の名前（番号の文字列）と、agent の応答を返す。
+ */
 async function commit(label, parent, ops) {
     say(`保存する（${label}）:`);
     for (const op of ops) {
@@ -89,6 +96,7 @@ async function showTree(commitId, title) {
     }
 }
 
+/** デモの本体。起動、最初の保存、書き換えと削除、過去に戻る、枝分かれ、フォルダの改名、まとめの順に進め、最後に電源を切る。 */
 async function main() {
     heading(0, '仮想マシンを起動する');
     say(`起動するコマンド: ${[cmd, ...cmdArgs].join(' ').slice(0, 160)}…`);

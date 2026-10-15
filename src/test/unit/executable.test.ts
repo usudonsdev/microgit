@@ -1,3 +1,10 @@
+/**
+ * 同梱の実行ファイルに実行ビットを付ける関数（kernel/executable.ts）を、本物のファイルで確かめる単体テスト。
+ * 観点：実行ビットが無ければ付け、あれば何もしない（所有者だけ付いていれば残りも付ける）。付けられないとき
+ * （無いファイル）は理由を返す。付けたときだけログに記録する。
+ * Windows には POSIX の実行ビットが無いので、ビットを扱うテストは飛ばす（skip）。
+ * 実行は node scripts/run-unit-tests.mjs（先に npm run compile が要る）。
+ */
 import * as assert from 'assert';
 import * as fs from 'fs';
 import * as os from 'os';

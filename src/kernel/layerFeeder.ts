@@ -24,8 +24,10 @@ import { MicroCommitDelta } from '../microCommit';
 import { AgentConnection, AgentError } from './agentConnection';
 import { flushPendingGitWrites } from '../fastGit/pendingWrites';
 
+/** Git を cwd で実行して標準出力を返す関数。失敗したら例外でなく undefined を返す */
 type GitTryRunner = (cwd: string, args: string[]) => string | undefined;
 
+/** 層の作り方の上限。maxDepth は差分の層を積む深さ（親がこれ以上深いと、写しの層として作る）、maxLayers は agent に置く層の数（ensure は達したら reset して作り直し、ensureFromDelta は達したら使わない） */
 export type FeederOptions = {
     maxDepth: number;
     maxLayers: number;
@@ -33,12 +35,14 @@ export type FeederOptions = {
     maxCommitBytes: number;
 };
 
+/** FeederOptions の既定値（深さ 32、層 256 枚、1 回の commit の中身 90 MiB まで） */
 export const DEFAULT_FEEDER_OPTIONS: FeederOptions = {
     maxDepth: 32,
     maxLayers: 256,
     maxCommitBytes: 90 * 1024 * 1024,
 };
 
+/** ensure・ensureFromDelta が返す、層を用意した結果。layer は層の名前（コミットのハッシュ） */
 export type EnsureResult = {
     layer: string;
     /** 新しく作ったか（もうあったら false） */
@@ -51,7 +55,9 @@ export type EnsureResult = {
     elapsedMs: number;
 };
 
+/** stage で断片に分けて agent に送る中身。id は commit の writeupload が参照する名前 */
 type Upload = { id: string; data: Buffer };
+/** buildOps の結果。ops は commit に渡す操作、uploads は先に stage で送る中身、bytes は中身の合計（base64 にする前） */
 type BuiltOps = { ops: string[][]; uploads: Upload[]; bytes: number };
 
 /** `git cat-file --batch` を 1 回起動して、複数のオブジェクトの中身を読む */
@@ -87,15 +93,21 @@ export function catFileBatch(repo: string, shas: string[]): Map<string, Buffer> 
     return out;
 }
 
+/** Git のモードを、agent に渡すモード（755 か 644）にする */
 function modeOf(change: TreeChange): '644' | '755' {
     return change.mode === '100755' ? '755' : '644';
 }
 
+/** Git のパスが、agent に渡してよい形か（空・先頭が /・バックスラッシュを含む・空の部品や . ・ .. を含むものは不可） */
 function isSafeGitPath(rel: string): boolean {
     if (!rel || rel.startsWith('/') || rel.includes('\\')) { return false; }
     return rel.split('/').every((s) => s !== '' && s !== '.' && s !== '..');
 }
 
+/**
+ * agent に層を作らせる。agent にある層をメモリの known に覚え、ensure / ensureFromDelta で層を用意する。
+ * known が agent の実際の層とずれたとき（commit が EEXIST・UNKNOWN_LAYER・ENOSPC で失敗したとき）や、層が maxLayers に達したときは、ensure が reset で両方を空にして作り直す
+ */
 export class LayerFeeder {
     /** agent にある層（ハッシュ → 深さ）。agent の reset や再起動でずれたら clear する */
     private readonly known = new Map<string, number>();
@@ -106,10 +118,12 @@ export class LayerFeeder {
         private readonly options: FeederOptions = DEFAULT_FEEDER_OPTIONS,
     ) { }
 
+    /** ホストが知っている agent の層の数 */
     get layerCount(): number {
         return this.known.size;
     }
 
+    /** そのコミットの層が agent にあるとホストが覚えているか（agent に聞かない） */
     has(hash: string): boolean {
         return this.known.has(hash);
     }
@@ -120,12 +134,17 @@ export class LayerFeeder {
         await this.agent.call({ op: 'reset' });
     }
 
+    /** コミットの最初の親を git rev-list で調べる。親が無い・調べられなければ undefined */
     private firstParent(shadowRepo: string, hash: string): string | undefined {
         const line = this.tryRunGit(shadowRepo, ['rev-list', '--parents', '-n', '1', hash])?.trim();
         const parts = line ? line.split(/\s+/).filter(Boolean) : [];
         return parts.length > 1 ? parts[1] : undefined;
     }
 
+    /**
+     * 変化の一覧から commit の操作を作る。サブモジュールと、安全でないパスは捨てる。消す操作を先に並べ、中身は catFileBatch でまとめて読む。
+     * maxFrameBytes があるとき（macOS）は writeupload にして中身を uploads に分ける。中身の合計が maxCommitBytes を超えたら例外（呼ぶ側は Node 版に任せる）
+     */
     private buildOps(shadowRepo: string, changes: TreeChange[]): BuiltOps {
         const usable = changes.filter((c) => c.mode !== '160000' && isSafeGitPath(c.path));
         const removals = usable.filter((c) => c.status === 'D').map((c) => ['rmdir', c.path]);
@@ -149,6 +168,7 @@ export class LayerFeeder {
         return { ops: [...removals, ...writeOps], uploads, bytes };
     }
 
+    /** uploads の中身を、24 KiB ずつ stage で agent に送る（base64 と JSON を足しても、1 行の上限 48 KiB に収まる大きさ。空のファイルは空の断片 1 つ） */
     private async stageUploads(uploads: Upload[]): Promise<void> {
         if (!uploads.length) { return; }
         // base64 と JSON の分を含めても planMac の 48 KiB に十分収まる。
@@ -169,6 +189,7 @@ export class LayerFeeder {
         }
     }
 
+    /** commit の要求を作る。1 行の上限（maxFrameBytes）に収まるならそのまま返す。収まらなければ、操作を stageOp で 1 つずつ送っておき、opsUpload で参照する形にする。1 つの操作だけで上限を超えるときは例外 */
     private async commitRequest(layer: string, parent: string, ops: string[][]): Promise<Record<string, unknown>> {
         const direct = { op: 'commit', layer, parent, ops };
         const maxFrame = this.agent.spec.maxFrameBytes;

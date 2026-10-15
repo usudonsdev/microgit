@@ -21,6 +21,10 @@ import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 
+/**
+ * 書き込み先のホスト（OS）の性質。名前の規則と、名前のぶつかりの判定を、OS に合わせて切り替えるために使う。
+ * 単体テストで OS を差し替えられるよう、platform を直接見ずに値として受け取る。
+ */
 export type HostTraits = {
     /** Windows の名前の規則を当てるか */
     windowsNames: boolean;
@@ -30,6 +34,7 @@ export type HostTraits = {
     normalizationInsensitive: boolean;
 };
 
+/** platform から HostTraits を決める。win32 は Windows の名前の規則と大文字小文字の無視、darwin は大文字小文字と Unicode 正規化の無視。 */
 export function hostTraitsFor(platform: NodeJS.Platform): HostTraits {
     return {
         windowsNames: platform === 'win32',
@@ -38,6 +43,7 @@ export function hostTraitsFor(platform: NodeJS.Platform): HostTraits {
     };
 }
 
+/** ゲストの入力に課す上限（過大な入力を受け付けない）。パスの長さ・1 段の長さ（いずれもバイト）、エントリ数、1 ファイルの大きさ（バイト）。 */
 export type GuardLimits = {
     maxPathBytes: number;
     maxSegmentBytes: number;
@@ -45,6 +51,7 @@ export type GuardLimits = {
     maxFileBytes: number;
 };
 
+/** GuardLimits の既定値（パス 4096 バイト、1 段 255 バイト、20 万エントリ、1 ファイル 512 MiB）。 */
 export const DEFAULT_LIMITS: GuardLimits = {
     maxPathBytes: 4096,
     maxSegmentBytes: 255,
@@ -52,6 +59,13 @@ export const DEFAULT_LIMITS: GuardLimits = {
     maxFileBytes: 512 * 1024 * 1024,
 };
 
+/**
+ * ゲストの入力を弾いた理由。
+ * malformed は一覧の行の形が不正、bad-path は絶対パス・`..` などの不正なパス、git-dir は .git を指しうる名前、
+ * microgit-artifact は MicroGit の作業フォルダ、unsupported-type はリンク・デバイス、windows-* は Windows で扱えない名前、
+ * case-conflict は大文字小文字・正規化だけが違う名前のぶつかり、hash-mismatch は中身が一覧の sha256 と違う、
+ * escapes-workspace は書き込み先の途中にワークスペースの外を指すリンクがある、type-conflict はファイルとディレクトリの食い違い。
+ */
 export type RejectReason =
     | 'malformed'
     | 'bad-path'
@@ -69,20 +83,25 @@ export type RejectReason =
     | 'escapes-workspace'
     | 'type-conflict';
 
+/** 弾いた 1 件。path は弾いたパス（一覧全体を弾いたときは空）、detail は理由の補足（ログ用。判断には使わない）。 */
 export type Rejection = { path: string; reason: RejectReason; detail?: string };
 
+/** ゲストが一覧で申告したファイル。sha256 は、あとで受け取る中身がこの値と一致するかの照合に使う（申告を信用して書かない）。 */
 export type GuestFile = { path: string; sha256: string };
 
+/** validateViewEntries の結果。files・directories は検証を通ったものだけ。rejected は弾いたもので、これらは書きも消しもしない。 */
 export type ValidatedView = {
     files: GuestFile[];
     directories: string[];
     rejected: Rejection[];
 };
 
+/** ゲストが書いてはいけない、MicroGit 自身の作業フォルダ名（先頭の段で比べる）。ゲストの入力で履歴や記録を書き換えられないようにする。 */
 const ARTIFACT_DIRS = ['.microgit', '.microgit_shadow', '.microgit_logs', '.microgit_overlay'];
 
 /** Windows で使えないファイル名（拡張子が付いても使えない。COM¹ などの上付き数字も含む） */
 const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³]|conin\$|conout\$)(\..*)?$/i;
+/** Windows のファイル名に使えない文字（制御文字を含む）。 */
 const WINDOWS_INVALID_CHARS = /[<>:"|?*\u0000-\u001f]/;
 
 /**
@@ -139,6 +158,7 @@ export function collisionKey(rel: string, traits: HostTraits): string {
     return key;
 }
 
+/** sha256 の 16 進表記（小文字 64 桁）の形。 */
 const SHA256 = /^[0-9a-f]{64}$/;
 
 /**
@@ -284,6 +304,7 @@ export type SyncFromGuestOptions = {
     cache?: WorkspaceHashCache;
 };
 
+/** syncWorkspaceFromGuest の結果。written は書いたもの、deleted は消したもの、unchanged は中身が同じで触らなかった数、rejected は弾いたもの。 */
 export type SyncFromGuestResult = {
     written: string[];
     deleted: string[];
@@ -293,10 +314,12 @@ export type SyncFromGuestResult = {
     cache: WorkspaceHashCache;
 };
 
+/** ファイルの中身全体を読み、sha256（16 進）を返す。 */
 function sha256OfFile(abs: string): string {
     return createHash('sha256').update(fs.readFileSync(abs)).digest('hex');
 }
 
+/** リンクをたどらずに lstat する。無い・読めないときは undefined（例外にしない）。 */
 function lstatOrUndefined(p: string): fs.Stats | undefined {
     try {
         return fs.lstatSync(p);

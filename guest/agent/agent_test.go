@@ -25,6 +25,8 @@ type client struct {
 	out chan error
 }
 
+// newClient は新しい store を serveStream につなぎ、ready を確かめたクライアントを返す。
+// mount できない環境（root でもユーザー名前空間の中でもない）では、先に commit を試して Skip する。
 func newClient(t *testing.T) *client {
 	t.Helper()
 	root := t.TempDir()
@@ -52,6 +54,7 @@ func newClient(t *testing.T) *client {
 	return c
 }
 
+// read は応答を 1 行読む。読めなければテストを失敗させる。
 func (c *client) read() response {
 	c.t.Helper()
 	if !c.sc.Scan() {
@@ -64,6 +67,7 @@ func (c *client) read() response {
 	return res
 }
 
+// do は id を振った要求を 1 行送り、その応答を返す。応答の id が合わなければ失敗させる。ok でなくても失敗にしない。
 func (c *client) do(req map[string]any) response {
 	c.t.Helper()
 	c.id++
@@ -79,6 +83,7 @@ func (c *client) do(req map[string]any) response {
 	return res
 }
 
+// ok は do と同じだが、応答が失敗（ok が false）ならテストを失敗させる。
 func (c *client) ok(req map[string]any) response {
 	c.t.Helper()
 	res := c.do(req)
@@ -88,11 +93,13 @@ func (c *client) ok(req map[string]any) response {
 	return res
 }
 
+// commit は commit 命令を送り、成功を確かめて応答を返す。
 func (c *client) commit(layer, parent string, ops ...[]string) response {
 	c.t.Helper()
 	return c.ok(map[string]any{"op": "commit", "layer": layer, "parent": parent, "ops": ops})
 }
 
+// paths は層のビューを「種別 パス」のカンマ区切りの 1 つの文字列にする。比べやすくするため（中身のハッシュは含めない）。
 func (c *client) paths(layer string) string {
 	c.t.Helper()
 	var out []string
@@ -103,8 +110,10 @@ func (c *client) paths(layer string) string {
 	return strings.Join(out, ",")
 }
 
+// b64 は文字列を base64（標準）にする。
 func b64(s string) string { return base64.StdEncoding.EncodeToString([]byte(s)) }
 
+// TestHelloReportsProtocolAndFixedOptions は hello が protocol 1・agent の版・固定の mount オプションを返すことを確かめる。
 func TestHelloReportsProtocolAndFixedOptions(t *testing.T) {
 	c := newClient(t)
 	res := c.ok(map[string]any{"op": "hello"})
@@ -113,6 +122,7 @@ func TestHelloReportsProtocolAndFixedOptions(t *testing.T) {
 	}
 }
 
+// TestCommitViewAndDepth は commit で層が積まれ、view がその時点のツリーを返し、depth が増えることを確かめる。
 func TestCommitViewAndDepth(t *testing.T) {
 	c := newClient(t)
 	r := c.commit("c1", "", []string{"write", "a.txt", "A"}, []string{"write", "d/b.txt", "B"})
@@ -131,6 +141,7 @@ func TestCommitViewAndDepth(t *testing.T) {
 	}
 }
 
+// TestCommitIsIdempotentButRejectsDifferentParent は同じ id・同じ親の commit が existed になって中身を作り直さず、親が違うと EEXIST になることを確かめる。
 func TestCommitIsIdempotentButRejectsDifferentParent(t *testing.T) {
 	c := newClient(t)
 	c.commit("c1", "")
@@ -150,6 +161,7 @@ func TestCommitIsIdempotentButRejectsDifferentParent(t *testing.T) {
 	}
 }
 
+// TestErrorsCarryCodes は失敗の応答が docs/agent-protocol.md の記号（code）を持ち、失敗した commit が層を残さないことを確かめる。
 func TestErrorsCarryCodes(t *testing.T) {
 	c := newClient(t)
 	cases := []struct {
@@ -177,6 +189,7 @@ func TestErrorsCarryCodes(t *testing.T) {
 	}
 }
 
+// TestBinaryContentModeAndReadMany は writeb64 の中身（バイナリ・日本語のパス）と mode 755、readMany の返す中身、ディレクトリを read すると EINVAL になることを確かめる。
 func TestBinaryContentModeAndReadMany(t *testing.T) {
 	c := newClient(t)
 	bin := string([]byte{0, 1, 2, 255, '\n', 0})
@@ -204,6 +217,7 @@ func TestBinaryContentModeAndReadMany(t *testing.T) {
 	}
 }
 
+// TestChunkedStageAndRead は stage の断片と stageOp / opsUpload で writeupload を commit し、readChunk の小分けで読み戻せることを確かめる。
 func TestChunkedStageAndRead(t *testing.T) {
 	c := newClient(t)
 	part1 := []byte("first-")
@@ -225,6 +239,7 @@ func TestChunkedStageAndRead(t *testing.T) {
 	}
 }
 
+// TestWriteReplacesDirectoryAndFileInTheWay は write が、置き先のディレクトリ・途中のファイルを置き換えることを確かめる。
 func TestWriteReplacesDirectoryAndFileInTheWay(t *testing.T) {
 	c := newClient(t)
 	c.commit("c1", "", []string{"write", "p/q.txt", "Q"}, []string{"write", "f", "file"})
@@ -235,6 +250,7 @@ func TestWriteReplacesDirectoryAndFileInTheWay(t *testing.T) {
 	}
 }
 
+// TestInspectShowsWhiteoutOpaqueAndNoRedirect は inspect が whiteout・opaque を示し、redirect を作らず mv が EXDEV のコピーになることを確かめる。
 func TestInspectShowsWhiteoutOpaqueAndNoRedirect(t *testing.T) {
 	c := newClient(t)
 	c.commit("c1", "", []string{"write", "a.txt", "A"}, []string{"write", "d/x", "X"}, []string{"write", "e/y", "Y"})
@@ -250,6 +266,7 @@ func TestInspectShowsWhiteoutOpaqueAndNoRedirect(t *testing.T) {
 	}
 }
 
+// TestDeepChainBeyondHostLimit はホストが写しの層に切り替える深さ（ADR-0003 では 32）を超えても、agent が 40 層まで積め、stats の層の数が合うことを確かめる。
 func TestDeepChainBeyondHostLimit(t *testing.T) {
 	c := newClient(t)
 	parent := ""
