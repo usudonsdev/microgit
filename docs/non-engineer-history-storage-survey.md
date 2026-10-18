@@ -1,6 +1,6 @@
 # 非エンジニア版: 履歴を「本体と別ファイルにしない」方式の関連研究調査
 
-調査日 2026-10-18。`docs/non-engineer-oss-plan.md` §11(Persistent signals)の続き。同文書は `origin/docs/release-5.1.0` にあり、このブランチには無い。
+調査 2026-10-18(2 回目で一次資料の本文を読み、1 回目の記述を訂正した版)。`docs/non-engineer-oss-plan.md` §11(Persistent signals)の続き。同文書は `origin/docs/release-5.1.0` にあり、このブランチには無い。
 
 ## 0. 依頼と要件
 
@@ -9,110 +9,159 @@
 - Google Drive で別端末との送受信にも対応したい。
 - 対象は Word、表計算、画像、PDF など、普通のアプリが保存する不透明なバイト列のファイルである。内部状態には触れず、観測できるのは保存後のファイル全体だけである。
 
-## 1. 調査の信頼度(最初に読むこと)
+## 1. 信頼度
 
-- 調査は 4 本の並列エージェント(論文・Signal / 埋め込み方式 / Google Drive / CRDT・バイト列)で行った。
-- **一次資料の本文は 1 件も読めていない。** WebFetch は名前解決に失敗し、curl はプロキシが 403 で拒否した。到達できたのは github.com 系のみだった。
-- 以下の記述は、検索結果の要約と要旨に基づく。数値と書誌は、本文での再確認が済むまで暫定である。
-- 【事実】は検索結果の要約に書かれていた内容、【推測】は調査者の判断、【未確認】は確認できなかったことを指す。
-- 次に本文を読むには、ネットワーク許可(drops.dagstuhl.de、prg.is.titech.ac.jp、arxiv.org、developers.google.com、support.google.com、sqlite.org)を足した環境が要る。
+- 1 回目(同日)は、ネットワークが通らず、検索要約のみだった。2 回目で、一次資料の本文に到達できた。
+- 【本文】は本文を読んだ、【要旨】は要旨か書誌のみ、【実験】はこの環境で測った、【推測】は調査者の判断、【未確認】は確認できなかったことを指す。
+- 取得上の注意: ecma-international.org は `www.` 付きでないと接続がリセットされる。loro.dev と doi.org は 403 で、Loro は docs.rs と GitHub の raw で代替した。
+- **実験の限界**: §6 の実験データは合成である(生成ツールが作った、ランダム単語の文書)。Word や Excel の実保存ではない。数値を一般的な節約率として引用しない。
 
-## 2. 結論(暫定)
+## 2. 結論
 
-1. **Persistent signals は「本体と履歴を一つにする」目的に使えると、確認できた範囲では明言されていない。** 系統全体が、履歴を外部の時系列 DB に置く設計である(§3)。`non-engineer-oss-plan.md` §11.4 の「ライブの正本には採用しない」は、今回の調査で覆らない。補強もされない。PDF 本文は依然として未読である。
-2. **CRDT・ローカルファースト系は、不透明なファイルには適用できない。** 編集操作の列か、構造化されたデータモデルが前提になる(§5)。
-3. **バイト列を扱う系(内容定義チャンク分割、delta 圧縮、Git パック、restic/borg)は、形式を知らなくても使える。** ただし docx/xlsx/pptx は ZIP 圧縮、PDF や画像も圧縮済みが多く、小さな編集で多くのバイトが変わりうる。効果の測定は見つからず、実ファイルでの検証が要る(§5)。
-4. **メタデータ(xattr、NTFS 代替データストリーム)だけに履歴を載せる設計は避ける。** メール添付、ZIP、FAT、iCloud で落ちる。Google Drive for desktop での扱いも公式には未確認である(§4)。
-5. **Google Drive の revisions に履歴を任せる方式は、保存ごとのマイクロ履歴には向かない。** 約 30 日で消え、100 個を超えると早く消え、keepForever は 200 個までである(§6)。
-6. **本体への埋め込みは、実績と失敗事例の両方がある。** PDF 増分更新は、黒塗りが復元される事故を起こした。旧 Word の高速保存は、削除済みの文字を残した。埋め込むなら、利用者に見えて、制御できる必要がある(§4)。
-7. **「ファイルが二つになる」問題は、置き場の種類を変えなくても、既定パスの隠蔽で和らげられる。** これは `non-engineer-oss-plan.md` §7.2 と §11.3 の結論と同じである。ただし持ち出しと別端末への送受信では、履歴ファイルが正本であることは変わらない。要件の核は、この点にある。
+1. **Persistent signals は「本体と履歴を一つにする」目的の根拠にならない。** 【本文】ECOOP 2021 は履歴を TimescaleDB(PostgreSQL の拡張)に置く。サーバ型の別ストアで、edge でもクラウドでも動くと書かれている。ファイルへの埋め込みや、メタデータに入れる設計の記述は無い。`non-engineer-oss-plan.md` §11.4 の結論は、PDF 本文を読んだ上でも変わらない。
+2. **CRDT・ローカルファースト系は、不透明なファイルには適用できない。** 編集操作の列を前提とする。Eg-walker の論文自身も、リッチテキストや表への拡張には証拠を示していない。
+3. **バイト列を扱う系は使えるが、docx/xlsx をそのまま分割しても効かない。** ZIP 内の文書本体を 1 語編集すると、全体の約 50〜58% のバイトが変わる。**ZIP を展開して中身を分割すれば、大きく節約できる**(0.1〜10%)。ただし展開すると、バイト列が同一の原本を復元するための追加情報が要る(§6)。
+4. **メタデータ(xattr、NTFS 代替データストリーム)だけに履歴を載せる設計は避ける。** メール添付、ZIP、FAT、iCloud で落ちる。Google Drive for desktop の公式ヘルプには xattr と代替データストリームの記載が無い。「記載なし」であって「非対応」の証拠ではない。
+5. **Google Drive の revisions に履歴を任せる方式は成り立たない。** 公式本文で確認した(§5)。
+6. **XMP は履歴の復元に使えない。** 仕様が、履歴の切り詰めを許し、網羅を意図していない。使えるのは識別子(DocumentID、InstanceID)程度である。
+7. **customXml は有力な埋め込み先だが、保持は実装頼みである。** 規格は往復保存の正規の置き場としているが、他のアプリが保持する義務は無い。LibreOffice の同形式での再保存では残った。Word と Google Docs は未検証である。
+8. **同期フォルダに内容アドレス型の不変チャンクを置く設計は、順序の問題を解く必要がある。** 競合ではなく、参照元が先に届く、部分的なファイルが残る、といった問題が実際に起きている(§6)。
 
 ## 3. Persistent signals 系統
 
 | 書誌 | 読んだ範囲 | 要点 |
 |---|---|---|
-| Kamina, Aotani, Masuhara「Signal Classes」ECOOP 2021, LIPIcs 194, 17:1–17:30, DOI 10.4230/LIPIcs.ECOOP.2021.17 | 本文は未読。検索要約と要旨のみ | signal class は同期とライフサイクルの単位。実装は時系列 DB に基づくランタイム。形式化で glitch freedom と型健全性を主張する。DB の実体、永続化、時刻回復、スキーマ進化の詳細は【未確認】 |
-| Aotani「Persistent Signals: Reactive State That Outlives the Program」TC39 TG5 ワークショップ、2026-09-28 | 要旨ページ(github.com/tc39/tg5 workshops/2026/116.md) | 時系列 DB を言語ランタイムの一部にする。DB の実体は書かれていない。当日資料は見つからなかった |
-| Kamina, Aotani, Masuhara「Managing Persistent Signals using Signal Classes」REBLS 2020 | 検索要約のみ | ECOOP 2021 の前身 |
-| Persistent time-varying values(SignalJ)Onward! 2019 | 検索要約のみ。正確な題名と DOI は【未確認】 | Java 拡張。TimescaleDB(PostgreSQL 系)を使うと要約が述べる |
-| Hidaka, Kamina「Realizing Persistent Signals in JavaScript」REBLS 2023, DOI 10.1145/3623506.3623576 | 検索要約のみ | 履歴は外部の時系列 DB に保持される(日本語報告 ipsj.ixsq.nii.ac.jp/records/217291 の要約) |
-| Kamina ら「Distributed Persistent Signals」REBLS 2022, DOI 10.1145/3563837.3568341 | 検索要約のみ。著者の記載は【未確認】 | 分散基盤。同期の詳細は不明 |
-| 「Consistent Distributed Reactive Programming with Retroactive Computation」arXiv:2502.20534(2025) | 検索要約のみ。著者は【未確認】 | id ごとの時系列 DB とディレクトリサービスを使う |
+| Kamina, Aotani, Masuhara「Signal Classes: A Mechanism for Building Synchronous and Persistent Signal Networks」ECOOP 2021, LIPIcs 194, 17:1–17:30, DOI 10.4230/LIPIcs.ECOOP.2021.17 | 【本文】 | 履歴は TimescaleDB に置く(§2.3、§6.3)。過去値は DB が管理し、プログラム終了後も残る。DB スキーマはコンパイラが決めるため、動的な生成ができない、という問題が signal class の動機。時刻回復、スキーマ進化、トランザクションの一貫性水準の記述は、この本文には無い(ワークショップ要旨が述べる将来の性質とみられる) |
+| Aotani「Persistent Signals: Reactive State That Outlives the Program」TC39 TG5、2026-09-28 | 【要旨】(tc39/tg5 workshops/2026/116.md) | 時系列 DB を言語ランタイムの一部にする。要旨に DB の実体の記載は無い。当日資料は見つかっていない |
+| Kamina, Aotani「An Approach for Persistent Time-Varying Values」Onward! 2019, pp. 17–31, DOI 10.1145/3359591.3359730 | 【要旨】(書誌のみ) | SignalJ。TimescaleDB を使うと ECOOP 2021 本文が述べる |
+| Kamina, Ueno「Distributed Persistent Signals」REBLS 2022, pp. 13–23, DOI 10.1145/3563837.3568341 | 【要旨】(書誌のみ) | 分散基盤 |
+| Hidaka, Kamina「Realizing Persistent Signals in JavaScript」REBLS 2023, pp. 25–30, DOI 10.1145/3623506.3623576 | 【要旨】 | JavaScript 版。外部の時系列 DB に履歴を保持するという日本語報告の要約がある |
+| Kamina, Aotani, Masuhara「Consistent Distributed Reactive Programming with Retroactive Computation」arXiv 2502.20534, Programming Journal 10(2025), art. 11 | 【本文】冒頭と §2 周辺 | 永続シグナルを時系列 DB に蓄積する。分散時は DB の場所が分散しうる |
 
-- 【推測】履歴の実体は、アプリのデータとは別の DB(サーバ型の可能性が高い)である。本体ファイルやそのメタデータに埋め込む設計は、確認できた範囲に無い。
-- ECOOP 2021 の本文に「埋め込み DB」や「DB を使わない」という記述があれば、結論が変わりうる。
-- 時間変化値、bitemporal DB、event sourcing の文献は、調べられていない。
+- 【推測】この系統は一貫して、履歴を別の時系列 DB に置く。「本体に同居」とは別系統である。
+- 1 回目に挙げた「REBLS 2020 のワークショップ論文」は、Crossref で実在を確認できなかった。ECOOP 2021 の本文は、Related Version としてその URL を載せている。根拠の弱い記述として扱う。
+- 他の論文の参考文献に、Signal Classes のページを 19:1–19:30 と誤記したものがある。正しくは 17:1–17:30 である。
 
 ## 4. ファイル内埋め込みとメタデータ
 
-| 方式 | 履歴が生き残る条件 | 落ちる条件・失敗事例 |
+| 方式 | 読んだ範囲 | 要点 |
 |---|---|---|
-| PDF 増分更新 | 増分追記のまま渡す | Save As で再生成される。Office の PDF 書き出しは増分を使わないことが多い。黒塗り復元事故(Stevens 2008)。追記でファイルが増える |
-| 旧 Word 高速保存 | 機能が有効な間 | Word 2007 で廃止。削除済み文字が残る漏洩があった |
-| OOXML 変更履歴(w:ins / w:del) | 承諾・拒否されるまで | ドキュメント検査で消える。変更履歴を ON にした間の編集だけ |
-| OOXML customXml 部品 | 【未確認】。Office、LibreOffice、Google Docs 変換が再保存で保持するか不明 | Document Inspector の削除対象 |
-| XMP の xmpMM:History | 編集アプリが保持して追記する | 書き出しやメタデータ除去で消える。記録であり、復元用の差分ではない |
-| NTFS ADS | NTFS 上のコピー | FAT、メール、HTTP で落ちる |
-| macOS xattr | 同一ボリューム、Finder のコピー | iCloud Drive は 2026-05 の報告でほぼ全て落とす(Eclectic Light)。Google Drive と OneDrive は 2018 年の調査で非対応(古い)。Dropbox は一部対応 |
-| Office のクラウド版履歴 | OneDrive/SharePoint に保存したとき | ファイル本体の外にある。ローカル専用のファイルには無い |
-| SQLite 文書形式、Fossil、Automerge | アプリがその形式を握る | Word など既存アプリには適用できない |
+| OOXML customXml(ECMA-376 5th ed. §15.2.5、§9.1.4、§9.1.7) | 【本文】 | 任意の XML を持て、往復保存に使える正規の置き場。未知の部品は読み込み時に無視され、書き出し時に捨ててよい(§9.1.4)。未知の関係は、保持しても捨ててもよい(§9.1.7)。独自データには customXml を使うべきと書かれている |
+| customXml と LibreOffice 24.2.7.2 | 【実験】 | docx と xlsx の同形式での再保存では customXml が残った。docx を odt 経由で往復すると消えた。pptx は未検証。GUI での編集後の保存も未検証 |
+| customXml と Word、Google Docs | 【未確認】 | 検索で出たのは、第三者ライブラリ(Aspose 2008、Telerik)が落とすという話のみ。本体の挙動の証拠ではない |
+| XMP(Adobe Part 1〜3) | 【本文】 | JPEG は APP1 に格納し、1 セグメント約 64 KB まで。超える分は ExtendedXMP に分割する。PNG は iTXt で 1 ファイル 1 個。PDF は /Metadata ストリーム。`xmpMM:History` はアプリ所有の高水準な操作の記録で、網羅を意図しない。`xmpMM:Versions` は途中を圧縮・削除してよい |
+| PDF 増分更新(ISO 32000-1 §7.5.6) | 【本文】 | 変更は末尾に追記され、元の内容は残る。trailer の Prev をたどれば旧版を再構成できる。ファイルは単調に増える |
+| PDF 増分履歴が消える事例 | 【本文】(Eclectic Light 2019) | Save As やフラット化で全体が書き直され、履歴が出ない。実例では最後の保存が全体の書き直しだった |
+| PDF の追記データと再出力 | 【実験】 | 末尾に追記した孤立オブジェクトは、pdftocairo の再出力で消えた。実際の旧版ではないので、弱い証拠 |
+| SQLite appfileformat | 【本文】 | 文書を 1 個の SQLite DB にする案。undo/redo スタックを DB 内に置く案も挙げる。同期ソフトとの相性(WAL や journal の別ファイル)は書かれていない。既存アプリには適用できない |
+| Fossil delta 形式 | 【本文】 | ヘッダ、セグメント(挿入か範囲コピー)、チェックサムの 3 部構成。バイト列ベースで行に依存しない。32 ビット制約があり、4 GB 級には使えない |
+| NTFS ADS、macOS xattr、Linux xattr | 【要旨】(Eclectic Light 2018/2026、Dropbox ヘルプなど) | FAT、メール、HTTP、iCloud で落ちる。iCloud Drive は 2026-05 の報告でほぼ全て落とす |
 
-- 学術の周辺: Mimram, Di Giusto「A Categorical Theory of Patches」(ENTCS 298, 2013, arXiv 1311.3903)は Pijul の理論的基礎とされる(Pijul フォーラムでの言及)。W3C PROV は来歴の交換モデルで、文書への埋め込み方法は範囲外である。
-- 【未確認】Swierstra & Löh「The semantics of version control」(Onward! 2014)は調査者の記憶にあるだけで、検索では出ていない。
+- PDF の Save As や、旧 Word の高速保存、PDF 黒塗り復元事故(Stevens 2008)のうち、一次資料を読めたのは Eclectic Light 2019 の PDF の記事のみである。他は 1 回目の記述のまま、未検証である。
+- 来歴: W3C PROV は、文書への埋め込み方法を範囲外とする。
 
-## 5. CRDT とバイト列のスナップショット
+## 5. Google Drive(公式本文を読んだ、取得 2026-10-18)
+
+出典は `https://developers.google.com/workspace/drive/api/` 以下のガイドとリファレンス、および support.google.com。
+
+| 項目 | 公式本文の内容 | 含意 |
+|---|---|---|
+| revisions の保持 | 保持は典型的に 30 日。keepForever でない revision が 100 個あるファイルに新規アップロードすると、より早く purge されうる。head は自動 purge されない | 本体の revisions に履歴は任せられない |
+| keepForever | 最大 200 個。容量に算入される。バイナリ内容のファイルにのみ適用。固定していない過去 revision は内容をダウンロードできない | 保存ごとの履歴では頭打ち |
+| revisions.list | 履歴が多いと不完全なことがある | 全件の保証が無い |
+| appProperties / properties | 1 ファイル 100 個(全ソース合計)、公開 30 個、1 アプリあたり private 30 個、キーと値の合計 124 バイト(UTF-8)。appProperties は OAuth の認証付き要求でのみ取得でき、他アプリから見えない | 履歴本体は入らない。ハッシュや headRevisionId などの目印に限る |
+| md5Checksum、sha256Checksum、headRevisionId | バイナリ内容のファイルにのみ存在 | 内容の同一性の確認に使える |
+| version | 単調増加。ユーザーに見えない変更も反映する | 内容の同一性には md5Checksum を使う |
+| changes | ページトークンは失効しない。ただし 1 ファイルにつき変更記録は 1 件に置き換わる | 別端末の更新検知には使えるが、途中経過の履歴には使えない |
+| ETag / If-Match | 【未確認】。files、changes、revisions のどのページにも記載が無い | 楽観ロックは公式に保証されていない |
+| appDataFolder | 作成アプリのみアクセスでき、利用者と他アプリから隠れる。手動削除とアンインストールで消える。共有やゴミ箱への移動は不可。容量・個数の上限は記載無し(【未確認】) | 履歴の正本としては弱い。再構築手段か書き出しが要る |
+| スコープ | drive.file と drive.appdata は非機微。drive、drive.readonly、drive.metadata は制限付き。非機微のみなら basic 検証で足り、追加審査と CASA は不要。制限付きは年次の CASA 評価が必要 | 拡張機能が採れる最小スコープは drive.file と drive.appdata |
+| テストモード | 100 ユーザーまで。Drive スコープの認可は 7 日で失効 | 個人利用以外は本番公開が前提 |
+| クォータ | 2026-05-01 以降のプロジェクトは新クォータ。files.update は 50 units、get は 5、list は 100。課金方針は後日告知(変更の 90 日前まで) | 保存ごとの更新は個人利用で余裕がある。課金は未確定 |
+| Drive for desktop | ストリーミングが既定。未同期の変更はローカルキャッシュにあり、キャッシュの破損で失われうる。競合時は、元の親フォルダにコピーが作られる。親が無ければ My Drive 直下か Lost & Found | 競合コピーの命名規則は【未確認】 |
+| xattr、ADS | 取得した 3 ページに記載無し | 保持されるかは【未確認】 |
+
+履歴を別端末へ送る 3 方式の落ちる条件:
+
+- (a) 本体の revisions に任せる: 上記のとおり成り立たない。
+- (b) appDataFolder に履歴を置く: 手動削除とアンインストールで消える。利用者が履歴だけを別端末へ共有することもできない。
+- (c) 本体に埋め込む: Drive for desktop の競合コピーで履歴が分岐する。キャッシュ依存の欠損がありうる。
+
+## 6. CRDT とバイト列のスナップショット
 
 CRDT・ローカルファースト:
 
-- Kleppmann ら「Local-first software」Onward! 2019, DOI 10.1145/3359591.3359737。所有・オフライン・複数端末の理想は、要件と一致する。前提として、アプリのデータモデルが CRDT になっている必要がある。
-- Automerge は、履歴込みの 1 ファイル形式である。圧縮すると履歴を失い、共通の祖先を持たない写しとは同期できない。
-- Eg-walker(Gentle, Kleppmann, EuroSys 2025, arXiv 2409.14252)は、テキスト向けのイベントグラフで、メモリと読み込みが改善されたと主張する。
-- Loro の shallow snapshot と Yjs の GC は、いずれも古い履歴を切り捨てて肥大を抑える。切り捨てた時点より古い端末とは合流できない。
-- 不透明なファイルでは、観測できる更新が「保存後のファイル全体」だけで、操作の列が無い。ファイル全体を 1 つの値と見なすと、バージョン列になるだけでマージはできない。2 台が同じファイルを別々に編集したときの扱いは、文献では決まらない。製品判断である。
+- Eg-walker(Gentle, Kleppmann, EuroSys 2025, DOI 10.1145/3689031.3696076)【本文】:
+  - ディスク形式は、イベントグラフを列として 1 ファイルに保存する。
+  - 「smaller」はファイルサイズの話で、LZ4 と gzip を切って比べている。Automerge が保存する内部状態より小さく、Yjs より小さいのは「多くの場合」である。**並行編集のトレースでは Yjs より大きい。** 最終テキストの 20% から 3 倍のオーバーヘッドである。
+  - 編集の単位は、文字と位置を持つテキスト操作である。不透明なファイルの履歴が安くなる話ではない。
+- Automerge のバイナリ形式仕様【本文】: ファイルは長さ付きチャンクの列。文書チャンクは完全な履歴を常に含む。圧縮は列ごとの DEFLATE で、履歴を失わない。**1 回目に書いた「圧縮すると履歴を失う」「共通の祖先が無いと同期できない」は、仕様に根拠が無かった。撤回する。** 仕様は同期と競合を扱っていない。
+- Yjs【本文】: `doc.gc` は既定で有効。削除済みの項目の内容を捨てる(長さだけ残す)。時点より古い履歴を切る仕組みではない。
+- Loro【要旨】(docs.rs の rustdoc): shallow snapshot は、現在の状態と、指定した時点以降の履歴を持つ。古い端末が合流できるかは【未確認】。
+- Kleppmann ら「Local-first software」Onward! 2019, DOI 10.1145/3359591.3359737【要旨】。
 
 バイト列を扱う系:
 
-- LBFS(SOSP 2001)は、内容定義チャンク分割の原点とされる。FastCDC(USENIX ATC 2016)は Gear ハッシュで CPU 負荷を下げる。
-- restic は 512 KiB 未満のファイルを分割せず、チャンクは 512 KiB〜8 MiB である。事務書類は小さいので、既定値では何も節約されない。パラメータを小さくする必要がある【推測】。
-- Git パックは、OFS_DELTA と REF_DELTA の連鎖で履歴を 1 ファイルに持つ。復元はデルタ連鎖をたどる。
-- Perkeep は、不変の blob と、再構築できる索引を分ける。
-- 内容アドレス型で不変のチャンクは、ファイルの和集合で合流できて競合しない。競合が起きるのは、変更される単一の索引ファイルまたは単一のコンテナである【推測】。
+- LBFS(SOSP 2001, DOI 10.1145/502034.502052)【本文】: Rabin 指紋で 48 バイト窓、平均 8 KB(最小 2 KB、最大 64 KB)、SHA-1 でチャンクを識別する。**表 1 で、編集した 1.4 MB の Word 文書(旧形式の .doc)の新規データが 0.4 MB、68% の節約だった。** ZIP 形式の docx ではない。
+- FastCDC(USENIX ATC 2016; 拡張版 IEEE TPDS 31(9), 2020, DOI 10.1109/TPDS.2020.2984632)【本文】: Gear ハッシュ、最小サイズ以下のスキップ、2 つのマスクによる正規化。速度は Rabin の約 10 倍。評価に事務書類は含まれない。ATC 版に DOI は無い。
+- Xia ら「A Comprehensive Study of the Past, Present, and Future of Data Deduplication」Proc. IEEE 104(9), 2016, DOI 10.1109/JPROC.2016.2571298: 実在を確認。本文は未読。
+- 事務書類(docx/xlsx/pptx、PDF、画像)で、FastCDC や xdelta、bsdiff の節約を測った論文は、見た範囲では見つからなかった。網羅的な探索ではない。
 
-## 6. Google Drive(すべて公式ページ本文は未取得、要約ベース)
+### 実験(合成データ、1 語の編集)
 
-| 項目 | 内容 |
-|---|---|
-| revisions(Google 形式以外) | 最新を除き、keepForever でなければ約 30 日で purge される。既に 100 個あるファイルに新しくアップロードすると、早く消えることがある |
-| keepForever | 最大 200 個。容量に算入される |
-| Google 形式 | revisions が統合されることがあり、全変更は取れない |
-| appProperties | アプリ専用で OAuth が必要。上限は 100 個、キーと値の合計 124 バイトという数値があるが、v2 由来の第三者リファレンスで v3 は【未確認】。履歴本体は入らず、目印にとどまる |
-| drive.appdata / appDataFolder | 作成アプリだけが読める。ユーザーが手動で削除できる。アンインストールで消える。容量上限は【未確認】 |
-| drive.file | 非機微スコープ。アプリが作ったファイルと、ユーザーが開いたファイルだけ |
-| スコープ審査 | drive と drive.readonly は制限付き。drive.file と drive.appdata は非機微 |
-| changes フィード | getStartPageToken と changes.list で別端末の更新を検知できる |
-| Drive for desktop | 競合時に別コピーを作ることがある(二次出典)。オンライン専用のプレースホルダがある。xattr と ADS が同期されるかは【未確認】 |
-| 【未確認】 | md5Checksum、If-Match による楽観ロック、changes の保持期間、クォータの数値、非機微スコープの審査要否 |
+新規バイトの、編集後ファイルのサイズに対する割合。平均チャンクサイズ 8K / 2K / 512。
 
-履歴を別端末へ送る 3 方式の落ちる条件【推測】:
+| ファイル | そのまま | 展開してから分割(各チャンクを zlib6) |
+|---|---|---|
+| docx、本文のみ(58 KB) | 58.5% / 28.5% / 21.2% | 6.8% / 1.6% / 0.6% |
+| docx、先頭付近を編集 | 58.5% / 44.6% / 40.0% | 6.2% / 2.2% / 0.4% |
+| docx、1.1 MB の PNG を含む | 2.2% / 1.4% / 1.1% | 0.3% / 0.1% / 0.0% |
+| docx、LibreOffice で再保存 | 100% / 50.6% / 39.3% | 9.6% / 2.3% / 0.9% |
+| xlsx(292 KB、1 セル) | 55.2% / 50.8% / 50.0% | 1.6% / 0.2% / 0.1% |
+| PDF(1.9 MB、1 つの小さなストリームを変更) | 1.0% / 0.6% / 0.3% | 0.6% / 0.1% / 0.1% |
+| PNG(1.1 MB、10×10 ピクセル) | 51.8% / 50.3% / 49.4% | 2.9% / 1.5% / 1.1% |
 
-- (a) 本体の revisions に任せる: 約 30 日または 100 個で消える。
-- (b) appDataFolder に履歴を置く: 手動削除とアンインストールで消える。同時書き込みの制御は自前になる。
-- (c) 本体に埋め込む: 競合コピーで履歴が分岐し、肥大し、他のアプリが履歴部分を壊すおそれがある。「ファイルは一つ」の要件には最も合う。
+- bsdiff4 や zstd の辞書方式を ZIP にそのまま使っても、チャンク分割以上には節約できなかった(docx で約 17%、xlsx で約 48%)。展開してから使うと、docx は約 200 バイトまで下がった。
+- 【推測】ZIP 内の文書本体(document.xml)は、編集すると圧縮ストリームの先頭付近から変わる。他の部品(スタイル、テーマ、画像)は別々に圧縮されているので、同一のまま残る。
+- **チャンク一覧(マニフェスト)のコスト**(計算値、実測ではない): 1 チャンクあたり 32 バイトとすると、58 KB の docx(展開後)で、平均 8K では約 2 KB、2K では約 11 KB、512 では約 47 KB。512 では、マニフェストがファイルと同程度になる。新規データとマニフェストの合計では、平均 8K 付近が最も小さかった。
+- **展開しても往復が無料になるわけではない。** zlib レベル 6 は、生成ツールや LibreOffice の出力を全部再現できた(17/17、15/15、9/9)。Word、Excel、Google Docs、Preview の出力が再現可能かは未検証である。再現できない場合、バイト列が同一の原本を復元するには、元の圧縮ストリームかパッチを持つ必要がある。意味的に等しいファイルで足りるなら、展開のほうが単純である。
+- 限界: ランダム単語の文書、生成ツールによる保存、1 回の編集、`fastcdc` パッケージ(restic の実装とは別)。xdelta そのものは未実行。
+
+### 古い版の削除と、同期サービス上のチャンク
+
+- restic【本文】(forget、prune、design.rst): 書いたファイルは変更しない。書き込みは原子的。prune はリポジトリを排他ロックし、全スナップショットを走査して使用中のデータを調べ、使われていないパックを削除し、部分使用のパックを書き直す。ロックは `locks/` のファイルで、30 分を超えると古いとみなす。**「mark-and-sweep」という語は文書に無く、調査者の呼び名である。**
+- borg 1.4.5【本文】: prune は容量を空けない。`borg compact` が必要。参照カウント方式で、ログ型のセグメントと、リポジトリ全体のロックを使う。FAQ は、2 つの複製に対して動かさないこと、ネットワークファイルシステムを避けることを勧める。**同期フォルダの手本には向かない。restic の不変パックのほうが近い。**
+- restic フォーラム(topic 2403、4470)【本文】: Dropbox や Box Drive 上のリポジトリで、スナップショットがデータより先に同期される、部分的なパックが残る、`00 (user@email 2)` のような重複フォルダができる、一覧の取得に失敗する、といった問題が報告されている。これらは競合ではなく、順序と重複の問題である。半年間問題なく使えたという例も 1 件ある。
+- rclone の Google Drive 文書: Drive は同名のファイルを許し、「重複ファイルは同期で問題を起こす」と書く。revisions は 30 日か 100 個で消える。
+- Drive のような同期サービスを、不変チャンクのリポジトリの合流層として使う先行設計は、見た範囲では見つからなかった。
 
 ## 7. 設計への示唆(暫定、実装前に要検証)
 
-要件の核は、「管理するファイルを一つにする」ことと「Drive で別端末へ送る」ことの両立である。調査から見える候補は 2 つである。
+要件の核は、「管理するファイルを一つにする」ことと「Drive で別端末へ送る」ことの両立である。
 
-- **案 X: 履歴を別の Drive ファイル(appDataFolder など)に置き、本体と一対一で結ぶ。** 内容アドレス型の不変チャンクにすると、端末間の競合が起きにくい。利用者は本体だけを管理するが、履歴ファイルは正本として残る。`non-engineer-oss-plan.md` §11 の結論と整合する。持ち出しでは、本体だけを渡すと履歴が付かない。
-- **案 Y: 本体ファイル内に履歴を埋め込む(形式ごと)。** docx/xlsx は customXml 部品、PDF は増分追記、画像は XMP が候補になる。「二つにならない」要件には最も合う。ただし形式ごとに実装が要る。再保存で部品が消える、肥大する、漏洩する、という失敗事例がある。
+- **案 X: 履歴を別の Drive ファイルに置き、本体と対応づける。**
+  - 内容アドレス型の不変チャンクにして、本体の `appProperties` にはハッシュや履歴の ID だけを載せる。
+  - 利用者が管理するのは本体だけだが、履歴ファイルは正本として残る。`non-engineer-oss-plan.md` §11 の結論と整合する。
+  - appDataFolder は、手動削除とアンインストールで消えるので、書き出しか再構築手段を併用する。
+  - 同期の規則として、チャンクの書き込み完了後にだけ参照(スナップショット)を見えるようにする。削除は、端末をまたぐロックに頼らない手順にする。
+- **案 Y: 本体ファイル内に履歴を埋め込む。**
+  - docx/xlsx は customXml、PDF は増分追記、画像は XMP の識別子が候補である(XMP 単体では履歴にならない)。
+  - 「二つにならない」要件には最も合う。形式ごとに実装が要り、再保存で部品が消える、ファイルが肥大する、漏洩する、競合コピーで分岐する、という失敗がある。
+  - 履歴を埋め込む場合は、利用者に見えて制御できる必要がある。
 
-どちらも未検証の前提を含むので、実装に進む前に、次の実測を行う。
+どちらも、未検証の前提を含む。実装に進む前に確認すること:
 
-1. docx/xlsx に customXml で小さな履歴を入れ、Word、Excel、LibreOffice、Google Drive(アップロードとダウンロード)、メール添付、ZIP を通して、生存を確認する。
-2. 実際の docx/xlsx/pdf の連続保存で、チャンク分割と delta の節約率を測る(ZIP を展開してから分割する場合も含む)。
-3. Drive for desktop で、ファイルの再書き込み、競合コピー、xattr の扱いを実機で確認する。
-4. 公式ページの本文を読んで、§6 の未確認の項目を埋める。ECOOP 2021 の PDF 本文を読んで、DB の実体を確認する。
+1. Word、Excel、PowerPoint、Google Docs(アップロードとダウンロード)で、customXml が再保存後も残るか。メール添付と ZIP も通す。
+2. Word と Excel の ZIP の出力が、zlib の再圧縮で再現できるか。再現できなければ、元の圧縮ストリームを持つか、意味的に等しいファイルで許容するか。
+3. 実際の Office 文書(実保存)で、展開してからの分割の節約率とマニフェストのコストを測り直す。
+4. Drive for desktop で、ファイルの再書き込み、競合コピーの命名、キャッシュ破損、xattr の扱いを実機で確認する。
+5. Drive 上で、チャンクの書き込み順と参照の見え方(順序の問題)が再現するかを確認する。
 
-## 8. 未確認の文献
+## 8. 未確認の文献と事項
 
-Signal Classes 本文、Onward! 2019 の正確な書誌、arXiv 2502.20534 の著者、Swierstra & Löh、Darcs/Camp の理論、Xia ら「A Comprehensive Study of the Past, Present, and Future of Data Deduplication」(Proc. IEEE 2016、記憶のみ)、Yjs の公式文書、restic と borg の prune の仕組み、時間変化値・bitemporal DB・event sourcing の文献。
+- Swierstra & Löh「The Semantics of Version Control」Onward! 2014, DOI 10.1145/2661136.2661137: 実在を確認。読んだのは 2013 年のプレプリントで、Onward! 版は未読。バイナリを塊として扱い、衝突も塊単位で定義する。構造を持つ文書の理論は範囲外。
+- Mimram & Di Giusto「A Categorical Theory of Patches」ENTCS 298 (2013) 283–307, DOI 10.1016/j.entcs.2013.09.018【本文】(arXiv 版): ファイルを行の有限列として扱い、バイナリは扱わない。**1 回目に書いた「Pijul の理論的基礎」は、この本文から確認できなかった(Pijul の記載が無い)。**
+- Roundy「Darcs」Haskell Workshop 2005, DOI 10.1145/1088348.1088349 は書誌のみ。Camp、Jacobson(UCLA CAM 09-83)、Dagit(Monad.Reader 9)は未読。
+- Hunt, Vo, Tichy「Delta Algorithms: An Empirical Analysis」TOSEM 7(2), 1998, DOI 10.1145/279310.279321、Tichy「RCS」SPE 15(7), 1985、Cobena ら「Detecting Changes in XML Documents」ICDE 2002、Chawathe ら SIGMOD 1996 は、書誌のみ。
+- 文書形式に版管理を内蔵する研究: 特定できなかった(探索は 1 回のみ)。「無い」とは言えない。
+- 未確認の事項: Word と Google Docs の customXml、ISO 32000-2(PDF 2.0)、pptx、qpdf と gs での PDF 再出力、Loro の公式文書、Drive の ETag と If-Match、appDataFolder の容量上限、競合コピーの命名規則、Drive for desktop での xattr、旧 Word の高速保存の一次資料。
