@@ -1,6 +1,6 @@
 # MicroGit 設計方針
 
-最終更新: 2026-07-27（エージェント成果物のリポジトリ内ドキュメント化／Claude Code 併用）
+最終更新: 2026-10-18（非エンジニア向けの置き場は計画のみ。現行の正本は変えない）
 
 ## 1. 現段階のスコープ
 
@@ -46,6 +46,25 @@
 | 優先度 | 全体同期の挙動を安定させた後。PR レビュー WF より後でも可 |
 
 ※ 現行の「1ファイル一致で過去コミットへ HEAD 移動＋全体同期」を Cherry-pick に置き換えるのではなく、**全体同期を既定・Cherry-pick を明示操作**とする。
+
+### 2.3 文書向け版でも、記録の単位はフォルダ（2026-10-05）
+
+Word などの文書を使う人向けの版を別に出す場合も、**戻す単位はフォルダ**のままにする。ここは性能や配布のしやすさと天秤にかけない。
+
+Office のアドインは、VS Code の保存イベントと同じで、**保存が起きたというきっかけ**にだけ使う。JavaScript の Office アドインには保存イベントが無く、Windows の COM アドインには `DocumentBeforeSave` がある。どちらを使う場合も、1 つの `.docx` だけを履歴の単位にしない。
+
+| 案 | 採否 | 理由 |
+|---|---|---|
+| 保存された文書ファイルだけを記録し、そのファイルだけ戻す | 却下 | フォルダの中の他のファイルがその時点の組み合わせから外れる。§2.1 の全体同期を、利用者の種類で捨てることになる |
+| フォルダを記録の単位にし、Office の保存はきっかけにする | 採用 | 今の「1 回の保存で 1 件、中身はその時点のツリー」と同じ。ソフト制作者以外へ広げるときも、タイムトラベルの意味を変えない |
+
+未決のまま残すもの: 最初のホスト（Windows の Word 用 COM アドインか、フォルダを監視する別プロセスか）、`.docx` を ZIP のまま残すか中の XML に分けるか。分けて残す場合も、戻すときはフォルダのツリーである。
+
+### 2.4 関連: 非エンジニア向け OSS の計画（2026-10-18）
+
+ソフト制作者以外へ広げるときの履歴の置き場は [non-engineer-oss-plan.md](./non-engineer-oss-plan.md) に書いた。これは計画であり、未実装である。現行の正本（[ADR-0001](./adr/0001-source-of-truth.md)）は変えない。Issue #8（カーネル機能ポータブル化）も止めない。
+
+§2.3 の未決（最初のホストが COM アドインかフォルダ監視か、`.docx` を分割するか）は、この小節では解消しない。計画の側は、戻す単位をフォルダのままにし、最初のホストをフォルダ監視にし、ファイルはバイト列のまま記録する。
 
 ## 3. メインブランチ専属のマイクロ履歴
 
@@ -281,6 +300,7 @@ Cursor と Claude Code を併用する。チャット履歴・コンテキスト
 - 卒業研究レビュー: [build-verification-engine-review.md](./build-verification-engine-review.md) — エンジン設計の前提を実装と突き合わせた指摘。R-01/R-02 は本ドキュメント §2（記録単位）の変更を要求する
 - 卒業研究（ビルド検証エンジン）: [build-verification-engine.md](./build-verification-engine.md) — マイクロコミット単位のビルド成否の悉皆記録と、ブランチ追従 CoW キャッシュ。MicroGit 本体とは別プロセス（同 §14 に接続点）
 - 次期メジャー（カーネル機能ポータブル化）: [要件定義書](./microgit-kernel-feature-portability-requirements.md) / [初期設計](./microgit-kernel-feature-portability-design.md) / [補足（レビュー所見 S-1〜S-13）](./microgit-kernel-feature-portability-supplement.md) — Linux カーネルの OverlayFS を Linux 以外のホストにも提供する部品。現行の Node.js 仮想 Overlay はフォールバックとして残す。作業ブランチ `feature/kernel-portability`、進捗は Issue #8（Epic）
+- 非エンジニア向けの履歴の置き場: [non-engineer-oss-plan.md](./non-engineer-oss-plan.md) — 計画であり未実装。現行の正本は変えない。青谷らの persistent signals は同 §11。ライブの正本にはしない
 - 設計判断の理由（記事・論文向けのまとめ）: [design-rationale.md](./design-rationale.md) — 計測で分かったこと、判断ごとの理由・採らなかった案・引き受けること、まだ確かめていないこと、主張の強さの注意（#34）
 - 設計判断の記録（ADR）: [adr/README.md](./adr/README.md) — 1 件 1 ファイル。ADR-0001 正本は shadow の Git、ADR-0002 永続性の既定は電源断でも失わない、ADR-0003 層キャッシュのコンパクション、ADR-0004 保存ごとに層を作る、ADR-0005 mount オプションの固定、ADR-0006 Windows の名前付きパイプ、ADR-0007〜0011 初期設計の ADR 候補 5 件（機能単位の部品、Linux は VM なし、ゲストを信用しない、CONFIG_NET 無効、Go の静的 agent）
 - カーネル版の Overlay バックエンド（MicroGit への組み込み）: [kernel-backend.md](./kernel-backend.md) — 設定、ホストごとの起動、Windows の名前付きパイプ、層の供給、速さ、テスト、既知の制限（#14）
