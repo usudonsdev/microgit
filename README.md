@@ -33,6 +33,16 @@
 6. **グラフの表示**: パネルの「グラフを開く」、または `MicroGit: Show Graph` を実行します。開いたまま保存やジャンプ・区間フィルタに追従します。
 7. **ブランチ切替**: メインブランチを切り替えると、そのブランチ専属のマイクロ空間へ載せ替わります。
 
+## LLM と一緒に使う
+
+MicroGit は、エディタの保存をチェックポイントにします。エージェントには、その前提で作業するスキルを入れてください。
+
+1. コマンドパレットで `MicroGit: Install Agent Skill` を実行します。未導入のワークスペースでは、起動時に一度だけ同じ導入を案内します。
+2. ワークスペースの `.cursor/skills/use-microgit/SKILL.md` と、AI 編集を `[AI]` 付きで残す Cursor のフックが入ります。
+3. Claude Code で使うときは、リポジトリの `skills/use-microgit/SKILL.md` を `~/.claude/skills/use-microgit/SKILL.md` へコピーします。フックは Cursor 専用なので、スキルの指示どおりエージェントが `.microgit_logs/ai-pending.json` へパスを足します。
+
+すべてのプロジェクトで使うときは、同じ `SKILL.md` を `~/.cursor/skills/use-microgit/SKILL.md` へ置きます。フックはプロジェクトごとの `.cursor/hooks.json` が必要なので、各ワークスペースでコマンドを実行してください。
+
 ## カーネル版の Overlay（5.0.0〜）
 
 過去に戻る操作を、本物の Linux カーネルの OverlayFS で行います。追加で入れるものはありません。使えない環境では、利用者の操作なしに従来の Node.js 版で動きます。

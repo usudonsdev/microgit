@@ -4,6 +4,9 @@ All notable changes to the "MicroGit" extension will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **LLM 向けスキル `use-microgit`**。`MicroGit: Install Agent Skill` で、ワークスペースの `.cursor/skills/use-microgit/` と AI 編集フックを入れる。未導入のワークスペースでは起動時に一度だけ導入を案内する
+
 ## [5.1.0] - 2026-10-03
 
 ### Changed

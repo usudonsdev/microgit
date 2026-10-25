@@ -293,6 +293,13 @@ Cursor と Claude Code を併用する。チャット履歴・コンテキスト
 
 詳細な作業指示はリポジトリ直下の [AGENTS.md](../AGENTS.md) / [CLAUDE.md](../CLAUDE.md) を正とする。
 
+### 利用者の LLM 向けスキル（2026-10-04）
+
+拡張機能の利用者の LLM は、MicroGit の実装を知らない。保存がチェックポイントであること、ディスクへ書いただけでは記録されないこと、`.microgit_shadow` を直接戻しに使わないことを [skills/use-microgit/SKILL.md](../skills/use-microgit/SKILL.md) に固定する。導入はコマンド `MicroGit: Install Agent Skill`。未導入のワークスペースでは起動時に一度だけ案内し、「案内しない」はそのワークスペースだけに覚える。
+
+- **採用理由**: エージェントが通常 Git へ細かいコミットを積む、または shadow を checkout してワークスペースを戻すと、マイクロ履歴と作業ツリーがずれる。
+- **却下**: 起動のたびに `.cursor/` へ黙って書く。エージェントを使わない利用者のワークスペースを汚す。案内を全ワークスペース共通で消す。別のリポジトリでもう一度勧める機会が無くなる。
+
 ## 9. 関連ドキュメント
 
 - 利用者向け: [README.md](../README.md)
@@ -313,4 +320,5 @@ Cursor と Claude Code を併用する。チャット履歴・コンテキスト
 - Phase 2（Windows）: [windows-backend.md](./windows-backend.md) — QEMU を同梱する方式に決定（O-1）。WHPX が無効でも TCG で動く。計測結果と、同梱用の小さい QEMU のビルド（#18）
 - Phase 3（公開）: [release.md](./release.md) — プラットフォーム別の VSIX、5 つの環境での確認、公開の手順と利用者が決めること、ライセンスとソース、Windows の保護機能、TCG の境界、同梱する部品の更新方針（O-6）。同梱物の一覧は [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)（#19）
 - 変更履歴: [CHANGELOG.md](../CHANGELOG.md)
+- 利用者の LLM 向けスキル: [skills/use-microgit/SKILL.md](../skills/use-microgit/SKILL.md) — 拡張機能利用者が Cursor / Claude Code に入れる作業手順。導入コマンドは `MicroGit: Install Agent Skill`
 - エージェント共通指示: [AGENTS.md](../AGENTS.md) / [CLAUDE.md](../CLAUDE.md)

@@ -80,6 +80,10 @@
       {
         "command": "microgit.fetchMicroHistory",
         "title": "MicroGit: Fetch Micro History"
+      },
+      {
+        "command": "microgit.installAgentSkill",
+        "title": "MicroGit: Install Agent Skill"
       }
     ],
     "configuration": {

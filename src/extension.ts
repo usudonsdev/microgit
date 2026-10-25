@@ -20,6 +20,7 @@ import {
     updateDagCurrent,
     writeLayerDir,
 } from './overlay';
+import { agentSkillMarker, installAgentSkill } from './agentSkill';
 import { BackendSelector, parseBackendSetting } from './kernel/backendSelector';
 import { ensureExecutable } from './kernel/executable';
 import { FastMicroCommitter } from './fastMicroCommit';
@@ -467,12 +468,56 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
+    context.subscriptions.push(
+        vscode.commands.registerCommand('microgit.installAgentSkill', async () => {
+            const rootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (!rootPath) {
+                void vscode.window.showWarningMessage('[MicroGit] ワークスペースが開かれていないため、エージェントスキルを入れられません');
+                return;
+            }
+            try {
+                const installed = installAgentSkill(context.extensionPath, rootPath);
+                await context.workspaceState.update(AGENT_SKILL_DISMISS, true);
+                void vscode.window.showInformationMessage(
+                    `[MicroGit] エージェントスキルを入れました（${installed.hooksMerged ? 'フックも追加' : 'フックは既存'}）: ${installed.skillPath}`
+                );
+            } catch (err: unknown) {
+                const message = err instanceof Error ? err.message : String(err);
+                void vscode.window.showErrorMessage(`[MicroGit] エージェントスキルを入れられません: ${message}`);
+            }
+        })
+    );
+
     watchGitBranchChanges(context, () => {
         if (!workspaceFolders) { return; }
         const rootPath = workspaceFolders[0].uri.fsPath;
         syncBranchPolicy(rootPath);
         refreshUi(rootPath);
     });
+
+    void maybeRecommendAgentSkill(context);
+}
+
+const AGENT_SKILL_DISMISS = 'microgit.agentSkill.dismissed';
+
+/** スキルが未導入のワークスペースで、一度だけ導入を勧める。 */
+async function maybeRecommendAgentSkill(context: vscode.ExtensionContext): Promise<void> {
+    const rootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!rootPath || fs.existsSync(agentSkillMarker(rootPath)) || context.workspaceState.get<boolean>(AGENT_SKILL_DISMISS)) {
+        return;
+    }
+    const choice = await vscode.window.showInformationMessage(
+        'MicroGit は保存をチェックポイントにします。LLM がマイクロ履歴を壊さず作業できるスキルを、このワークスペースへ入れますか？',
+        '導入する',
+        '案内しない',
+    );
+    if (choice === '導入する') {
+        await vscode.commands.executeCommand('microgit.installAgentSkill');
+        return;
+    }
+    if (choice === '案内しない') {
+        await context.workspaceState.update(AGENT_SKILL_DISMISS, true);
+    }
 }
 
 /** ステータスバーと専用 UI（サイドバー / グラフ）を最新状態へ同期する */
