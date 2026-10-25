@@ -33,6 +33,32 @@
 
 「他ファイルまで戻る」はバグではなく、Git 互換の望ましい挙動とする。
 
+### 2.1.1 全体同期で未保存の編集を消さない（診断 S-15、2026-10-25）
+
+**問題**: 保存時の自動巻き戻し（rewound）とジャンプ（`sharedTimeTravel`）は、`applyOverlayCheckout(..., {syncWorkspace:true})` でディスク上のファイルを書き換え、その後 `revertTouchedDocuments` が開いている文書に `workbench.action.files.revert` を実行していた。revert は未保存の編集を確認なしで捨てるため、別タブで編集中のファイルの未保存の編集が黙って消えた。
+
+**採用した修正（最小）**: `revertTouchedDocuments` は `isDirty` な文書を読み直さない（判定は純関数 `src/revertPolicy.ts` の `selectDocumentsToRevert`、単体テスト `src/test/unit/revertPolicy.test.ts`）。読み直さなかった文書は MicroGit Output に WARN を出し、警告を 1 回表示する。ディスクは書き換わっているので、利用者がその文書を保存すると VS Code が「ディスク上で新しくなっている」衝突を知らせる（比較・上書きを選べる）。これでエディタ上の未保存の編集は失われない。
+
+**dirty な文書がある状態で syncWorkspace が走る経路（コードを読んだ結果）**:
+
+| 経路 | 呼び出し | 書き換え先 |
+|------|----------|------------|
+| 保存時の rewound | `extension.ts` 保存ジョブ → `applyOverlayCheckout(root, head, {syncWorkspace:true})` | カーネル版 `applyKernelCheckout` → `kernel.checkout`、または Node 版 `syncMergeToWorkspace` |
+| ジャンプ（Overlay 有効） | `sharedTimeTravel` → `applyOverlayCheckout` | 同上 |
+| ジャンプ（Overlay 無効） | `sharedTimeTravel` の `git show` ループ | `fs.writeFileSync` / `unlinkSync`（revert 自体を呼ばない。エディタの内容は残るが、ディスクは書き換わる） |
+
+どの経路も `revertTouchedDocuments` の dirty 判定で、少なくともエディタ上の編集は守られる。
+
+**判断待ち: dirty なファイルのディスク書き換え自体を止めるか**（今回は止めていない）。
+
+| 選択肢 | 内容 | 利点 | 欠点・理由 |
+|--------|------|------|------------|
+| A（現状） | ディスクは書き換え、dirty は読み直さない | §2.1（全体同期は仕様）を保つ。変更が小さい | ディスクとエディタが食い違う。保存時に衝突確認が出る。エディタの内容を保存で上書きすると、巻き戻し結果が消える |
+| B | dirty なパスを同期から除外（`syncMergeToWorkspace` と `kernel.checkout` に skip 集合を渡す） | ディスクも守れる | 巻き戻し後のワークスペースが指定コミットと一致しない（§2.1 と矛盾）。カーネル版 agent の `cache`（kernel-sync-cache.json）と DAG の現在位置の整合を別途検討する必要がある。除外したパスをその後どうするか（次回同期で拾うか）の仕様が要る |
+| C | dirty が 1 つでもあれば、保存時の rewound の全体同期をスキップまたは確認する | 事故を最も防げる | 保存ジョブは非同期で確認 UI と相性が悪い。rewound の意味（同じ中身に戻ったら HEAD を戻す）と、スキップ時の HEAD とワークスペースのずれの扱いが要る |
+
+B/C は §2.1 の仕様と、同期層（`boundaryGuard.ts`、カーネル agent）に関わるため、仕様の判断者の決定を待つ。未保存の編集を持つファイルは、Git の checkout でも同様にぶつかる（Git は dirty なファイルの上書きを拒否する）ので、「Git 互換」に寄せるなら B（拒否または除外）が候補。
+
 ### 2.2 将来機能: Cherry-pick（部分適用）
 
 全体同期とは別に、**特定マイクロコミットから一部パスだけを現在の tip に取り込む**操作を将来実装する。

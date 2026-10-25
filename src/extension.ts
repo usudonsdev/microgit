@@ -33,6 +33,7 @@ import { BackendSelector, parseBackendSetting } from './kernel/backendSelector';
 import { ensureExecutable } from './kernel/executable';
 import { FastMicroCommitter } from './fastMicroCommit';
 import { ChangeDedupe, headSignature, RefreshCoalescer } from './refreshGate';
+import { selectDocumentsToRevert } from './revertPolicy';
 import { saveStatusMessage, SaveStatusResult } from './saveStatus';
 import { SaveTimer, SaveTimingLog } from './saveTiming';
 import { firstTagAtHead, readRef, readSymbolicHead, resolveGitDir } from './fastGit/refs';
@@ -1271,14 +1272,31 @@ function consumeAiPending(rootPath: string, relativeFilePath: string): boolean {
     }
 }
 
-/** 反映で中身が変わった文書を、開いているエディタで読み直す */
+/**
+ * 反映で中身が変わった文書を、開いているエディタで読み直す。
+ * 未保存の編集がある文書（isDirty）は読み直さない: revert は未保存の編集を黙って捨てるため（診断 S-15。選び方は revertPolicy.ts）。
+ * ディスクは既に書き換わっているので、読み直さなかった文書は次の保存時に VS Code が衝突を知らせる。
+ */
 async function revertTouchedDocuments(rootPath: string, touched: Set<string>): Promise<void> {
-    for (const doc of vscode.workspace.textDocuments) {
-        const rel = toPosixRelative(rootPath, doc.uri.fsPath);
-        if (!rel || !touched.has(rel)) { continue; }
+    const docs = vscode.workspace.textDocuments.map((doc) => ({
+        doc,
+        rel: toPosixRelative(rootPath, doc.uri.fsPath),
+        isDirty: doc.isDirty,
+    }));
+    const { revert, skippedDirty } = selectDocumentsToRevert(docs, touched);
+    for (const d of revert) {
         try {
-            await vscode.commands.executeCommand('workbench.action.files.revert', doc.uri);
+            await vscode.commands.executeCommand('workbench.action.files.revert', d.doc.uri);
         } catch { /* ignore */ }
+    }
+    if (skippedDirty.length) {
+        for (const d of skippedDirty) {
+            ExtensionLogger.log(`[反映] 未保存の編集があるため読み直さなかった（ディスクの内容は書き換わっている）: ${d.rel}`, 'WARN');
+        }
+        void vscode.window.showWarningMessage(
+            `[MicroGit] ${skippedDirty.length} 件のファイルは未保存の編集があるため、エディタの内容を残しました。` +
+            'ディスク上は巻き戻し後の内容です。保存すると衝突の確認が出ます（詳細は MicroGit Output）'
+        );
     }
 }
 
