@@ -42,44 +42,44 @@
     },
     "commands": [
       {
-        "command": "microgit.toggle",
-        "title": "MicroGit: Toggle On/Off"
+        "command": "vereve.toggle",
+        "title": "verEve: Toggle On/Off"
       },
       {
-        "command": "microgit.enable",
-        "title": "MicroGit: Enable"
+        "command": "vereve.enable",
+        "title": "verEve: Enable"
       },
       {
-        "command": "microgit.disable",
-        "title": "MicroGit: Disable"
+        "command": "vereve.disable",
+        "title": "verEve: Disable"
       },
       {
-        "command": "microgit.openPanel",
-        "title": "MicroGit: Open Control Panel"
+        "command": "vereve.openPanel",
+        "title": "verEve: Open Control Panel"
       },
       {
-        "command": "microgit.exportLogs",
-        "title": "MicroGit: Export Logs"
+        "command": "vereve.exportLogs",
+        "title": "verEve: Export Logs"
       },
       {
-        "command": "microgit.jumpToCommit",
-        "title": "MicroGit: Jump to Commit or Tag"
+        "command": "vereve.jumpToCommit",
+        "title": "verEve: Jump to Commit or Tag"
       },
       {
-        "command": "microgit.showGraph",
-        "title": "MicroGit: Show Graph"
+        "command": "vereve.showGraph",
+        "title": "verEve: Show Graph"
       },
       {
-        "command": "microgit.overlayStatus",
-        "title": "MicroGit: Overlay Status"
+        "command": "vereve.overlayStatus",
+        "title": "verEve: Overlay Status"
       },
       {
-        "command": "microgit.publishMicroHistory",
-        "title": "MicroGit: Publish Micro History"
+        "command": "vereve.publishMicroHistory",
+        "title": "verEve: Publish Micro History"
       },
       {
-        "command": "microgit.fetchMicroHistory",
-        "title": "MicroGit: Fetch Micro History"
+        "command": "vereve.fetchMicroHistory",
+        "title": "verEve: Fetch Micro History"
       }
     ],
     "configuration": {

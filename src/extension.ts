@@ -63,7 +63,7 @@ import { PublishQueue } from './publishQueue';
 import { buildPublishConfirmMessage } from './publishConfirm';
 
 /** workspaceState のキー：MicroGit が有効か（真偽値） */
-const STATE_ENABLED = 'microgit.enabled';
+const STATE_ENABLED = 'vereve.enabled';
 /** workspaceState のキー：いま載せているマイクロ空間のメインブランチ名 */
 const STATE_TARGET_BRANCH = 'microgit.targetBranch';
 /** 作業ツリーの直下にある MicroGit の成果物のフォルダ名（現在の .microgit と、古い 3 フォルダ）。保存の記録の対象から外し、ブランチ切替で退避・復元する */
@@ -74,11 +74,11 @@ let currentMicroBranchTag: string = 'mb-1';
 
 /** activate で受け取った拡張機能のコンテキスト。workspaceState や保存先の参照に使う（activate の前は undefined） */
 let extensionContext: vscode.ExtensionContext | undefined;
-/** 左下のステータスバーの項目（ON / OFF とブランチ名）。クリックすると microgit.toggle */
+/** 左下のステータスバーの項目（ON / OFF とブランチ名）。クリックすると vereve.toggle */
 let statusBarItem: vscode.StatusBarItem | undefined;
 /** サイドバーとグラフの画面。見えていないときは、force でなければ内容を作らない（refreshUi） */
 let microGitUi: MicroGitUi | undefined;
-/** 保存の記録を 1 件ずつ順番に流す列（enqueueSave）。microgit.internal.waitForSaves が、この列の終わりを待つ */
+/** 保存の記録を 1 件ずつ順番に流す列（enqueueSave）。vereve.internal.waitForSaves が、この列の終わりを待つ */
 let saveChain: Promise<void> = Promise.resolve();
 /** キュー上に残っている保存ジョブ数（同一内容の畳み込み判定に使う） */
 let pendingSaveJobs = 0;
@@ -198,7 +198,7 @@ export function activate(context: vscode.ExtensionContext) {
     statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 1000);
     statusBarItem.name = 'MicroGit';
     statusBarItem.text = '$(circle-slash) MicroGit: OFF';
-    statusBarItem.command = 'microgit.toggle';
+    statusBarItem.command = 'vereve.toggle';
     statusBarItem.tooltip = 'MicroGit の有効 / 無効を切り替え';
     statusBarItem.show();
     context.subscriptions.push(statusBarItem);
@@ -330,9 +330,9 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
-    // microgit.toggle：有効 / 無効を切り替える。有効にできるのは、名前付きブランチの上だけ（detached HEAD は不可）
+    // vereve.toggle：有効 / 無効を切り替える。有効にできるのは、名前付きブランチの上だけ（detached HEAD は不可）
     context.subscriptions.push(
-        vscode.commands.registerCommand('microgit.toggle', async () => {
+        vscode.commands.registerCommand('vereve.toggle', async () => {
             if (!workspaceFolders) {
                 vscode.window.showWarningMessage('ワークスペースを開いてから MicroGit を切り替えてください。');
                 return;
@@ -360,16 +360,16 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
-    // microgit.openPanel：サイドバーの画面を開く
+    // vereve.openPanel：サイドバーの画面を開く
     context.subscriptions.push(
-        vscode.commands.registerCommand('microgit.openPanel', async () => {
+        vscode.commands.registerCommand('vereve.openPanel', async () => {
             await vscode.commands.executeCommand(`${MicroGitUi.viewType}.focus`);
         })
     );
 
-    // microgit.enable：無効のときだけ microgit.toggle を呼んで有効にする
+    // vereve.enable：無効のときだけ vereve.toggle を呼んで有効にする
     context.subscriptions.push(
-        vscode.commands.registerCommand('microgit.enable', async () => {
+        vscode.commands.registerCommand('vereve.enable', async () => {
             if (!workspaceFolders) { return; }
             const rootPath = workspaceFolders[0].uri.fsPath;
             if (isEnabled()) {
@@ -378,26 +378,26 @@ export function activate(context: vscode.ExtensionContext) {
                 refreshUi(rootPath);
                 return;
             }
-            await vscode.commands.executeCommand('microgit.toggle');
+            await vscode.commands.executeCommand('vereve.toggle');
         })
     );
 
-    // microgit.disable：有効のときだけ microgit.toggle を呼んで無効にする
+    // vereve.disable：有効のときだけ vereve.toggle を呼んで無効にする
     context.subscriptions.push(
-        vscode.commands.registerCommand('microgit.disable', async () => {
+        vscode.commands.registerCommand('vereve.disable', async () => {
             if (!workspaceFolders) { return; }
             if (!isEnabled()) {
                 vscode.window.showInformationMessage('[MicroGit] 既に無効です');
                 refreshUi(workspaceFolders[0].uri.fsPath);
                 return;
             }
-            await vscode.commands.executeCommand('microgit.toggle');
+            await vscode.commands.executeCommand('vereve.toggle');
         })
     );
 
-    // microgit.jumpToCommit：指定のコミットまたは mb-* タグの時点へ戻る（有効で記録可能なブランチの上だけ）。引数が無ければ入力欄で聞く
+    // vereve.jumpToCommit：指定のコミットまたは mb-* タグの時点へ戻る（有効で記録可能なブランチの上だけ）。引数が無ければ入力欄で聞く
     context.subscriptions.push(
-        vscode.commands.registerCommand('microgit.jumpToCommit', async (explicitTarget?: string) => {
+        vscode.commands.registerCommand('vereve.jumpToCommit', async (explicitTarget?: string) => {
             if (!workspaceFolders) { return; }
             const rootPath = workspaceFolders[0].uri.fsPath;
             if (!syncBranchPolicy(rootPath)) {
@@ -415,9 +415,9 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
-    // microgit.exportLogs：ログを .microgit/logs/log_latest.json に書き出す（有効で、記録可能なブランチの上だけ。書き込みの失敗は exportLogFile が握りつぶすので、成功の通知は書けたかどうかを表さない）
+    // vereve.exportLogs：ログを .microgit/logs/log_latest.json に書き出す（有効で、記録可能なブランチの上だけ。書き込みの失敗は exportLogFile が握りつぶすので、成功の通知は書けたかどうかを表さない）
     context.subscriptions.push(
-        vscode.commands.registerCommand('microgit.exportLogs', async () => {
+        vscode.commands.registerCommand('vereve.exportLogs', async () => {
             if (!workspaceFolders) { return; }
             const rootPath = workspaceFolders[0].uri.fsPath;
             syncBranchPolicy(rootPath);
@@ -435,9 +435,9 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
-    // microgit.showGraph：グラフの画面を開く
+    // vereve.showGraph：グラフの画面を開く
     context.subscriptions.push(
-        vscode.commands.registerCommand('microgit.showGraph', async () => {
+        vscode.commands.registerCommand('vereve.showGraph', async () => {
             if (!workspaceFolders) { return; }
             const rootPath = workspaceFolders[0].uri.fsPath;
             syncBranchPolicy(rootPath);
@@ -447,9 +447,9 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
-    // microgit.publishMicroHistory：親 refs へ共有し、続けて origin の refs/microgit/* へ push する
+    // vereve.publishMicroHistory：親 refs へ共有し、続けて origin の refs/microgit/* へ push する
     context.subscriptions.push(
-        vscode.commands.registerCommand('microgit.publishMicroHistory', async () => {
+        vscode.commands.registerCommand('vereve.publishMicroHistory', async () => {
             if (!workspaceFolders) { return; }
             const rootPath = workspaceFolders[0].uri.fsPath;
             const branch = getCurrentBranch(rootPath);
@@ -492,9 +492,9 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
-    // microgit.fetchMicroHistory：origin の refs/microgit/* を取り込み、隠しリポジトリへ反映する。履歴が発散していたら新しい分岐として取り込む
+    // vereve.fetchMicroHistory：origin の refs/microgit/* を取り込み、隠しリポジトリへ反映する。履歴が発散していたら新しい分岐として取り込む
     context.subscriptions.push(
-        vscode.commands.registerCommand('microgit.fetchMicroHistory', async () => {
+        vscode.commands.registerCommand('vereve.fetchMicroHistory', async () => {
             if (!workspaceFolders) { return; }
             const rootPath = workspaceFolders[0].uri.fsPath;
             const branch = getCurrentBranch(rootPath);
@@ -526,19 +526,19 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         // テストと計測のための内部コマンド（package.json には出さない。#37）
-        vscode.commands.registerCommand('microgit.internal.waitForSaves', async () => { await saveChain; }),
+        vscode.commands.registerCommand('vereve.internal.waitForSaves', async () => { await saveChain; }),
         // 処理を終えた保存の数と、最後に記録したコミット。テストが保存の最中に Git を起動しないため（#61）
-        vscode.commands.registerCommand('microgit.internal.lastSave', () => ({ processed: savesProcessed, head: lastSaveOutcome?.head })),
+        vscode.commands.registerCommand('vereve.internal.lastSave', () => ({ processed: savesProcessed, head: lastSaveOutcome?.head })),
         // 保存の列の終わりを待ち、予約中の後片付けを今すぐ行う
-        vscode.commands.registerCommand('microgit.internal.flushAfterSave', async () => { await saveChain; await flushAfterSaveRefresh(); }),
+        vscode.commands.registerCommand('vereve.internal.flushAfterSave', async () => { await saveChain; await flushAfterSaveRefresh(); }),
         // 保存ごとの段階の時間を返す。clear が真なら、返したあとで消す
-        vscode.commands.registerCommand('microgit.internal.saveTimings', (clear?: boolean) => {
+        vscode.commands.registerCommand('vereve.internal.saveTimings', (clear?: boolean) => {
             const all = [...saveTimings.all];
             if (clear) { saveTimings.clear(); }
             return all;
         }),
-        // microgit.overlayStatus：Overlay のバックエンド・記録の方式・保存の時間を文書に開いて見せる
-        vscode.commands.registerCommand('microgit.overlayStatus', async () => {
+        // vereve.overlayStatus：Overlay のバックエンド・記録の方式・保存の時間を文書に開いて見せる
+        vscode.commands.registerCommand('vereve.overlayStatus', async () => {
             const kernelText = backendSelector ? await backendSelector.describe() : 'overlayBackend=?';
             const active = backendSelector?.readyKernel() ? 'kernel' : 'nodejs';
             const text =
@@ -1424,7 +1424,7 @@ async function applyOverlayCheckout(
 }
 
 /**
- * 隠しリポジトリの micro-history を target（ハッシュまたは mb-* タグ）に付け替えて HEAD にし、ワークスペースのファイルを合わせる。microgit.jumpToCommit が呼ぶ。
+ * 隠しリポジトリの micro-history を target（ハッシュまたは mb-* タグ）に付け替えて HEAD にし、ワークスペースのファイルを合わせる。vereve.jumpToCommit が呼ぶ。
  * Overlay を使うかどうかに関わらず通る共通の入口で、使うときは applyOverlayCheckout に任せる。コミットは消さない。
  * target が isSafeGitRef に合わない・隠しリポジトリが無いときは、画面に出して何もしない。途中の失敗も例外にせず、画面にエラーを出す。
  * Overlay を使わないときは、target のコミットで変わったファイル（無ければ全ファイル）を git show で 1 つずつ書き戻す（Git に無いものは消す）

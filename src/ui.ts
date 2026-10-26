@@ -220,21 +220,21 @@ export class MicroGitUi implements vscode.WebviewViewProvider {
     }): Promise<void> {
         switch (message.command) {
             case 'toggle':
-                await vscode.commands.executeCommand('microgit.toggle');
+                await vscode.commands.executeCommand('vereve.toggle');
                 return;
             case 'showGraph':
                 this.showGraphPanel();
                 return;
             case 'jumpToCommit':
                 if (typeof message.hash === 'string') {
-                    await vscode.commands.executeCommand('microgit.jumpToCommit', message.hash);
+                    await vscode.commands.executeCommand('vereve.jumpToCommit', message.hash);
                 }
                 return;
             case 'jumpPrompt':
-                await vscode.commands.executeCommand('microgit.jumpToCommit');
+                await vscode.commands.executeCommand('vereve.jumpToCommit');
                 return;
             case 'exportLogs':
-                await vscode.commands.executeCommand('microgit.exportLogs');
+                await vscode.commands.executeCommand('vereve.exportLogs');
                 return;
             case 'setInterval':
                 if (typeof message.intervalId === 'string') {
@@ -254,7 +254,7 @@ export class MicroGitUi implements vscode.WebviewViewProvider {
         intervalId?: string;
     }): Promise<void> {
         if (message.command === 'jumpToCommit' && typeof message.hash === 'string') {
-            await vscode.commands.executeCommand('microgit.jumpToCommit', message.hash);
+            await vscode.commands.executeCommand('vereve.jumpToCommit', message.hash);
             return;
         }
         if (message.command === 'setInterval' && typeof message.intervalId === 'string') {
