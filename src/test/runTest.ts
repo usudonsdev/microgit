@@ -69,7 +69,7 @@ function installVsix(vscodeExecutablePath: string, vsix: string, extensionsDir: 
         '--force',
     ], { env: cli.env, encoding: 'utf8' });
     console.log(out.trim());
-    const installed = fs.readdirSync(extensionsDir).filter((n) => n.startsWith('usudonsdev.microgit-'));
+    const installed = fs.readdirSync(extensionsDir).filter((n) => n.startsWith('usudonsdev.vereve-'));
     if (installed.length !== 1) { throw new Error(`入った拡張機能が 1 つでない: ${installed.join(', ') || '(無し)'}`); }
     const folder = path.join(extensionsDir, installed[0]);
     console.log(`installed: ${folder}`);

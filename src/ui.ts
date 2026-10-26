@@ -46,8 +46,8 @@ export interface MicroGitUiSnapshot {
  * Activity Bar の専用ビューとグラフパネルを管理し、状態変更をリアルタイム反映する
  */
 export class MicroGitUi implements vscode.WebviewViewProvider {
-    /** サイドバーのビューの識別子。package.json の views の id（microgit.sidebar）と一致していること。 */
-    public static readonly viewType = 'microgit.sidebar';
+    /** サイドバーのビューの識別子。package.json の views の id（vereve.sidebar）と一致していること。 */
+    public static readonly viewType = 'vereve.sidebar';
 
     private view?: vscode.WebviewView;
     private graphPanel?: vscode.WebviewPanel;

@@ -1,7 +1,7 @@
 {
-  "name": "microgit",
-  "displayName": "MicroGit",
-  "version": "5.2.0",
+  "name": "vereve",
+  "displayName": "verEve",
+  "version": "6.0.0",
   "publisher": "usudonsdev",
   "description": "個人開発向け。ブランチ専属マイクロ履歴・メインコミット区間 UI・Overlay checkout・refs/microgit 共有",
   "license": "SEE LICENSE IN LICENCE.md",
@@ -24,17 +24,17 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "microgit",
-          "title": "MicroGit",
-          "icon": "media/microgit.svg"
+          "id": "vereve",
+          "title": "verEve",
+          "icon": "media/vereve.svg"
         }
       ]
     },
     "views": {
-      "microgit": [
+      "vereve": [
         {
           "type": "webview",
-          "id": "microgit.sidebar",
+          "id": "vereve.sidebar",
           "name": "Control Panel",
           "visibility": "visible"
         }
@@ -83,7 +83,7 @@
       }
     ],
     "configuration": {
-      "title": "MicroGit",
+      "title": "verEve",
       "properties": {
         "microgit.useOverlayCheckout": {
           "type": "boolean",
