@@ -8,12 +8,31 @@
  * 確認を省く設定は、設計判断（共有の方針）が要るので、まだ作っていない（docs/design-policy.md）。
  */
 
+/** 既知のトークンの形（GitHub の PAT など）。パスに埋め込まれていても伏せる */
+const TOKEN_LIKE = /(gh[pousr]_|github_pat_|glpat-|xox[abprs]-)[A-Za-z0-9_-]+/g;
+
 /**
- * リモートの URL から、認証情報（https://user:token@host/... の user:token@ の部分）を取り除く。
- * ダイアログとログに PAT を出さないため。ssh の `git@host:path` 形式の `git@` は認証情報ではないので残す。
+ * リモートの URL を、ダイアログとログに出してよい形にする（PAT などの秘密を出さない）。
+ * - クエリ（?...）とフラグメント（#...）は全部落とす（?token= など）
+ * - `scheme://` の形：ユーザー情報は「最後の @ まで」を落とす。パスワードに生の @ や / が入っていても漏れない
+ *   （代わりに、パスの中に @ がある URL は、その手前も落ちる。秘密を出さないことを優先する）。ssh://git@host の git@ も落ちる
+ * - scp 形式（user@host:path）：ユーザー名だけなら残す（git@github.com:a/b.git）。user:tok@host:path のように : を含むなら全部落とす
+ * - 既知のトークンの形がパスに残っていたら *** にする
  */
 export function maskRemoteUrl(url: string): string {
-    return url.trim().replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/@\s]+@/i, '$1');
+    let u = url.trim().replace(/[?#].*$/s, '');
+    const scheme = /^[a-z][a-z0-9+.-]*:\/\//i.exec(u);
+    if (scheme) {
+        const rest = u.slice(scheme[0].length);
+        const at = rest.lastIndexOf('@');
+        u = scheme[0] + (at >= 0 ? rest.slice(at + 1) : rest);
+    } else {
+        const at = u.lastIndexOf('@');
+        if (at >= 0 && u.slice(0, at).includes(':')) {
+            u = u.slice(at + 1);
+        }
+    }
+    return u.replace(TOKEN_LIKE, '***');
 }
 
 /** 確認ダイアログの本文。originUrl は maskRemoteUrl を通したものを渡す。 */

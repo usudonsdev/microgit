@@ -58,6 +58,16 @@ describe('Publish の確認', () => {
         assert.strictEqual(maskRemoteUrl('https://tok@github.com/a/b.git'), 'https://github.com/a/b.git');
         assert.strictEqual(maskRemoteUrl('git@github.com:a/b.git'), 'git@github.com:a/b.git');
         assert.strictEqual(maskRemoteUrl('ssh://git@host/a/b.git'), 'ssh://host/a/b.git');
+        // 漏れていた形（独立レビューの指摘）
+        assert.strictEqual(maskRemoteUrl('https://user:p@ss@host/a'), 'https://host/a');
+        assert.strictEqual(maskRemoteUrl('https://user:p/ss@host/a'), 'https://host/a');
+        assert.strictEqual(maskRemoteUrl('user:tok@host:path/r.git'), 'host:path/r.git');
+        assert.strictEqual(maskRemoteUrl('https://host/a/b.git?token=SECRET&x=1#frag'), 'https://host/a/b.git');
+        assert.strictEqual(maskRemoteUrl('https://host/ghp_AbC123xyz/b.git'), 'https://host/***/b.git');
+        assert.strictEqual(maskRemoteUrl('https://host/github_pat_11AB_cd/b.git'), 'https://host/***/b.git');
+        for (const u of ['https://user:p@ss@host/a', 'https://user:p/ss@host/a', 'user:tok@host:p']) {
+            assert.ok(!/p@ss|ss@|tok/.test(maskRemoteUrl(u)), u);
+        }
     });
 
     test('本文に origin・全ブランチ・refs/microgit/* が出る', () => {

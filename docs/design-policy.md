@@ -200,6 +200,8 @@ hotfix   → マイクロ空間 C
 - 根拠：現物（`ui.ts`）を調べると、サイドバーとグラフの 2 画面とも `<style>` 1 つと `<script>` 1 つのインライン、`acquireVsCodeApi()` と `postMessage` による通信だけ。外部の画像・フォント・`<link>`・`src=`・`style="..."` 属性・`on*=` 属性・`eval` は無い。要素の位置は `el.style.x = ...`（CSSOM。CSP の対象外）。よって nonce 付きのインラインだけを許し、あとは全部止める最小の形で動作が変わらない。`'unsafe-inline'` は使わない（コミットのメッセージなどが `innerHTML` 経由で混ざっても、nonce を知らないスクリプトは動かない）
 - 却下：`localResourceRoots` / `webview.cspSource` を許す案（今は外部リソースを読んでいないので不要。画像などを足すときにその種別だけ足す）。スクリプトを別ファイルに出す案（変更が大きく、利益が nonce 方式と同じ）
 - 罠：今後、テンプレートに `style="..."`・`setAttribute('style')`・`on*=` を足すと CSP で黙って止まる（画面が崩れる）。単体テスト `webviewCsp.test.ts` がソースを走査して検出する。VS Code 上での実表示の確認は、この変更では未実施（Webview を開く統合テストが無いため）
+- **【実機確認待ち】** VS Code が Webview に注入する既定のスタイル（`--vscode-*` の CSS 変数、既定のフォント・色）が、この CSP（`style-src` は nonce のみ）の下でも適用されるかは、実機でしか確認できない（自動テストでは未確認）。VS Code は自前のホスト側のスクリプトで変数を設定する（ページの CSP の対象外と理解しているが未検証）。万一止まった場合に画面が読めなくなるのを避けるため、`ui.ts` の `var(--vscode-*)` には fallback 色・フォントを付けた（2026-10-26）。確認手順：拡張機能開発ホストでサイドバーとグラフを開き、テーマ（ライト/ダーク）に追従すること、開発者ツールのコンソールに CSP 違反（Refused to apply inline style / execute inline script）が出ないことを見る。違反が出たら、その種別だけ許可を足す
+- Publish の確認に出す origin の URL は `git remote get-url --push origin`（pushurl と insteadOf を適用した、実際の push 先）。`maskRemoteUrl` は、最後の @ までのユーザー情報・クエリ・フラグメント・既知のトークンの形を落とす（パスに @ がある URL は手前も落ちるが、秘密を出さないことを優先）
 - テンプレートには `${...}` の埋め込みが無いので、`applyCsp` は文字列の置換（`<head>` の直後に meta、`<script>`・`<style>` に nonce）で足りる
 
 **Publish の確認ダイアログ**（`microgit.publishMicroHistory`、文面は `src/publishConfirm.ts`）

@@ -508,11 +508,11 @@ function tryRunParent(mainRepoPath: string, args: string[]): string | undefined 
 }
 
 /**
- * 親リポジトリの origin の URL を返す（無ければ undefined）。Publish の確認ダイアログに出す用。
+ * 親リポジトリの origin の **push 先** の URL を返す（`git remote get-url --push origin`。pushurl と insteadOf を適用した、実際に push される先）（無ければ undefined）。Publish の確認ダイアログに出す用。
  * 認証情報（https://user:token@...）が URL に入っていても出さないよう、取り除いてから返す。
  */
 export function getOriginUrlForDisplay(mainRepoPath: string): string | undefined {
-    const url = tryRunParent(mainRepoPath, ['config', '--get', 'remote.origin.url'])?.trim();
+    const url = tryRunParent(mainRepoPath, ['remote', 'get-url', '--push', 'origin'])?.trim();
     return url ? maskRemoteUrl(url) : undefined;
 }
 

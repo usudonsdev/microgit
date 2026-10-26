@@ -291,23 +291,23 @@ function getSidebarHtml(): string {
 <style>
   :root {
     color-scheme: light dark;
-    --bg: var(--vscode-sideBar-background);
-    --fg: var(--vscode-foreground);
-    --muted: var(--vscode-descriptionForeground);
+    --bg: var(--vscode-sideBar-background, #252526);
+    --fg: var(--vscode-foreground, #cccccc);
+    --muted: var(--vscode-descriptionForeground, #9d9d9d);
     --border: var(--vscode-panel-border, #444);
-    --btn: var(--vscode-button-background);
-    --btn-fg: var(--vscode-button-foreground);
-    --btn2: var(--vscode-button-secondaryBackground);
-    --btn2-fg: var(--vscode-button-secondaryForeground);
+    --btn: var(--vscode-button-background, #0e639c);
+    --btn-fg: var(--vscode-button-foreground, #ffffff);
+    --btn2: var(--vscode-button-secondaryBackground, #3a3d41);
+    --btn2-fg: var(--vscode-button-secondaryForeground, #ffffff);
     --active: var(--vscode-charts-green, #3fb950);
     --warn: var(--vscode-charts-orange, #d29922);
-    --card: var(--vscode-editor-background);
+    --card: var(--vscode-editor-background, #1e1e1e);
   }
   body {
     margin: 0;
     padding: 12px;
-    font-family: var(--vscode-font-family);
-    font-size: var(--vscode-font-size);
+    font-family: var(--vscode-font-family, sans-serif);
+    font-size: var(--vscode-font-size, 13px);
     color: var(--fg);
     background: var(--bg);
   }
