@@ -58,6 +58,7 @@ import {
     parseMainHeadFromMessage,
 } from './mainHead';
 import { MicroGitUi, MicroGitUiSnapshot } from './ui';
+import { LEGACY_CONFLICT_WARNING, evaluateLegacyConflict } from './legacyExtension';
 import { LEGACY_SETTING_PREFIX, MIGRATED_SETTING_NAMES, SETTING_PREFIX, SettingScope, planSettingsMigration, settingsMigrationMessage } from './settingsMigration';
 import { durabilityGitArgs, getDurability, setDurability } from './durability';
 import { PublishQueue } from './publishQueue';
@@ -165,6 +166,12 @@ function createBackendSelector(context: vscode.ExtensionContext): BackendSelecto
     });
 }
 
+/**
+ * 旧 MicroGit（usudonsdev.microgit）が同時に有効なら true。true の間は isEnabled() が常に false を返し、記録も有効化もしない
+ * （同じ shadow リポジトリへ 2 つの拡張が書くため。理由は legacyExtension.ts）。旧拡張を止めたら、再読み込みで解ける。
+ */
+let legacyConflict = false;
+
 /** 引き継ぎ済みの印（グローバルの設定は globalState、ワークスペースの設定はそのワークスペースの workspaceState） */
 const STATE_SETTINGS_MIGRATED_GLOBAL = 'vereve.settingsMigrated.global';
 const STATE_SETTINGS_MIGRATED_WORKSPACE = 'vereve.settingsMigrated.workspace';
@@ -214,6 +221,14 @@ export function activate(context: vscode.ExtensionContext) {
     if (publishQueue.isClosed) { publishQueue = createPublishQueue(); }
     ExtensionLogger.initialize('MicroGit Output');
     ExtensionLogger.log('MicroGit 拡張機能が起動しました');
+
+    // 旧 MicroGit が有効なら、記録を始めず警告する（isEnabled が false を返す）。設定の引き継ぎは衝突していても害がないので続ける
+    const conflict = evaluateLegacyConflict((id) => vscode.extensions.getExtension(id));
+    legacyConflict = conflict.blocked;
+    if (conflict.blocked) {
+        ExtensionLogger.log(`${conflict.warning}（記録を始めません）`, 'WARN');
+        void vscode.window.showWarningMessage(`[verEve] ${conflict.warning}`);
+    }
 
     // 旧 MicroGit の設定（microgit.*）を vereve.* へ引き継ぐ。非同期だが、書き込みが設定の変更として届くので、
     // 下の onDidChangeConfiguration が永続性・バックエンドの設定を読み直す
@@ -389,6 +404,10 @@ export function activate(context: vscode.ExtensionContext) {
                 vscode.window.showInformationMessage('[MicroGit] 無効にしました。各ブランチのマイクロ履歴は保持されます。');
                 ExtensionLogger.log('MicroGit を無効化しました');
             } else {
+                if (legacyConflict) {
+                    vscode.window.showWarningMessage(`[verEve] ${LEGACY_CONFLICT_WARNING}`);
+                    return;
+                }
                 const branch = getCurrentBranch(rootPath);
                 if (!branch || branch === 'HEAD') {
                     vscode.window.showErrorMessage('有効なブランチ上でのみ MicroGit を有効化できます（detached HEAD 不可）。');
@@ -789,6 +808,7 @@ function captureSaveSnapshot(document: vscode.TextDocument): Buffer {
 
 /** MicroGit が有効か。workspaceState から読む（未設定は無効） */
 function isEnabled(): boolean {
+    if (legacyConflict) { return false; }
     return extensionContext?.workspaceState.get<boolean>(STATE_ENABLED, false) ?? false;
 }
 
@@ -984,6 +1004,12 @@ function updateStatusBar(rootPath: string | undefined): void {
     if (!statusBarItem) { return; }
 
     const current = rootPath ? getCurrentBranch(rootPath) : undefined;
+
+    if (legacyConflict) {
+        statusBarItem.text = '$(warning) MicroGit: 旧版と衝突';
+        statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+        return;
+    }
 
     if (!isEnabled()) {
         statusBarItem.text = '$(circle-slash) MicroGit: OFF';
