@@ -1,6 +1,6 @@
 # MicroGit → verEve への改名（調査メモ）
 
-> 2026-10-26。運営者が「MicroGit は **verEve**（versioning everything の略）にする」と決めた（記号どおり、表記は camelCase の `verEve`）。本書はその**事前調査と改名の影響範囲**。実装は未着手。
+> 2026-10-26。運営者が「MicroGit は **verEve**（versioning everything の略）にする」と決めた（記号どおり、表記は camelCase の `verEve`）。本書はその**事前調査と改名の影響範囲**。**実装は 2026-10-26 に済み（6.0.0。ブランチ `claude/vigilant-rubin-9w4e3a`、PR #82 の中）。公開などは未実施**。進捗は §6、実機で確かめる項目は §7。判断の理由は [design-policy.md §2.5](./design-policy.md)。
 > 診断（portfolio_hub の `docs/service-review-2026-10-25.md` L-11）で、「MicroGit」は Git 商標ポリシーの禁止形（Git を音節として含む造語）に当たりうると指摘されていた。**「verEve」は "Git" を含まないので、この論点は解消する**（理由の根拠は同診断の L-11。実際の SFC への照会は不要になる）。
 
 ## 1. 名称の衝突調査（2026-10-26。実行環境から調べられた範囲）
@@ -60,6 +60,40 @@
 
 ## 5. 未決（運営者の判断）
 
-- `refs/microgit/*` と保存場所を**据え置く**（推奨）か、移行して改名するか。
+- ~~`refs/microgit/*` と保存場所を据え置くか~~ → **据え置きで実装した**（2026-10-26。理由と却下案は design-policy §2.5）。将来の「新旧両方を読む」移行は未設計。
 - 旧拡張をいつ非推奨にするか（新版が公開されて動作確認できた後）。
 - 商標を出願するか（区分 9・42）。診断 L-15 の方針（有料 20〜30 人で確認）に従うなら、出願は後。
+
+## 6. 実装の進捗（2026-10-26）
+
+手順案（§4）のうち、リポジトリ内で済むものを実装した。区分ごとに別コミット（`npm run compile`・`lint`・`test:unit` は各コミットのあとに通した）。
+
+| # | 区分 | コミット | 状態 |
+|---|---|---|---|
+| 1 | 拡張メタデータ（name `vereve`・displayName `verEve`・version 6.0.0）、ビューコンテナ/ビュー/アイコン（`git mv`）、VSIX 出力名、CI の説明文 | d539b21 | 済み |
+| 2 | コマンド ID 10 個と内部コマンド（`vereve.*`）、タイトル「verEve: …」 | e336179 | 済み |
+| 3 | 設定キー 8 個と状態キー、旧設定の一度きりの引き継ぎ（`src/settingsMigration.ts`、テスト付き） | 5b673d0 | 済み |
+| 4 | 旧拡張との共存対策（`src/legacyExtension.ts`、テスト付き） | 330eb68 | 済み |
+| 5 | 画面の文言・ログ・通知・クラス名、据え置く名前のコメント、`package.json` とコードの一致検査（`manifestConsistency.test.ts`） | da0738a | 済み |
+| 6 | 文書（README・README-marketplace・CHANGELOG 6.0.0・design-policy §2.5・CLAUDE.md/AGENTS.md・THIRD_PARTY_NOTICES・旧称の注記） | この変更 | 済み |
+
+**据え置いたもの**（`refs/microgit/*`、`.microgit/` 系の保存場所、同梱バイナリ・ゲストのファイル名と参照するスクリプト、コミットの作者、`MICROGIT_TEST_*`、CI の成果物名）は design-policy §2.5 の表に理由つきで書いた。
+
+**文書で置換しなかったもの**（書いた時点の記録）：`docs/paper/`、`docs/learning/`、`docs/adr/`、`articles/`、`books/`、`markdowns/`、卒業研究の文書（`build-verification-engine*.md`）、`mac-handoff.md`・`research-status.md`・`work-record-*`・`save-bottleneck-investigation.md`・`mac-kernel-measurement-instructions.md`・`v1.0.md`・`zenn.md`、本書、CHANGELOG の 5.2.0 以前。冒頭に旧称の注記を足したのは `design-rationale.md`・`why-save-is-fast.md`・`perceptible-delay.md`・`release.md`・`microgit-kernel-feature-portability-*.md`・`kernel-portability-walkthrough.md`・`guest-phase1.md`・`overlayfs-*.md`。ファイル名（`how-microgit-works.md` など）は変えていない（リンク切れを作らないため）。
+
+**確かめたこと**：`vsce package --no-dependencies --readme-path README-marketplace.md` が通り、マニフェストは `Id="vereve"` `DisplayName=verEve` `Version=6.0.0`、含まれるファイルは `media/vereve.svg` と `out/**` で、`scripts/package-vsix.mjs` の「入ってよいものの一覧」にも合う。`package-vsix.mjs` 自体は、CI の成果物（ゲストイメージ・QEMU・Mac のヘルパー）が要るので実行していない。
+
+**未実施（範囲外）**：リリース作業と公開（`vsce publish`・Open VSX）、旧拡張の非推奨化、GitHub リポジトリ名の変更（`package.json` の `repository` は旧 URL のまま）、商標の調査（J-PlatPat。§1・§2）、アイコンの再デザイン、portfolio_hub 側（LP・`/legal/`・`docs/handoff/20-sites/microgit.md`・`open-items.md` の O-37）、同梱バイナリ名の改名（Mac の実機検証が先）、`refs/microgit/*` の新旧両対応の移行設計。
+
+## 7. 実機（VS Code）で確かめる項目
+
+単体テストでは確かめられない。VSIX を入れた VS Code（Cursor でも）で見る。
+
+1. **旧キーの読み取り**：旧拡張を入れていない状態で、ユーザーの `settings.json` に `"microgit.overlayBackend": "nodejs"` を書き、verEve を起動する。`vscode.workspace.getConfiguration().inspect('microgit.overlayBackend')` が未登録キーでも `globalValue` を返す前提で作った。返らなければ `inspect` ではなく設定ファイルの直接読み取りに変える必要がある。
+2. **引き継ぎの結果**：1. のあと `vereve.overlayBackend` が `nodejs` になり、通知が一度だけ出て、再起動しても出ない。`vereve.*` を先に手で書いてあれば上書きされない。ワークスペースの `.vscode/settings.json` の旧キーも、ワークスペースを開いたときに引き継がれる。
+3. **共存対策**：旧 `usudonsdev.microgit` を有効にしたまま verEve を入れる。警告が出て、ステータスバーが警告色（`verEve: 旧 MicroGit と衝突`）になり、`verEve: Toggle` で有効にできず、保存しても `.microgit/` が増えない。旧拡張を無効化して再読み込みすると普通に動く。`getExtension` が無効化済みの拡張を返さない前提。
+4. **旧拡張なしの通常動作**：`verEve: Enable` → 保存 → サイドバー（Activity Bar の verEve）に履歴 → 過去へジャンプ → グラフ。コマンドパレットのタイトルが「verEve: …」で、実行できる（`command not found` が出ない）。
+5. **既存の履歴の継続**：旧 MicroGit で記録した `.microgit/` と `.git/microgit/repos/` のあるフォルダを、verEve で開いて有効にし、既存の履歴が見えて、続きが記録される。`Fetch`/`Publish` が `refs/microgit/*` で動く。
+6. **keybindings**：`keybindings.json` の旧 ID `microgit.toggle` は効かない（README の手順どおり直す）。
+7. **VSIX**：`npx vsce package` の VSIX を `code --install-extension` で入れ、拡張フォルダ名が `usudonsdev.vereve-6.0.0`、Activity Bar のアイコンが出る。CI の `package.yml`（5 環境の検証。`runTest.ts` が `usudonsdev.vereve-` を探す）が通る。
+8. **出力チャンネル名**：`verEve Output`。

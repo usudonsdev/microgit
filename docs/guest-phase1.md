@@ -1,5 +1,7 @@
 # Phase 1：最小ゲストと macOS バックエンド
 
+> 2026-10-26 に製品名を MicroGit から verEve に改めた（[rename-vereve.md](./rename-vereve.md)、[design-policy.md §2.5](./design-policy.md)）。本書は書いた時点の記録なので、名称・コマンド ID・設定キーは**旧称 MicroGit のまま**にしてある（`microgit.*` は今の `vereve.*`）。
+
 | 項目 | 内容 |
 |---|---|
 | Issue | #15（最小ゲスト）、#17（macOS バックエンド）、#13（agent の言語）。Epic #8 |

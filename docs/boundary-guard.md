@@ -20,7 +20,7 @@
 | パス全体 4096 バイト、1 段 255 バイトまで | `too-long` | すべての OS |
 | どの段も `.git` を指さない。大文字小文字、末尾のドットと空白、NTFS の 8.3 の短い名前（`git~1`）、macOS の HFS+ が無視する文字を含めて判定する | `git-dir` | すべての OS（Git の `core.protectNTFS`・`protectHFS` と同じ範囲） |
 | ワークスペース直下の `.microgit`（と、移行前の `.microgit_shadow`・`.microgit_logs`・`.microgit_overlay`）でない | `microgit-artifact` | すべての OS（大文字小文字を区別しない FS では大文字でも） |
-| 種類はファイル（`f`）とディレクトリ（`d`）だけ | `unsupported-type` | シンボリックリンク（`l`）とその他（`o`）は MicroGit の層に入らない（#10 §6） |
+| 種類はファイル（`f`）とディレクトリ（`d`）だけ | `unsupported-type` | シンボリックリンク（`l`）とその他（`o`）は verEve の層に入らない（#10 §6） |
 | ファイルの行は `f<TAB>path<TAB>sha256`（64 桁の 16 進） | `malformed` | — |
 | Windows の予約名（`CON`・`PRN`・`AUX`・`NUL`・`COM0-9`・`LPT0-9`・上付き数字・`CONIN$`・`CONOUT$`。拡張子付きも） | `windows-reserved-name` | Windows |
 | `< > : " \| ? *` と制御文字 | `windows-invalid-char` | Windows |
@@ -53,7 +53,7 @@
 4. 消す
 5. 書く（書く直前に、書き込み先の規則をもう一度確かめる）
 
-- 消すのは `managedFiles`（MicroGit が記録したことのあるパス）だけ。利用者が MicroGit を使わずに置いたファイルは消さない
+- 消すのは `managedFiles`（verEve が記録したことのあるパス）だけ。利用者が verEve を使わずに置いたファイルは消さない
 - ワークスペースのファイルの sha256 は、大きさと更新時刻が前回と同じなら計算し直さない（`WorkspaceHashCache`）
 
 ## 5. 範囲外（守らないもの）
@@ -61,7 +61,7 @@
 | もの | 理由 |
 |---|---|
 | 確かめてから書くまでのあいだに、別のプログラムがワークスペースにリンクを作る（TOCTOU） | ワークスペースは利用者自身のフォルダで、ホストの OS は信用する（要件 §7.1 の想定しない攻撃） |
-| 実行ビット・所有者・拡張属性 | MicroGit はファイルの中身だけを記録する |
+| 実行ビット・所有者・拡張属性 | verEve はファイルの中身だけを記録する |
 | 4・5 の途中の電源断 | 正本（shadow の Git）は無事なので、もう一度過去に戻れば直る（ADR-0001） |
 
 ## 6. 使う側（#14）の約束

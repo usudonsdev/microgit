@@ -1,5 +1,7 @@
 # MicroGit：Linuxカーネル機能ポータブル化 初期設計
 
+> 2026-10-26 に製品名を MicroGit から verEve に改めた（[rename-vereve.md](./rename-vereve.md)、[design-policy.md §2.5](./design-policy.md)）。本書は書いた時点の記録なので、名称・コマンド ID・設定キーは**旧称 MicroGit のまま**にしてある（`microgit.*` は今の `vereve.*`）。
+
 ステータス：初期要件確定（内部設計・実装フェーズへ移行）
 
 > **第 2 版（2026-09-26、#9）：** Phase 0〜2 の実装で決めたことを、§4.1・§4.3・§5・§6・§8・§9 に「第 2 版」と印を付けて書き足した。初版の本文は消していない。要件側の反映は要件定義書の第 2 版、決定の理由は docs/adr/、仕組みの説明は docs/kernel-backend.md から辿れる。

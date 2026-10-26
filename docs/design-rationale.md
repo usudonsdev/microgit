@@ -1,5 +1,7 @@
 # 設計判断の理由：Git を再定義して速く記録し、速く戻る
 
+> 2026-10-26 に製品名を MicroGit から verEve に改めた（[rename-vereve.md](./rename-vereve.md)、[design-policy.md §2.5](./design-policy.md)）。本書は書いた時点の記録なので、名称・コマンド ID・設定キーは**旧称 MicroGit のまま**にしてある（`microgit.*` は今の `vereve.*`）。
+
 | 項目 | 内容 |
 |---|---|
 | 目的 | MicroGit 5 系の設計判断と、その理由・根拠のデータを 1 か所にまとめる。記事と論文の下敷きにする |

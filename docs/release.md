@@ -1,5 +1,8 @@
 # MicroGit 5 の公開の手順と、同梱する部品の扱い
 
+> 2026-10-26 に製品名を MicroGit から verEve に改めた（[rename-vereve.md](./rename-vereve.md)、[design-policy.md §2.5](./design-policy.md)）。本書は書いた時点の記録なので、名称・コマンド ID・設定キーは**旧称 MicroGit のまま**にしてある（`microgit.*` は今の `vereve.*`）。
+> 6.0.0 以降の VSIX は `vereve-<版>-<target>.vsix`（`scripts/package-vsix.mjs`）、拡張 ID は `usudonsdev.vereve`。**新しい拡張として公開する**ので、公開の手順は新規公開のもの（旧 `usudonsdev.microgit` の更新ではない）。6.0.0 のリリース作業と公開は未実施。以下の手順と記録は 5.x 当時のもの。
+
 | 項目 | 内容 |
 |---|---|
 | 関係する Issue | #19（MicroGit の内部機能として Marketplace に公開する） |
