@@ -5,7 +5,7 @@
  * 保存の時間の計測（環境変数で走る。既定は飛ばす）。Overlay Status に、使ったバックエンドと速い記録の前提が出る。
  * 実行は npm test（node ./out/test/runTest.js）。node scripts/run-unit-tests.mjs では流れない。
  * 環境変数（どれも任意。付けないときは既定の動き）:
- *   MICROGIT_TEST_BACKEND_SETTING=auto / kernel / nodejs   設定 microgit.overlayBackend をその値にしてから試す
+ *   MICROGIT_TEST_BACKEND_SETTING=auto / kernel / nodejs   設定 vereve.overlayBackend をその値にしてから試す
  *   MICROGIT_TEST_EXPECT_BACKEND=kernel / nodejs           使ったバックエンドが、その値であることも確かめる（kernel のときは checkout の記録も見る）
  *   MICROGIT_TEST_SAVE_BENCH=<回数>                        保存の時間の計測を、その回数だけ行う（0 か未設定なら飛ばす）
  *   MICROGIT_TEST_SAVE_BENCH_OUT=<パス>                    計測の 1 回ごとの記録を、そのパスに JSON で書く
@@ -25,7 +25,7 @@ import * as vscode from 'vscode';
  *   - Linux で guest/out/<arch>/init があり、非特権のユーザー名前空間が使えればカーネル版（VM なし）
  *   - どれも無い（CI の test ジョブなど）なら Node.js 版
  * 環境変数 MICROGIT_TEST_EXPECT_BACKEND（kernel / nodejs）を付けると、使ったバックエンドも確かめる。
- * 環境変数 MICROGIT_TEST_BACKEND_SETTING（auto / kernel / nodejs）を付けると、設定 microgit.overlayBackend をその値にしてから試す。
+ * 環境変数 MICROGIT_TEST_BACKEND_SETTING（auto / kernel / nodejs）を付けると、設定 vereve.overlayBackend をその値にしてから試す。
  */
 suite('MicroGit Overlay backend (save → jump)', function () {
     this.timeout(300_000);
@@ -103,7 +103,7 @@ suite('MicroGit Overlay backend (save → jump)', function () {
         assert.ok(!fs.existsSync(shadow), 'MicroGit を有効にする前から .microgit/shadow がある（ほかのテストが作った？）');
         const setting = process.env.MICROGIT_TEST_BACKEND_SETTING;
         if (setting) {
-            await vscode.workspace.getConfiguration().update('microgit.overlayBackend', setting, vscode.ConfigurationTarget.Workspace);
+            await vscode.workspace.getConfiguration().update('vereve.overlayBackend', setting, vscode.ConfigurationTarget.Workspace);
         }
         await vscode.commands.executeCommand('vereve.enable');
     });

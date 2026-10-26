@@ -1,7 +1,7 @@
 /**
  * Backend Selector（#14、要件 FR-5・NFR-5）。
  *
- * 設定 microgit.overlayBackend:
+ * 設定 vereve.overlayBackend:
  *   auto（既定）: カーネル版を試し、使えなければ Node 版（利用者には知らせない。出力にだけ理由を残す）
  *   kernel      : カーネル版を使う。使えなければ Node 版にするが、理由を利用者に知らせる
  *   nodejs      : Node 版だけ。仮想マシンも agent も起動しない
@@ -16,7 +16,7 @@ import { AgentUnavailableError } from './agentConnection';
 import { KernelBackendOptions, KernelOverlayBackend } from './kernelBackend';
 import { LaunchPlan } from './launchers';
 
-/** 設定 microgit.overlayBackend の値 */
+/** 設定 vereve.overlayBackend の値 */
 export type BackendSetting = 'auto' | 'kernel' | 'nodejs';
 
 /** 設定の値を BackendSetting にする。kernel・nodejs 以外（未設定や不正な値）は auto */

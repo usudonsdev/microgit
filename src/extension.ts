@@ -5,7 +5,7 @@
  * Git の記録の中身は microCommit.ts と fastMicroCommit.ts、層は overlay.ts と kernel/、隠しリポジトリの置き場は shadowStore.ts と layout.ts に任せる。
  * 前提：保存の記録は saveChain の 1 本の列で、1 件ずつ順番に行う。状態は、このファイルの変数と workspaceState に持つ。
  * 隠しリポジトリを読む Git の呼び出しは、runGit 系（shadowStore.ts の同種の関数を含む）か flushPendingGitWrites を通す（速い記録が貯めた書き出しを、その手前で吐き出させるため。ADR-0015）。
- * 内部コマンド microgit.internal.* は、テストと計測のためのもので、package.json には出さない。
+ * 内部コマンド vereve.internal.* は、テストと計測のためのもので、package.json には出さない。
  */
 import { execFile, execFileSync } from 'child_process';
 import { createHash } from 'crypto';
@@ -58,6 +58,7 @@ import {
     parseMainHeadFromMessage,
 } from './mainHead';
 import { MicroGitUi, MicroGitUiSnapshot } from './ui';
+import { LEGACY_SETTING_PREFIX, MIGRATED_SETTING_NAMES, SETTING_PREFIX, SettingScope, planSettingsMigration, settingsMigrationMessage } from './settingsMigration';
 import { durabilityGitArgs, getDurability, setDurability } from './durability';
 import { PublishQueue } from './publishQueue';
 import { buildPublishConfirmMessage } from './publishConfirm';
@@ -65,7 +66,7 @@ import { buildPublishConfirmMessage } from './publishConfirm';
 /** workspaceState のキー：MicroGit が有効か（真偽値） */
 const STATE_ENABLED = 'vereve.enabled';
 /** workspaceState のキー：いま載せているマイクロ空間のメインブランチ名 */
-const STATE_TARGET_BRANCH = 'microgit.targetBranch';
+const STATE_TARGET_BRANCH = 'vereve.targetBranch';
 /** 作業ツリーの直下にある MicroGit の成果物のフォルダ名（現在の .microgit と、古い 3 フォルダ）。保存の記録の対象から外し、ブランチ切替で退避・復元する */
 const ARTIFACT_ROOTS = [MICROGIT_ROOT_NAME, ...Object.values(LEGACY_MICROGIT_DIRS)] as const;
 
@@ -129,19 +130,19 @@ let backendSelector: BackendSelector | undefined;
 
 /**
  * 設定から Backend Selector を作る。カーネル版は必要になるまで起動しない（最初の保存か、過去に戻る操作のとき）。
- * 設定 microgit.overlayBackend: auto（既定）/ kernel / nodejs。microgit.kernel.*: QEMU の場所・動かし方・メモリ。
+ * 設定 vereve.overlayBackend: auto（既定）/ kernel / nodejs。vereve.kernel.*: QEMU の場所・動かし方・メモリ。
  */
 function createBackendSelector(context: vscode.ExtensionContext): BackendSelector {
     const cfg = vscode.workspace.getConfiguration();
-    const accel = cfg.get<string>('microgit.kernel.accel');
+    const accel = cfg.get<string>('vereve.kernel.accel');
     const settings: KernelSettings = {
-        qemuPath: cfg.get<string>('microgit.kernel.qemuPath') || undefined,
+        qemuPath: cfg.get<string>('vereve.kernel.qemuPath') || undefined,
         accel: accel === 'whpx' || accel === 'tcg' ? accel : 'auto',
-        memoryMb: cfg.get<number>('microgit.kernel.memoryMb') || 256,
+        memoryMb: cfg.get<number>('vereve.kernel.memoryMb') || 256,
     };
     const logDir = context.logUri.fsPath;
     return new BackendSelector({
-        setting: parseBackendSetting(cfg.get('microgit.overlayBackend')),
+        setting: parseBackendSetting(cfg.get('vereve.overlayBackend')),
         plan: () => {
             fs.mkdirSync(logDir, { recursive: true });
             return planLaunch({
@@ -164,6 +165,46 @@ function createBackendSelector(context: vscode.ExtensionContext): BackendSelecto
     });
 }
 
+/** 引き継ぎ済みの印（グローバルの設定は globalState、ワークスペースの設定はそのワークスペースの workspaceState） */
+const STATE_SETTINGS_MIGRATED_GLOBAL = 'vereve.settingsMigrated.global';
+const STATE_SETTINGS_MIGRATED_WORKSPACE = 'vereve.settingsMigrated.workspace';
+
+/**
+ * 旧設定 microgit.* を vereve.* へ一度だけ引き継ぎ、引き継いだら一度だけ知らせる（規則は settingsMigration.ts）。
+ * 範囲ごとに印を分けるのは、ワークスペースの設定は、そのワークスペースを開いたときにしか読めないため。
+ * globalState だけの印にすると、最初にフォルダなしで起動した人の、あとで開くワークスペースの旧設定が永久に引き継がれない。
+ * 失敗したら印を付けない（次の起動でやり直す）。拡張機能を止めないよう、例外はログに出すだけ。
+ */
+async function migrateLegacySettings(context: vscode.ExtensionContext): Promise<void> {
+    try {
+        const scopes: SettingScope[] = [];
+        if (!context.globalState.get<boolean>(STATE_SETTINGS_MIGRATED_GLOBAL)) { scopes.push('global'); }
+        const hasWorkspace = (vscode.workspace.workspaceFolders?.length ?? 0) > 0;
+        if (hasWorkspace && !context.workspaceState.get<boolean>(STATE_SETTINGS_MIGRATED_WORKSPACE)) { scopes.push('workspace'); }
+        if (scopes.length === 0) { return; }
+
+        const cfg = vscode.workspace.getConfiguration();
+        const read = (prefix: string) => Object.fromEntries(MIGRATED_SETTING_NAMES.map((name) => {
+            const found = cfg.inspect(prefix + name);
+            return [name, { global: found?.globalValue, workspace: found?.workspaceValue }];
+        }));
+        const writes = planSettingsMigration(scopes, read(LEGACY_SETTING_PREFIX), read(SETTING_PREFIX));
+        for (const w of writes) {
+            await cfg.update(w.key, w.value, w.scope === 'global' ? vscode.ConfigurationTarget.Global : vscode.ConfigurationTarget.Workspace);
+        }
+        if (scopes.includes('global')) { await context.globalState.update(STATE_SETTINGS_MIGRATED_GLOBAL, true); }
+        if (scopes.includes('workspace')) { await context.workspaceState.update(STATE_SETTINGS_MIGRATED_WORKSPACE, true); }
+        const message = settingsMigrationMessage(writes);
+        if (message) {
+            ExtensionLogger.log(message);
+            void vscode.window.showInformationMessage(`[verEve] ${message}`);
+        }
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        ExtensionLogger.log(`旧設定の引き継ぎに失敗しました（次の起動でやり直します）: ${message}`, 'WARN');
+    }
+}
+
 /**
  * 拡張機能がアクティブになった際に呼び出されるエントリポイント
  */
@@ -174,15 +215,19 @@ export function activate(context: vscode.ExtensionContext) {
     ExtensionLogger.initialize('MicroGit Output');
     ExtensionLogger.log('MicroGit 拡張機能が起動しました');
 
-    setDurability(vscode.workspace.getConfiguration().get('microgit.durability'));
+    // 旧 MicroGit の設定（microgit.*）を vereve.* へ引き継ぐ。非同期だが、書き込みが設定の変更として届くので、
+    // 下の onDidChangeConfiguration が永続性・バックエンドの設定を読み直す
+    void migrateLegacySettings(context);
+
+    setDurability(vscode.workspace.getConfiguration().get('vereve.durability'));
     ExtensionLogger.log(`マイクロ履歴の永続性: ${getDurability()}`);
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration((e) => {
-            if (e.affectsConfiguration('microgit.durability')) {
-                setDurability(vscode.workspace.getConfiguration().get('microgit.durability'));
+            if (e.affectsConfiguration('vereve.durability')) {
+                setDurability(vscode.workspace.getConfiguration().get('vereve.durability'));
                 ExtensionLogger.log(`マイクロ履歴の永続性を変更: ${getDurability()}`);
             }
-            if (e.affectsConfiguration('microgit.overlayBackend') || e.affectsConfiguration('microgit.kernel')) {
+            if (e.affectsConfiguration('vereve.overlayBackend') || e.affectsConfiguration('vereve.kernel')) {
                 // 設定が変わったら作り直す。動いていたカーネル版は止める（次に必要になったとき新しい設定で起動する）
                 const old = backendSelector;
                 backendSelector = createBackendSelector(context);
@@ -1145,19 +1190,19 @@ function recoverShadowJournals(shadowRepoPath: string): void {
     }
 }
 
-/** 保存のたびの一時メッセージ。設定 microgit.showSaveStatus が true のときだけ出す（#68） */
+/** 保存のたびの一時メッセージ。設定 vereve.showSaveStatus が true のときだけ出す（#68） */
 function showSaveStatus(result: SaveStatusResult): void {
-    const show = vscode.workspace.getConfiguration().get<boolean>('microgit.showSaveStatus') === true;
+    const show = vscode.workspace.getConfiguration().get<boolean>('vereve.showSaveStatus') === true;
     const text = saveStatusMessage(show, result);
     if (text !== undefined) { vscode.window.setStatusBarMessage(text, 3000); }
 }
 
 /**
- * 1 回の保存を記録する。設定 microgit.fastMicroCommit（既定 true）なら、Git のプロセスを起動しない速い実装
+ * 1 回の保存を記録する。設定 vereve.fastMicroCommit（既定 true）なら、Git のプロセスを起動しない速い実装
  * （fastMicroCommit.ts）で記録し、前提から外れたときや失敗したときは Git の CLI の実装で記録する（#32）
  */
 function recordMicroCommit(input: MicroCommitInput): MicroCommitOutcome {
-    if (vscode.workspace.getConfiguration().get<boolean>('microgit.fastMicroCommit') !== false) {
+    if (vscode.workspace.getConfiguration().get<boolean>('vereve.fastMicroCommit') !== false) {
         let gitDir = '';
         try {
             gitDir = resolveGitDir(input.shadowRepoPath);

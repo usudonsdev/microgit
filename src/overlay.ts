@@ -105,9 +105,9 @@ type GitRunner = (cwd: string, args: string[]) => string;
 /** GitRunner の版で、失敗したときは例外ではなく undefined を返す想定。 */
 type GitTryRunner = (cwd: string, args: string[]) => string | undefined;
 
-/** 設定 `microgit.useOverlayCheckout` が false でない（未設定を含む）とき true。 */
+/** 設定 `vereve.useOverlayCheckout` が false でない（未設定を含む）とき true。 */
 export function isOverlayCheckoutEnabled(getConfig: (key: string) => boolean | undefined): boolean {
-    return getConfig('microgit.useOverlayCheckout') !== false;
+    return getConfig('vereve.useOverlayCheckout') !== false;
 }
 
 /**

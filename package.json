@@ -85,17 +85,17 @@
     "configuration": {
       "title": "verEve",
       "properties": {
-        "microgit.useOverlayCheckout": {
+        "vereve.useOverlayCheckout": {
           "type": "boolean",
           "default": true,
           "description": "Node.js ユーザー空間 Overlay checkout を有効化（兄弟ブランチのファイル隔離）。オフで従来の git show 同期に戻す。"
         },
-        "microgit.showSaveStatus": {
+        "vereve.showSaveStatus": {
           "type": "boolean",
           "default": false,
           "description": "保存のたびに、ステータスバーへ「[MicroGit] 記録 …」（同じ中身に戻したときは「[MicroGit] 同一変更のため HEAD のみ復帰 …」）を 3 秒出す。既定の false では何も出さない（保存のときに記録されていることに気づかないため）。true で出す。"
         },
-        "microgit.durability": {
+        "vereve.durability": {
           "type": "string",
           "enum": [
             "power",
@@ -108,12 +108,12 @@
           "default": "power",
           "description": "マイクロ履歴をどこまで確実にディスクへ書くか（docs/adr/0002-durability.md）"
         },
-        "microgit.fastMicroCommit": {
+        "vereve.fastMicroCommit": {
           "type": "boolean",
           "default": true,
           "description": "保存の記録を、Git のコマンドを起動せずに拡張機能の中で書く（#32）。Git の保存形式はそのまま。使えない設定のリポジトリでは自動で Git のコマンドを使う。false で常に Git のコマンドを使う"
         },
-        "microgit.overlayBackend": {
+        "vereve.overlayBackend": {
           "type": "string",
           "enum": [
             "auto",
@@ -128,12 +128,12 @@
           "default": "auto",
           "description": "Overlay checkout のバックエンド（docs/kernel-backend.md）。カーネル版は最初の保存か、過去に戻る操作のときに起動する"
         },
-        "microgit.kernel.qemuPath": {
+        "vereve.kernel.qemuPath": {
           "type": "string",
           "default": "",
           "description": "Windows でカーネル版に使う qemu-system-x86_64.exe の場所。空なら同梱のものを使う"
         },
-        "microgit.kernel.accel": {
+        "vereve.kernel.accel": {
           "type": "string",
           "enum": [
             "auto",
@@ -148,7 +148,7 @@
           "default": "auto",
           "description": "Windows の QEMU で最小ゲストを動かす方法"
         },
-        "microgit.kernel.memoryMb": {
+        "vereve.kernel.memoryMb": {
           "type": "number",
           "default": 256,
           "minimum": 128,
