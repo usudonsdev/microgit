@@ -22,3 +22,5 @@ Cursor と併用する。指示の正本は [AGENTS.md](AGENTS.md)。内容が�
 - 卒業研究（ビルド検証エンジン・計画段階）: [docs/build-verification-engine.md](docs/build-verification-engine.md)
 - 次期メジャー（カーネル機能ポータブル化・要件確定）: [要件定義書](docs/microgit-kernel-feature-portability-requirements.md) / [初期設計](docs/microgit-kernel-feature-portability-design.md) / [補足](docs/microgit-kernel-feature-portability-supplement.md)。進捗は Issue #8（Epic）、ブランチ `feature/kernel-portability`
 - AI 編集の `[AI]` 印は Cursor フックの観測で付ける。Agent Skill にはしない（`docs/design-policy.md` §2.3）
+
+- 【2026-10-26】診断レポート対応のセッションの引き継ぎ（現在地・設計判断・未了・環境の癖）: ハブ `usudonsdev/portfolio_hub` の `docs/session-handoff-2026-10-26.md`（PR #4 のマージ前はブランチ `ccr-870cf6ab-emsde5`）。このリポジトリの PR とデプロイ前の確認は同 `docs/predeploy-checklist-2026-10-26.md`

@@ -32,3 +32,5 @@
 ## Claude Code
 
 Claude Code 利用者は同内容の [CLAUDE.md](CLAUDE.md) も読むこと（本ファイルと同期して保つ）。
+
+- 【2026-10-26】診断レポート対応のセッションの引き継ぎ（現在地・設計判断・未了・環境の癖）: ハブ `usudonsdev/portfolio_hub` の `docs/session-handoff-2026-10-26.md`（PR #4 のマージ前はブランチ `ccr-870cf6ab-emsde5`）。このリポジトリの PR とデプロイ前の確認は同 `docs/predeploy-checklist-2026-10-26.md`
