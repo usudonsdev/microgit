@@ -303,6 +303,12 @@ export type SyncFromGuestOptions = {
     traits: HostTraits;
     limits?: GuardLimits;
     cache?: WorkspaceHashCache;
+    /**
+     * 書きも消しもしないパス（エディタに未保存の編集があるファイル。設計方針 §2.1.1 の B）。
+     * 比較は collisionKey で行う（大文字小文字を区別しない OS でも取りこぼさない）。
+     * キャッシュにも入れない（次に同期するとき、ディスクの中身から計算し直す）。
+     */
+    skipPaths?: ReadonlySet<string>;
 };
 
 /** syncWorkspaceFromGuest の結果。written は書いたもの、deleted は消したもの、unchanged は中身が同じで触らなかった数、rejected は弾いたもの。 */
@@ -313,6 +319,8 @@ export type SyncFromGuestResult = {
     rejected: Rejection[];
     /** 次回に渡すキャッシュ */
     cache: WorkspaceHashCache;
+    /** skipPaths に当たって、書きも消しもしなかったパス（view か managedFiles に出てきたものだけ） */
+    skippedDirty: string[];
 };
 
 /** ファイルの中身全体を読み、sha256（16 進）を返す。 */
@@ -351,12 +359,15 @@ export async function syncWorkspaceFromGuest(opts: SyncFromGuestOptions): Promis
     const oldCache = opts.cache ?? {};
     const cache: WorkspaceHashCache = {};
     let unchanged = 0;
+    const skipKeys = new Set([...(opts.skipPaths ?? [])].map((p) => collisionKey(p, opts.traits)));
+    const skippedDirty: string[] = [];
 
     // 2. 計画（読むだけ）
     const toDelete: string[] = [];
     for (const rel of new Set(opts.managedFiles)) {
         const key = collisionKey(rel, opts.traits);
         if (wanted.has(key) || rejectedPaths.has(key)) { continue; }
+        if (skipKeys.has(key)) { skippedDirty.push(rel); continue; }
         if (checkPathShape(rel, limits) || checkPathPolicy(rel, opts.traits)) { continue; }
         if (!isInsideWorkspace(opts.workspaceRoot, rel)) {
             rejected.push({ path: rel, reason: 'escapes-workspace' });
@@ -368,6 +379,7 @@ export async function syncWorkspaceFromGuest(opts: SyncFromGuestOptions): Promis
 
     const toFetch: GuestFile[] = [];
     for (const file of view.files) {
+        if (skipKeys.has(collisionKey(file.path, opts.traits))) { skippedDirty.push(file.path); continue; }
         if (!isInsideWorkspace(opts.workspaceRoot, file.path)) {
             rejected.push({ path: file.path, reason: 'escapes-workspace' });
             continue;
@@ -440,7 +452,7 @@ export async function syncWorkspaceFromGuest(opts: SyncFromGuestOptions): Promis
         written.push(file.path);
     }
 
-    return { written, deleted, unchanged, rejected, cache };
+    return { written, deleted, unchanged, rejected, cache, skippedDirty };
 }
 
 /** ディレクトリの中に（下の階層も含めて）ファイルが 1 つも無いか。リンクもファイルとして数える */

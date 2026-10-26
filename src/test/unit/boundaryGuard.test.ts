@@ -212,6 +212,55 @@ describe('ワークスペースへの反映', () => {
         }
     });
 
+    test('skipPaths（未保存の編集があるファイル）は、書きも消しもせず、キャッシュにも入れない（設計方針 §2.1.1 の B）', async () => {
+        const ws = tempWorkspace();
+        try {
+            fs.writeFileSync(path.join(ws.root, 'edited.txt'), 'UNSAVED-ON-DISK');
+            fs.writeFileSync(path.join(ws.root, 'edited-gone.txt'), 'MINE');
+            fs.writeFileSync(path.join(ws.root, 'other.txt'), 'OLD');
+            fs.writeFileSync(path.join(ws.root, 'gone.txt'), 'G');
+            const guest = { 'edited.txt': 'HISTORY', 'other.txt': 'NEW' };
+            const r = await syncWorkspaceFromGuest({
+                workspaceRoot: ws.root,
+                viewLines: [f('edited.txt', 'HISTORY'), f('other.txt', 'NEW')],
+                managedFiles: ['edited.txt', 'edited-gone.txt', 'other.txt', 'gone.txt'],
+                fetchFiles: fetchFrom(guest),
+                traits: linux,
+                skipPaths: new Set(['edited.txt', 'edited-gone.txt']),
+            });
+            // 他のファイルは今までどおり同期する
+            assert.deepStrictEqual(r.written, ['other.txt']);
+            assert.deepStrictEqual(r.deleted, ['gone.txt']);
+            // 除外したものは、書く対象（view にある）も消す対象（view に無い）も触らない
+            assert.deepStrictEqual(r.skippedDirty.sort(), ['edited-gone.txt', 'edited.txt']);
+            assert.strictEqual(fs.readFileSync(path.join(ws.root, 'edited.txt'), 'utf8'), 'UNSAVED-ON-DISK');
+            assert.strictEqual(fs.readFileSync(path.join(ws.root, 'edited-gone.txt'), 'utf8'), 'MINE');
+            assert.ok(!('edited.txt' in r.cache));
+        } finally {
+            ws.done();
+        }
+    });
+
+    test('skipPaths は大文字小文字を区別しない OS では、綴りの違いを同じものとして除外する', async () => {
+        const ws = tempWorkspace();
+        try {
+            fs.writeFileSync(path.join(ws.root, 'Readme.md'), 'MINE');
+            const r = await syncWorkspaceFromGuest({
+                workspaceRoot: ws.root,
+                viewLines: [f('Readme.md', 'HISTORY')],
+                managedFiles: ['Readme.md'],
+                fetchFiles: fetchFrom({ 'Readme.md': 'HISTORY' }),
+                traits: windows,
+                skipPaths: new Set(['readme.md']),
+            });
+            assert.deepStrictEqual(r.written, []);
+            assert.deepStrictEqual(r.skippedDirty, ['Readme.md']);
+            assert.strictEqual(fs.readFileSync(path.join(ws.root, 'Readme.md'), 'utf8'), 'MINE');
+        } finally {
+            ws.done();
+        }
+    });
+
     test('ゲストが一覧と違う中身を返したら書かない', async () => {
         const ws = tempWorkspace();
         try {

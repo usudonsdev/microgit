@@ -6,7 +6,7 @@
  */
 import * as assert from 'assert';
 import { describe, test } from 'node:test';
-import { selectDocumentsToRevert } from '../../revertPolicy';
+import { selectDirtyPaths, selectDocumentsToRevert } from '../../revertPolicy';
 
 describe('selectDocumentsToRevert', () => {
     const touched = new Set(['a.ts', 'b.ts', 'c.ts']);
@@ -37,5 +37,21 @@ describe('selectDocumentsToRevert', () => {
         const r = selectDocumentsToRevert(docs, touched);
         assert.strictEqual(r.revert.length, 0);
         assert.strictEqual(r.skippedDirty.length, 2);
+    });
+});
+
+describe('selectDirtyPaths（反映から外すパス。設計方針 §2.1.1 の B）', () => {
+    test('未保存の編集がある文書のパスだけ集める。ワークスペース外・保存済みは含めない', () => {
+        const docs = [
+            { rel: 'a.ts', isDirty: true },
+            { rel: 'b.ts', isDirty: false },
+            { rel: undefined, isDirty: true },
+            { rel: 'dir/c.ts', isDirty: true },
+        ];
+        assert.deepStrictEqual([...selectDirtyPaths(docs)].sort(), ['a.ts', 'dir/c.ts']);
+    });
+
+    test('開いている文書が無ければ空', () => {
+        assert.strictEqual(selectDirtyPaths([]).size, 0);
     });
 });

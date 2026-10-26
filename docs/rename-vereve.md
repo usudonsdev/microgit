@@ -97,3 +97,4 @@
 6. **keybindings**：`keybindings.json` の旧 ID `microgit.toggle` は効かない（README の手順どおり直す）。
 7. **VSIX**：`npx vsce package` の VSIX を `code --install-extension` で入れ、拡張フォルダ名が `usudonsdev.vereve-6.0.0`、Activity Bar のアイコンが出る。CI の `package.yml`（5 環境の検証。`runTest.ts` が `usudonsdev.vereve-` を探す）が通る。
 8. **出力チャンネル名**：`verEve Output`。
+9. **未保存の編集を持つファイル（design-policy §2.1.1 の B。改名とは別件）**：2 つのファイル a・b を保存して履歴を作り、a を過去の内容に戻して保存（rewound が走る状況）にする前に、b を編集して**保存しない**。a を保存／ジャンプしたあと、b のエディタの内容とディスクの内容が編集中のままで、WARN の通知が 1 回出る。b を保存すると新しいマイクロコミットになり、保存せず閉じて同じ時点へ再ジャンプすると、b も指定の時点に揃う。カーネル版・Node 版（`vereve.overlayBackend`）の両方で。

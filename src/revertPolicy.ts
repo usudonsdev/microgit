@@ -32,3 +32,17 @@ export function selectDocumentsToRevert<T extends OpenDocInfo>(docs: readonly T[
     }
     return { revert, skippedDirty };
 }
+
+/**
+ * 反映（巻き戻し・タイムトラベル）で、書きも消しもしないパス（エディタに未保存の編集があるファイル）を集める純関数。
+ * 設計方針 §2.1.1 の B: ディスクの書き換え自体を止める。読み直さないだけ（selectDocumentsToRevert）だと、
+ * ディスクとエディタが食い違い、保存で上書きすると巻き戻し結果が消えるため。
+ * Git の checkout が dirty なファイルの上書きを拒むのと同じ向き。除外したパスは、保存すると新しい記録になる。
+ */
+export function selectDirtyPaths(docs: readonly OpenDocInfo[]): Set<string> {
+    const out = new Set<string>();
+    for (const d of docs) {
+        if (d.rel && d.isDirty) { out.add(d.rel); }
+    }
+    return out;
+}

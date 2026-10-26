@@ -33,7 +33,7 @@ import { BackendSelector, parseBackendSetting } from './kernel/backendSelector';
 import { ensureExecutable } from './kernel/executable';
 import { FastMicroCommitter } from './fastMicroCommit';
 import { ChangeDedupe, headSignature, RefreshCoalescer } from './refreshGate';
-import { selectDocumentsToRevert } from './revertPolicy';
+import { selectDirtyPaths, selectDocumentsToRevert } from './revertPolicy';
 import { saveStatusMessage, SaveStatusResult } from './saveStatus';
 import { SaveTimer, SaveTimingLog } from './saveTiming';
 import { firstTagAtHead, readRef, readSymbolicHead, resolveGitDir } from './fastGit/refs';
@@ -1365,6 +1365,27 @@ function consumeAiPending(rootPath: string, relativeFilePath: string): boolean {
  * 未保存の編集がある文書（isDirty）は読み直さない: revert は未保存の編集を黙って捨てるため（診断 S-15。選び方は revertPolicy.ts）。
  * ディスクは既に書き換わっているので、読み直さなかった文書は次の保存時に VS Code が衝突を知らせる。
  */
+/**
+ * エディタに未保存の編集があるファイルの相対パス（設計方針 §2.1.1 の B）。反映（巻き戻し・タイムトラベル）はこのパスを書きも消しもしない。
+ */
+function collectDirtyPaths(rootPath: string): Set<string> {
+    return selectDirtyPaths(
+        vscode.workspace.textDocuments.map((doc) => ({ rel: toPosixRelative(rootPath, doc.uri.fsPath), isDirty: doc.isDirty })),
+    );
+}
+
+/** 反映から外したファイル（未保存の編集あり）を、ログと画面で知らせる。保存すると、その内容が新しい記録になる */
+function reportSkippedDirty(skippedDirty: readonly string[]): void {
+    if (!skippedDirty.length) { return; }
+    for (const rel of skippedDirty) {
+        ExtensionLogger.log(`[反映] 未保存の編集があるため、書き換えず・消さずに残した: ${rel}`, 'WARN');
+    }
+    void vscode.window.showWarningMessage(
+        `[verEve] ${skippedDirty.length} 件のファイルは未保存の編集があるため、巻き戻しの対象から外しました。` +
+        'このファイルは指定の時点とは違う内容のままです。保存すると、いまの内容が新しい記録になります（詳細は verEve Output）'
+    );
+}
+
 async function revertTouchedDocuments(rootPath: string, touched: Set<string>): Promise<void> {
     const docs = vscode.workspace.textDocuments.map((doc) => ({
         doc,
@@ -1410,15 +1431,17 @@ async function applyKernelCheckout(rootPath: string, targetHash: string): Promis
             target: targetHash,
             managedFiles: managed,
             cacheFile: path.join(paths.meta, 'kernel-sync-cache.json'),
+            skipPaths: collectDirtyPaths(rootPath),
         });
         updateDagCurrent(paths, targetHash, currentMicroBranchTag);
         await revertTouchedDocuments(rootPath, new Set([...result.written, ...result.deleted]));
         const t = result.timings;
         ExtensionLogger.log(
             `[Overlay/kernel] ${targetHash.substring(0, 7)} ${result.ensure.snapshot ? '写しの層' : '差分の層'} depth=${result.ensure.depth} ` +
-            `written=${result.written.length} deleted=${result.deleted.length} unchanged=${result.unchanged} rejected=${result.rejected.length} ` +
+            `written=${result.written.length} deleted=${result.deleted.length} unchanged=${result.unchanged} rejected=${result.rejected.length} skippedDirty=${result.skippedDirty.length} ` +
             `ensure=${t.ensureMs}ms view=${t.viewMs}ms sync=${t.syncMs}ms total=${t.totalMs}ms`
         );
+        reportSkippedDirty(result.skippedDirty);
         if (result.rejected.length) {
             for (const r of result.rejected) {
                 ExtensionLogger.log(`[Overlay/kernel] 反映しなかった: ${r.path}（${r.reason}${r.detail ? `: ${r.detail}` : ''}）`, 'WARN');
@@ -1473,20 +1496,22 @@ async function applyOverlayCheckout(
         return;
     }
 
-    const { written, deleted, skipped, conflicts } = syncMergeToWorkspace(
+    const { written, deleted, skipped, conflicts, skippedDirty } = syncMergeToWorkspace(
         rootPath,
         paths,
         isSafeRepoRelativePath,
         isMicroGitArtifactPath,
         collectShadowTrackedFiles(shadowRepoPath, tryRunGit),
+        collectDirtyPaths(rootPath),
     );
+    reportSkippedDirty(skippedDirty);
 
     await revertTouchedDocuments(rootPath, new Set([...written, ...deleted]));
 
     ExtensionLogger.log(
         `[Overlay/${result.backend}] method=${result.method} applied=${result.appliedLayers} ` +
         `path=${layerPath.map((h) => h.substring(0, 7)).join('→')} ` +
-        `write=${currentMicroBranchTag} written=${written.length} deleted=${deleted.length} skipped=${skipped} conflicts=${conflicts.length} ` +
+        `write=${currentMicroBranchTag} written=${written.length} deleted=${deleted.length} skipped=${skipped} skippedDirty=${skippedDirty.length} conflicts=${conflicts.length} ` +
         `(${describeOverlayEngine()})`
     );
     for (const rel of conflicts) {
@@ -1542,11 +1567,14 @@ async function sharedTimeTravel(target: string, rootPath: string): Promise<void>
                 affectedFiles.push(...allFilesStr.split('\n').filter(Boolean));
             }
 
+            const dirtyPaths = collectDirtyPaths(rootPath);
+            const skippedDirty: string[] = [];
             for (const relPath of affectedFiles) {
                 if (!isSafeRepoRelativePath(relPath, rootPath)) {
                     ExtensionLogger.log(`不正なパスをスキップしました: ${relPath}`, 'WARN');
                     continue;
                 }
+                if (dirtyPaths.has(relPath)) { skippedDirty.push(relPath); continue; } // §2.1.1 の B
                 const targetWorkspacePath = path.join(rootPath, relPath);
                 try {
                     flushPendingGitWrites(shadowRepoPath); // ADR-0015
@@ -1565,6 +1593,7 @@ async function sharedTimeTravel(target: string, rootPath: string): Promise<void>
                     }
                 }
             }
+            reportSkippedDirty(skippedDirty);
         }
 
         vscode.window.showInformationMessage(`[verEve] ${target} の状態に一発復元しました！`);
