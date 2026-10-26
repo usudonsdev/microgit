@@ -22,3 +22,4 @@ Cursor と併用する。指示の正本は [AGENTS.md](AGENTS.md)。内容が�
 - 卒業研究（ビルド検証エンジン・計画段階）: [docs/build-verification-engine.md](docs/build-verification-engine.md)
 - 次期メジャー（カーネル機能ポータブル化・要件確定）: [要件定義書](docs/microgit-kernel-feature-portability-requirements.md) / [初期設計](docs/microgit-kernel-feature-portability-design.md) / [補足](docs/microgit-kernel-feature-portability-supplement.md)。進捗は Issue #8（Epic）、ブランチ `feature/kernel-portability`
 - AI 編集の `[AI]` 印は Cursor フックの観測で付ける。Agent Skill にはしない（`docs/design-policy.md` §2.3）
+- **名称は verEve（versioning everything の略）に改名する方針**（運営者の決定 2026-10-26。実装は未着手）。調査・影響範囲・手順案・未決は [docs/rename-vereve.md](docs/rename-vereve.md)。拡張 ID は変更不可なので新拡張として出し直す。履歴の `refs/microgit/*` は互換のため据え置く案（未決）

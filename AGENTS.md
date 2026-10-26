@@ -27,6 +27,7 @@
 - ストレージは既存 Git、checkout は Overlay、共有は親の `refs/microgit/*`（詳細は design-policy）
 - 通常 Git への自動コミットはしない。マイクロ履歴はブランチ専属
 - AI 編集の `[AI]` 印は `.cursor/hooks` の観測で付ける。Agent Skill にはしない（`docs/design-policy.md` §2.3）
+- **名称は verEve（versioning everything の略）に改名する方針**（運営者の決定 2026-10-26。実装は未着手）。調査・影響範囲・手順案・未決は [docs/rename-vereve.md](docs/rename-vereve.md)。拡張 ID は変更不可なので新拡張として出し直す。履歴の `refs/microgit/*` は互換のため据え置く案（未決）
 - セキュリティ: `execFileSync` + 引数配列。シェル連結禁止
 
 ## Claude Code
