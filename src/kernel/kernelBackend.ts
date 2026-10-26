@@ -170,7 +170,7 @@ export class KernelOverlayBackend {
 
     /**
      * target の時点にワークスペースを合わせる。
-     * managedFiles は MicroGit が記録したことのあるパス（ここにあって target に無いファイルだけ消す）。
+     * managedFiles は verEve が記録したことのあるパス（ここにあって target に無いファイルだけ消す）。
      * cacheFile はワークスペースのファイルの sha256 のキャッシュの置き場所（無ければ作る）。
      */
     async checkout(opts: {

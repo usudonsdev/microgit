@@ -1,6 +1,6 @@
 /**
  * サイドバー（Activity Bar の専用ビュー）とグラフパネルの Webview を持つ層。
- * 拡張機能の本体（extension.ts）が作った表示用の内容（MicroGitUiSnapshot）を受け取り、postMessage で Webview へ渡す。
+ * 拡張機能の本体（extension.ts）が作った表示用の内容（VerEveUiSnapshot）を受け取り、postMessage で Webview へ渡す。
  * Webview からの操作（コマンド実行・区間の切り替え・再描画の依頼）は、メッセージで受けて VS Code のコマンドに橋渡しする。
  * 画面の HTML・CSS・Webview 内のスクリプトは、getSidebarHtml・getGraphHtml のテンプレート文字列に入っている
  * （中身は文字列なので、手を入れると表示と動作が変わる）。
@@ -27,7 +27,7 @@ export interface GraphCommit {
  * active は、有効で、記録できるブランチにいるときだけ true。hasShadow は、active のうえで shadow が存在するときだけ true。
  * workspaceOpen が false のときは、ワークスペースが開かれていない。
  */
-export interface MicroGitUiSnapshot {
+export interface VerEveUiSnapshot {
     enabled: boolean;
     targetBranch?: string;
     currentBranch?: string;
@@ -45,13 +45,13 @@ export interface MicroGitUiSnapshot {
 /**
  * Activity Bar の専用ビューとグラフパネルを管理し、状態変更をリアルタイム反映する
  */
-export class MicroGitUi implements vscode.WebviewViewProvider {
+export class VerEveUi implements vscode.WebviewViewProvider {
     /** サイドバーのビューの識別子。package.json の views の id（vereve.sidebar）と一致していること。 */
     public static readonly viewType = 'vereve.sidebar';
 
     private view?: vscode.WebviewView;
     private graphPanel?: vscode.WebviewPanel;
-    private latest: MicroGitUiSnapshot = emptySnapshot();
+    private latest: VerEveUiSnapshot = emptySnapshot();
     /** サイドバー／グラフ共通のメインコミット区間フィルタ */
     private selectedIntervalId = 'all';
     /**
@@ -105,20 +105,20 @@ export class MicroGitUi implements vscode.WebviewViewProvider {
     }
 
     /** 新しい内容を受け取り、サイドバーとグラフ（開いていれば）へ送る。 */
-    update(snapshot: MicroGitUiSnapshot): void {
+    update(snapshot: VerEveUiSnapshot): void {
         this.latest = snapshot;
         this.postToSidebar();
         this.postToGraph();
     }
 
-    /** グラフパネルを開く（開いていれば前面に出す）。ワークスペースが無い・MicroGit が無効または記録できないブランチ・shadow が無いときは、警告を出して開かない。 */
+    /** グラフパネルを開く（開いていれば前面に出す）。ワークスペースが無い・verEve が無効または記録できないブランチ・shadow が無いときは、警告を出して開かない。 */
     showGraphPanel(): void {
         if (!this.latest.workspaceOpen) {
             vscode.window.showWarningMessage('ワークスペースを開いてからグラフを表示してください。');
             return;
         }
         if (!this.latest.active) {
-            vscode.window.showWarningMessage('MicroGit が無効、または記録可能なブランチ上にいないためグラフを表示できません。');
+            vscode.window.showWarningMessage('verEve が無効、または記録可能なブランチ上にいないためグラフを表示できません。');
             return;
         }
         if (!this.latest.hasShadow) {
@@ -133,8 +133,8 @@ export class MicroGitUi implements vscode.WebviewViewProvider {
         }
 
         this.graphPanel = vscode.window.createWebviewPanel(
-            'microgitGraph',
-            'MicroGit Graph',
+            'vereveGraph',
+            'verEve Graph',
             vscode.ViewColumn.One,
             { enableScripts: true, retainContextWhenHidden: true }
         );
@@ -166,7 +166,7 @@ export class MicroGitUi implements vscode.WebviewViewProvider {
     }
 
     /** Webview へ送る内容を作る。選択中の区間でコミットを絞り込み、絞り込んだ数と全体の数を添える。 */
-    private viewPayload(): MicroGitUiSnapshot & { selectedIntervalId: string; filteredCount: number; totalCount: number } {
+    private viewPayload(): VerEveUiSnapshot & { selectedIntervalId: string; filteredCount: number; totalCount: number } {
         const interval = this.resolveInterval();
         const filtered = filterCommitsByMainInterval(this.latest.commits, interval.mainHead);
         return {
@@ -268,7 +268,7 @@ export class MicroGitUi implements vscode.WebviewViewProvider {
 }
 
 /** 何も記録が無い状態の内容。画面を作る前の初期値と、区間の一覧が空のときの代わりに使う（区間は「すべて」だけ）。 */
-function emptySnapshot(): MicroGitUiSnapshot {
+function emptySnapshot(): VerEveUiSnapshot {
     return {
         enabled: false,
         onTarget: false,
@@ -399,7 +399,7 @@ function getSidebarHtml(): string {
 </style>
 </head>
 <body>
-  <h1>MicroGit Control</h1>
+  <h1>verEve Control</h1>
   <div class="card" id="status-card">
     <div class="row"><span class="label">状態</span><span id="status-badge" class="badge off">OFF</span></div>
     <div class="row"><span class="label">マイクロ空間</span><span class="value" id="target-branch">-</span></div>
@@ -676,7 +676,7 @@ function getGraphHtml(): string {
 </head>
 <body>
   <div class="header">
-    <h3>MicroGit タイムライン</h3>
+    <h3>verEve タイムライン</h3>
     <div class="meta" id="meta"></div>
   </div>
   <div class="toolbar">

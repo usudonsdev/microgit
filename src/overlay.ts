@@ -33,6 +33,7 @@ type LayerMeta = {
 };
 
 /** 展開済みビューの完成マーカー（list / sync 対象外） */
+// 互換のため旧名のまま（作業ツリーの中の目印。名前を変えると既存のビューが未完成とみなされる）
 const VIEW_OK_MARKER = '.microgit_view_ok';
 
 /**
@@ -49,7 +50,7 @@ export type OverlayDagNode = {
 
 /**
  * `meta/dag.json` の中身。nodes はコミットのハッシュ → ノード。
- * managedFiles は MicroGit が扱ってきたパスで、ワークスペースから消すべきファイルの判定に使う。
+ * managedFiles は verEve が扱ってきたパスで、ワークスペースから消すべきファイルの判定に使う。
  * current・currentTag は最後に書き出し・更新したコミットとそのタグ。
  */
 export type OverlayDag = {

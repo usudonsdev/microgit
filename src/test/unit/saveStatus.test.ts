@@ -20,11 +20,11 @@ describe('保存のたびのステータスバーの一時メッセージ（#68�
     test('設定が true なら、これまでどおりの文言を返す', () => {
         assert.strictEqual(
             saveStatusMessage(true, { kind: 'created', commit: hash, tag: 'mb-1' }),
-            '[MicroGit] 記録 abc1234 · mb-1'
+            '[verEve] 記録 abc1234 · mb-1'
         );
         assert.strictEqual(
             saveStatusMessage(true, { kind: 'rewound', commit: hash }),
-            '[MicroGit] 同一変更のため HEAD のみ復帰 abc1234'
+            '[verEve] 同一変更のため HEAD のみ復帰 abc1234'
         );
     });
 });

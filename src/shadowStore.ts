@@ -28,11 +28,13 @@ export function shadowWorkTreePath(mainRepoPath: string): string {
 
 /** 親ブランチごとの shadow の実体（bare リポジトリ）のパスを返す。親の .git の下にあり、作業ツリーには現れない。 */
 export function bareGitDirPath(mainRepoPath: string, mainBranch: string): string {
+    // 互換のため旧名のまま：bare の置き場（.git/microgit/repos）
     return path.join(mainRepoPath, '.git', 'microgit', 'repos', `${sanitizeBranchKey(mainBranch)}.git`);
 }
 
 /** 親リポジトリに共有するときの ref の接頭辞（refs/microgit/<ブランチ>）を返す。 */
 export function parentMicroRefPrefix(mainBranch: string): string {
+    // 互換のため旧名のまま：履歴 ref の名前空間。改名すると既存の履歴と、旧版を使う他の PC との共有が切れる（docs/design-policy.md の改名の節）
     return `refs/microgit/${sanitizeBranchKey(mainBranch)}`;
 }
 
@@ -516,7 +518,7 @@ export function getOriginUrlForDisplay(mainRepoPath: string): string | undefined
     return url ? maskRemoteUrl(url) : undefined;
 }
 
-/** origin があるとき refs/microgit/* を push（MicroGit 導入済み同士の companion 同期） */
+/** origin があるとき refs/microgit/* を push（verEve 導入済み同士の companion 同期） */
 /**
  * origin があるとき、親の refs/microgit/* を origin へ push する。成功なら true。
  * origin が無い・失敗のときは false を返し、例外にはしない（失敗はログに WARN で残す）。

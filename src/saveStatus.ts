@@ -17,6 +17,6 @@ export function saveStatusMessage(show: boolean, result: SaveStatusResult): stri
     if (!show) { return undefined; }
     const short = result.commit.substring(0, 7);
     return result.kind === 'created'
-        ? `[MicroGit] 記録 ${short} · ${result.tag}`
-        : `[MicroGit] 同一変更のため HEAD のみ復帰 ${short}`;
+        ? `[verEve] 記録 ${short} · ${result.tag}`
+        : `[verEve] 同一変更のため HEAD のみ復帰 ${short}`;
 }

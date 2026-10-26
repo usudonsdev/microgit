@@ -1,6 +1,6 @@
 /**
  * ワークスペースへの書き込みの安全装置（boundaryGuard.ts）を確かめる単体テスト。VS Code を使わない。
- * ゲスト（カーネル版の中の agent）から届いたパス・一覧・中身を信用せず、ワークスペースの外・.git・MicroGit の作業フォルダには書かないことを確かめる。
+ * ゲスト（カーネル版の中の agent）から届いたパス・一覧・中身を信用せず、ワークスペースの外・.git・verEve の作業フォルダには書かないことを確かめる。
  * 観点：パスの形（相対・空の段・.. ・長さ）、.git への書き込みの拒否（大文字小文字・末尾のドットや空白・8.3 の短い名前）、
  * Windows で表せない名前、view の一覧の検証（種類・重複・大文字小文字と Unicode の正規化の衝突・件数の上限）、
  * 中身の sha256 の照合、リンクでワークスペースの外へ出る書き込みの拒否、
@@ -69,7 +69,7 @@ describe('.git への書き込みを弾く（CVE-2014-9390 と同じ種類の攻
         assert.strictEqual(checkPathPolicy('.github/workflows/ci.yml', linux), undefined);
     });
 
-    test('MicroGit の作業フォルダは弾く（大文字小文字を区別しない FS では大文字でも）', () => {
+    test('verEve の作業フォルダは弾く（大文字小文字を区別しない FS では大文字でも）', () => {
         assert.strictEqual(checkPathPolicy('.microgit/shadow/x', linux)?.reason, 'microgit-artifact');
         assert.strictEqual(checkPathPolicy('.microgit_shadow/x', linux)?.reason, 'microgit-artifact');
         assert.strictEqual(checkPathPolicy('.MICROGIT/x', windows)?.reason, 'microgit-artifact');

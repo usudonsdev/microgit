@@ -1,5 +1,5 @@
 /**
- * 拡張機能テスト（VS Code の中で流す）。MicroGit を有効にして、VS Code の編集機能で保存し、過去に戻るコマンドで
+ * 拡張機能テスト（VS Code の中で流す）。verEve を有効にして、VS Code の編集機能で保存し、過去に戻るコマンドで
  * ワークスペースが戻るかを確かめる（#14）。
  * 観点：保存した 2 つの時点を行き来でき、あとから作ったファイルは消え、日本語の名前も戻る。3 MiB のファイルも戻る。
  * 保存の時間の計測（環境変数で走る。既定は飛ばす）。Overlay Status に、使ったバックエンドと速い記録の前提が出る。
@@ -18,7 +18,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 
 /**
- * MicroGit を有効にして、VS Code の編集機能で保存し、過去に戻るコマンドでワークスペースが戻るかを確かめる（#14）。
+ * verEve を有効にして、VS Code の編集機能で保存し、過去に戻るコマンドでワークスペースが戻るかを確かめる（#14）。
  *
  * どのバックエンド（カーネル版か Node.js 版か）を使うかは環境しだい:
  *   - Windows で guest/.cache/qemu-win と guest/out/x86_64/Image があればカーネル版（QEMU）
@@ -27,7 +27,7 @@ import * as vscode from 'vscode';
  * 環境変数 MICROGIT_TEST_EXPECT_BACKEND（kernel / nodejs）を付けると、使ったバックエンドも確かめる。
  * 環境変数 MICROGIT_TEST_BACKEND_SETTING（auto / kernel / nodejs）を付けると、設定 vereve.overlayBackend をその値にしてから試す。
  */
-suite('MicroGit Overlay backend (save → jump)', function () {
+suite('verEve Overlay backend (save → jump)', function () {
     this.timeout(300_000);
 
     let root: string;
@@ -52,7 +52,7 @@ suite('MicroGit Overlay backend (save → jump)', function () {
      * 保存ジョブ（キュー）が shadow にコミットを作るまで待つ。
      * 保存の処理の最中は Git を起動しない（#61）。テストは拡張機能と同じプロセスで動くので、ここで Git を起動すると
      * その間（execFileSync なら Windows で 30〜40 ms、非同期の execFile でも Linux の fork の数 ms）ループが止まり、
-     * MicroGit は agent の応答を読めず、層づくりの「通信」が長く測られていた。保存の数と最後のコミットは拡張機能から受け取る
+     * verEve は agent の応答を読めず、層づくりの「通信」が長く測られていた。保存の数と最後のコミットは拡張機能から受け取る
      */
     async function waitForNewHead(before: LastSave, timeoutMs = 60_000): Promise<string> {
         const deadline = Date.now() + timeoutMs;
@@ -100,7 +100,7 @@ suite('MicroGit Overlay backend (save → jump)', function () {
         assert.ok(folders, 'ワークスペースが開かれていません。');
         root = folders[0].uri.fsPath;
         shadow = path.join(root, '.microgit', 'shadow');
-        assert.ok(!fs.existsSync(shadow), 'MicroGit を有効にする前から .microgit/shadow がある（ほかのテストが作った？）');
+        assert.ok(!fs.existsSync(shadow), 'verEve を有効にする前から .microgit/shadow がある（ほかのテストが作った？）');
         const setting = process.env.MICROGIT_TEST_BACKEND_SETTING;
         if (setting) {
             await vscode.workspace.getConfiguration().update('vereve.overlayBackend', setting, vscode.ConfigurationTarget.Workspace);

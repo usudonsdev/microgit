@@ -1,7 +1,7 @@
 /**
  * 拡張機能テスト（VS Code の中で流す）。一時フォルダの Git リポジトリを直接操作して「過去に戻る」の流れを真似し、
  * ワークスペースのファイルの中身が戻った時点のものになるか、その Git の HEAD が戻した先のコミットに動くかを確かめる。
- * MicroGit 本体のコマンドは呼ばず、戻す処理もテスト自身が書き写す（MicroGit のコマンドを使うテストは overlayBackend.test.ts にある）。
+ * verEve 本体のコマンドは呼ばず、戻す処理もテスト自身が書き写す（verEve のコマンドを使うテストは overlayBackend.test.ts にある）。
  * 実行は npm test（node ./out/test/runTest.js）。node scripts/run-unit-tests.mjs では流れない。
  */
 import * as assert from 'assert';
@@ -11,7 +11,7 @@ import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
-suite('MicroGit Head Travel Test Suite', function () {
+suite('verEve Head Travel Test Suite', function () {
     this.timeout(15000);
 
     let testFileUri: vscode.Uri;
@@ -22,9 +22,9 @@ suite('MicroGit Head Travel Test Suite', function () {
         const workspaceFolders = vscode.workspace.workspaceFolders;
         assert.ok(workspaceFolders, 'ワークスペースが開かれていません。');
         rootPath = workspaceFolders[0].uri.fsPath;
-        // このテストは Git を直接操作して「過去に戻る」を再現するもので、MicroGit のコマンドは呼ばない。
-        // 以前はワークスペースの .microgit_shadow に Git を直接作っていたが、それは MicroGit の本物の shadow の場所と
-        // ぶつかる（overlayBackend.test.ts が MicroGit を有効にしたとき、古い形式として移し替えられてしまう）。
+        // このテストは Git を直接操作して「過去に戻る」を再現するもので、verEve のコマンドは呼ばない。
+        // 以前はワークスペースの .microgit_shadow に Git を直接作っていたが、それは verEve の本物の shadow の場所と
+        // ぶつかる（overlayBackend.test.ts が verEve を有効にしたとき、古い形式として移し替えられてしまう）。
         // そこで一時フォルダに作る（#14）
         shadowRepoPath = fs.mkdtempSync(path.join(os.tmpdir(), 'microgit-head-travel-'));
 

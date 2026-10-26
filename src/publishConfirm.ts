@@ -38,7 +38,7 @@ export function maskRemoteUrl(url: string): string {
 /** 確認ダイアログの本文。originUrl は maskRemoteUrl を通したものを渡す。 */
 export function buildPublishConfirmMessage(originUrl: string, currentBranch: string): string {
     return [
-        `origin（${originUrl}）へ、MicroGit の履歴 refs/microgit/* をすべて push します。`,
+        `origin（${originUrl}）へ、verEve の履歴 refs/microgit/* をすべて push します。`,
         `現在のブランチ（${currentBranch}）だけではなく、記録してきた全ブランチのマイクロ履歴が対象です。`,
         `履歴には、保存のたびのファイルの中身が入っています。送ったあとは、origin にアクセスできる人が読めます。`,
     ].join('\n');
