@@ -1271,14 +1271,31 @@ function consumeAiPending(rootPath: string, relativeFilePath: string): boolean {
     }
 }
 
-/** 反映で中身が変わった文書を、開いているエディタで読み直す */
+/**
+ * 反映で中身が変わった文書を、開いているエディタで読み直す。
+ * **未保存の編集がある文書は読み直さない**（診断 S-15）。読み直し（files.revert）は未保存の編集を黙って捨てるため。
+ * 読み直さなかった文書は、ディスクの中身と食い違ったまま残る。次に保存するとき、VS Code が「ファイルが新しい」と
+ * 確認を出すので、利用者が上書きするか選べる。読み直さなかった文書は画面に知らせる。
+ */
 async function revertTouchedDocuments(rootPath: string, touched: Set<string>): Promise<void> {
+    const keptDirty: string[] = [];
     for (const doc of vscode.workspace.textDocuments) {
         const rel = toPosixRelative(rootPath, doc.uri.fsPath);
         if (!rel || !touched.has(rel)) { continue; }
+        if (doc.isDirty) {
+            keptDirty.push(rel);
+            continue;
+        }
         try {
             await vscode.commands.executeCommand('workbench.action.files.revert', doc.uri);
         } catch { /* ignore */ }
+    }
+    if (keptDirty.length > 0) {
+        ExtensionLogger.log(`未保存の編集があるため読み直さなかった: ${keptDirty.join(', ')}`, 'WARN');
+        const shown = keptDirty.slice(0, 3).join(', ') + (keptDirty.length > 3 ? ` ほか ${keptDirty.length - 3} 件` : '');
+        void vscode.window.showWarningMessage(
+            `MicroGit: 未保存の編集があるファイルは読み直していません（${shown}）。ディスクの中身は過去の姿に合わせてあります。保存すると上書きの確認が出ます。`,
+        );
     }
 }
 
