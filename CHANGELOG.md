@@ -4,6 +4,10 @@ All notable changes to the "MicroGit" extension will be documented in this file.
 
 ## [Unreleased]
 
+### Security
+- Webview（サイドバーとグラフ）に Content-Security-Policy（nonce 方式）を付けた。
+- 「Publish Micro History」は、origin へ送る前に確認ダイアログ（origin の URL と、全ブランチの `refs/microgit/*` を送ること）を出すようにした。
+
 ## [5.2.0] - 2026-10-14
 
 5.1.2（ストアの説明文の書き直し）は 2026-10-12 に公開済み。5.1.3（テストの修正。拡張機能の動きは変わらない）はストアに出さず、この版にまとめた。

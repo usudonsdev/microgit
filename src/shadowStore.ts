@@ -14,6 +14,7 @@ import { durabilityGitArgs } from './durability';
 import { flushPendingGitWrites } from './fastGit/pendingWrites';
 import { listTags, readRef } from './fastGit/refs';
 import { shadowDir } from './layout';
+import { maskRemoteUrl } from './publishConfirm';
 
 /** ブランチ名を、ディレクトリ名・ref 名に使える形にする。英数字と . _ - 以外は _ に置き換える（別の名前が同じ形になりうる）。 */
 export function sanitizeBranchKey(branch: string): string {
@@ -504,6 +505,15 @@ function tryRunParent(mainRepoPath: string, args: string[]): string | undefined 
     } catch {
         return undefined;
     }
+}
+
+/**
+ * 親リポジトリの origin の URL を返す（無ければ undefined）。Publish の確認ダイアログに出す用。
+ * 認証情報（https://user:token@...）が URL に入っていても出さないよう、取り除いてから返す。
+ */
+export function getOriginUrlForDisplay(mainRepoPath: string): string | undefined {
+    const url = tryRunParent(mainRepoPath, ['config', '--get', 'remote.origin.url'])?.trim();
+    return url ? maskRemoteUrl(url) : undefined;
 }
 
 /** origin があるとき refs/microgit/* を push（MicroGit 導入済み同士の companion 同期） */

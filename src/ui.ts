@@ -8,6 +8,7 @@
  */
 
 import * as vscode from 'vscode';
+import { applyCsp } from './webviewCsp';
 import { filterCommitsByMainInterval, type MainIntervalOption } from './mainHead';
 
 /** グラフに出す 1 コミット。tags は mb-<数字> など、そのコミットを指すタグ。timestamp は表示用に整えた日時の文字列。 */
@@ -86,7 +87,7 @@ export class MicroGitUi implements vscode.WebviewViewProvider {
             enableScripts: true,
             localResourceRoots: [this.extensionUri],
         };
-        webviewView.webview.html = getSidebarHtml();
+        webviewView.webview.html = applyCsp(getSidebarHtml());
         webviewView.webview.onDidReceiveMessage((message) => {
             void this.handleSidebarMessage(message);
         });
@@ -137,7 +138,7 @@ export class MicroGitUi implements vscode.WebviewViewProvider {
             vscode.ViewColumn.One,
             { enableScripts: true, retainContextWhenHidden: true }
         );
-        this.graphPanel.webview.html = getGraphHtml();
+        this.graphPanel.webview.html = applyCsp(getGraphHtml());
         this.graphPanel.webview.onDidReceiveMessage((message) => {
             void this.handleGraphMessage(message);
         });

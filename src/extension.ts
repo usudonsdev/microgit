@@ -47,6 +47,7 @@ import {
     fetchMicrogitRefsFromOrigin,
     importFromParentRefs,
     publishToParentRefs,
+    getOriginUrlForDisplay,
     pushMicrogitRefsToOrigin,
     sanitizeBranchKey as sanitizeBranchKeyShared,
     shadowWorkTreePath,
@@ -59,6 +60,7 @@ import {
 import { MicroGitUi, MicroGitUiSnapshot } from './ui';
 import { durabilityGitArgs, getDurability, setDurability } from './durability';
 import { PublishQueue } from './publishQueue';
+import { buildPublishConfirmMessage } from './publishConfirm';
 
 /** workspaceState のキー：MicroGit が有効か（真偽値） */
 const STATE_ENABLED = 'microgit.enabled';
@@ -454,6 +456,21 @@ export function activate(context: vscode.ExtensionContext) {
             if (!isEnabled() || !isRecordableBranch(branch)) {
                 vscode.window.showWarningMessage('有効かつ名前付きブランチ上でのみ publish できます。');
                 return;
+            }
+            // origin へ送る前に、何が出ていくかを見せて同意を取る（S-15）。origin が無ければ外には出ないので聞かない。
+            // モーダルを閉じる・「キャンセル」は何もしない（親 refs の更新もしない）
+            const originUrl = getOriginUrlForDisplay(rootPath);
+            if (originUrl) {
+                const publishLabel = 'Publish';
+                const answer = await vscode.window.showWarningMessage(
+                    '[MicroGit] マイクロ履歴を origin へ publish しますか？',
+                    { modal: true, detail: buildPublishConfirmMessage(originUrl, branch!) },
+                    publishLabel
+                );
+                if (answer !== publishLabel) {
+                    ExtensionLogger.log('publish は確認ダイアログでキャンセルされた');
+                    return;
+                }
             }
             try {
                 ensureShadowRepoForBranch(rootPath, branch!, (m, l) => ExtensionLogger.log(m, l));

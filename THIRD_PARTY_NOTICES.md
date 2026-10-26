@@ -8,14 +8,24 @@ MicroGit 本体のライセンスは [LICENCE.md](LICENCE.md) のとおり。Mic
 
 ## What is in which package / どの VSIX に何が入っているか
 
-| Component | Version | License | win32-x64 | linux-x64 / linux-arm64 | Where in the VSIX |
-|---|---|---|---|---|---|
-| Linux kernel | 6.18.53 | GPL-2.0 (with Linux-syscall-note) | yes (inside the guest image) | no | `resources/kernel/guest/x86_64/Image`, license: `resources/kernel/licenses/linux/` |
-| Go standard library and runtime (statically linked into the MicroGit agent) | 1.27.1 | BSD-3-Clause | yes (inside the guest image) | yes | `resources/kernel/linux-*/microgit-agent`, license: `resources/kernel/licenses/go/LICENSE` |
-| QEMU (`qemu-system-x86_64`, built by MicroGit with a reduced device set) | 11.1.1 | GPL-2.0 (parts under other GPL-compatible licenses, see `COPYING`, `LICENSE`) | yes | no | `resources/kernel/win32-x64/qemu/`, license: `.../qemu/licenses/qemu/` |
-| SeaBIOS (`bios-256k.bin`, from the QEMU source tree) | as shipped with QEMU 11.1.1 | LGPL-3.0 | yes | no | `.../qemu/share/`, license: `.../qemu/licenses/seabios/` |
-| QEMU option ROMs (`linuxboot_dma.bin`, `kvmvapic.bin`) | as shipped with QEMU 11.1.1 | GPL-2.0 | yes | no | `.../qemu/share/` |
-| DLLs used by QEMU (12 files, see the next table) | Fedora 44 MinGW packages | per package, see the next table | yes | no | `resources/kernel/win32-x64/qemu/*.dll`, licenses: `.../qemu/licenses/<package>/` and `.../qemu/licenses/packages.tsv` |
+| Component | Version | License | win32-x64 | darwin-arm64 | linux-x64 / linux-arm64 | Where in the VSIX |
+|---|---|---|---|---|---|---|
+| Linux kernel | 6.18.53 | GPL-2.0 (with Linux-syscall-note) | yes (inside the guest image) | yes (the arm64 guest image) | no | `resources/kernel/guest/x86_64/Image` (win32-x64), `resources/kernel/guest/arm64/Image` (darwin-arm64), license: `resources/kernel/licenses/linux/` |
+| Go standard library and runtime (statically linked into the MicroGit agent) | 1.27.1 | BSD-3-Clause | yes (inside the guest image) | yes (inside the arm64 guest image) | yes | `resources/kernel/linux-*/microgit-agent` (linux-*), inside `.../guest/*/Image` (win32-x64, darwin-arm64), license: `resources/kernel/licenses/go/LICENSE` |
+| QEMU (`qemu-system-x86_64`, built by MicroGit with a reduced device set) | 11.1.1 | GPL-2.0 (parts under other GPL-compatible licenses, see `COPYING`, `LICENSE`) | yes | no | no | `resources/kernel/win32-x64/qemu/`, license: `.../qemu/licenses/qemu/` |
+| SeaBIOS (`bios-256k.bin`, from the QEMU source tree) | as shipped with QEMU 11.1.1 | LGPL-3.0 | yes | no | no | `.../qemu/share/`, license: `.../qemu/licenses/seabios/` |
+| QEMU option ROMs (`linuxboot_dma.bin`, `kvmvapic.bin`) | as shipped with QEMU 11.1.1 | GPL-2.0 | yes | no | no | `.../qemu/share/` |
+| DLLs used by QEMU (12 files, see the next table) | Fedora 44 MinGW packages | per package, see the next table | yes | no | no | `resources/kernel/win32-x64/qemu/*.dll`, licenses: `.../qemu/licenses/<package>/` and `.../qemu/licenses/packages.tsv` |
+
+The darwin-arm64 package (Apple silicon) also contains `microgit-vm` (`resources/kernel/darwin-arm64/microgit-vm`), a small program written by MicroGit (`mac/microgit-vm/main.swift`, same license as MicroGit itself) that starts the guest image with Apple's Virtualization.framework. It is ad-hoc signed (`mac/build.sh`). The framework is part of macOS and is not distributed in the VSIX. The darwin-arm64 package contains no QEMU and no DLLs. The guest image contains only the Linux kernel and the MicroGit agent (statically linked Go).
+
+darwin-arm64（Apple silicon）の VSIX には、MicroGit が書いた `microgit-vm`（`mac/microgit-vm/main.swift`。ライセンスは MicroGit 本体と同じ）も入っている。Apple の Virtualization.framework でゲストのイメージを起動する小さなプログラムで、ad-hoc 署名（`mac/build.sh`）。このフレームワークは macOS の一部で、VSIX には入れていない。darwin-arm64 には QEMU も DLL も入っていない。ゲストのイメージの中身は、Linux カーネルと MicroGit の agent（静的リンクの Go）だけ。
+
+【要確認 / to be confirmed】
+- 上の darwin-arm64 の列は `scripts/package-vsix.mjs`・`mac/build.sh`・`guest/build.sh`・`docs/release.md` から読み取った。実際にリリースされた darwin-arm64 VSIX を展開して、`resources/kernel/` の中身（microgit-vm、guest/arm64/Image、licenses/linux、licenses/go）がこの表と一致することは、まだ確かめていない。
+- arm64 の Image に、カーネルと agent 以外の第三者のソフトウェア（シェルや busybox など）が入っていないこと（`guest/build.sh` に取り込む記述は見当たらない）。
+- `microgit-vm` が Swift の標準ライブラリを静的に取り込んでいるか（macOS 13 以降は OS 側の Swift ランタイムを使うはずだが、ビルドした成果物では確かめていない）。取り込んでいれば、Swift のライセンス（Apache-2.0 with Runtime Library Exception）の表示が要るかを決める。
+- arm64 の Image の Linux カーネルの版が x86_64 と同じ 6.18.53 であること（`guest/kernel/version.env` は 1 つで共通。リリース済みの Image では未確認）。
 
 ### DLLs in the win32-x64 package / Windows 用の VSIX の DLL
 

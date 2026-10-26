@@ -192,6 +192,22 @@ hotfix   → マイクロ空間 C
 | 発散を `mb-N` 新分岐として取り込む | Overlay の view/layer が新分岐分だけ後で生成される | 発散時のみ（稀） | Overlay は元々兄弟分岐前提の設計。追加コストは通常の分岐作成と同等。ディスク使用量のみ増加 |
 | `dag.json` のアトミック書き込み（tmp+rename） | 追加ファイル I/O 1回 | 保存のたび | 無視できる（複数ウィンドウでの読み書き競合対策として別途推奨） |
 
+### 4.x Webview の CSP と Publish の確認（診断 S-15・L-11、2026-10-26）
+
+**Webview の Content-Security-Policy**（`src/webviewCsp.ts`、適用は `ui.ts` の `applyCsp(getSidebarHtml())` / `applyCsp(getGraphHtml())`）
+
+- ポリシー：`default-src 'none'; style-src 'nonce-N'; script-src 'nonce-N'; base-uri 'none'; form-action 'none'`（N は HTML を作るたびに新しく作る 16 バイトの乱数の base64）
+- 根拠：現物（`ui.ts`）を調べると、サイドバーとグラフの 2 画面とも `<style>` 1 つと `<script>` 1 つのインライン、`acquireVsCodeApi()` と `postMessage` による通信だけ。外部の画像・フォント・`<link>`・`src=`・`style="..."` 属性・`on*=` 属性・`eval` は無い。要素の位置は `el.style.x = ...`（CSSOM。CSP の対象外）。よって nonce 付きのインラインだけを許し、あとは全部止める最小の形で動作が変わらない。`'unsafe-inline'` は使わない（コミットのメッセージなどが `innerHTML` 経由で混ざっても、nonce を知らないスクリプトは動かない）
+- 却下：`localResourceRoots` / `webview.cspSource` を許す案（今は外部リソースを読んでいないので不要。画像などを足すときにその種別だけ足す）。スクリプトを別ファイルに出す案（変更が大きく、利益が nonce 方式と同じ）
+- 罠：今後、テンプレートに `style="..."`・`setAttribute('style')`・`on*=` を足すと CSP で黙って止まる（画面が崩れる）。単体テスト `webviewCsp.test.ts` がソースを走査して検出する。VS Code 上での実表示の確認は、この変更では未実施（Webview を開く統合テストが無いため）
+- テンプレートには `${...}` の埋め込みが無いので、`applyCsp` は文字列の置換（`<head>` の直後に meta、`<script>`・`<style>` に nonce）で足りる
+
+**Publish の確認ダイアログ**（`microgit.publishMicroHistory`、文面は `src/publishConfirm.ts`）
+
+- `git push origin refs/microgit/*` は、今のブランチだけでなく記録してきた全ブランチのマイクロ履歴（保存のたびのファイルの中身）を送る。利用者の想定より広いので、送る前にモーダルで origin の URL（認証情報は取り除く）・全ブランチが対象であること・中身を見せ、「Publish」を選ばなければ何もしない（親 refs の更新もしない）
+- origin が無いときは外に出ないので聞かない。自動の共有（保存後の間引き publish）はこのコマンドとは別経路で、今回は変えていない
+- **判断待ち（作っていない）**：確認を省く設定（例 `microgit.publish.confirm`）、現在のブランチだけを送る選択、`.gitignore` 対象の除外（診断の規模大の項目）。省く設定は「共有の方針」に関わるので運営者の判断を待つ。今は毎回出す
+
 ## 5. アーキテクチャ比較: 既存 Git 利用 vs Git 再構築
 
 共有・ブランチ専属・UI を進めるにあたり、ストレージエンジンをどうするか。
