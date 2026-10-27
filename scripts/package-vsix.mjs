@@ -228,7 +228,7 @@ for (const target of targets) {
     if (!layouts[target]) { throw new Error(`知らないターゲット: ${target}`); }
     fs.rmSync(kernelRes, { recursive: true, force: true });
     const layout = layouts[target]();
-    const file = path.join(out, `microgit-${pkg.version}-${target}.vsix`);
+    const file = path.join(out, `vereve-${pkg.version}-${target}.vsix`);
     fs.rmSync(file, { force: true });
     // ストアの説明文は、初心者向けの README-marketplace.md（GitHub の README.md は詳しい解説のまま。.vscodeignore で外す）
     const args = [vsceBin, 'package', '--no-dependencies', '--readme-path', 'README-marketplace.md', '-o', file];

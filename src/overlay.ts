@@ -33,6 +33,7 @@ type LayerMeta = {
 };
 
 /** 展開済みビューの完成マーカー（list / sync 対象外） */
+// 互換のため旧名のまま（作業ツリーの中の目印。名前を変えると既存のビューが未完成とみなされる）
 const VIEW_OK_MARKER = '.microgit_view_ok';
 
 /**
@@ -49,7 +50,7 @@ export type OverlayDagNode = {
 
 /**
  * `meta/dag.json` の中身。nodes はコミットのハッシュ → ノード。
- * managedFiles は MicroGit が扱ってきたパスで、ワークスペースから消すべきファイルの判定に使う。
+ * managedFiles は verEve が扱ってきたパスで、ワークスペースから消すべきファイルの判定に使う。
  * current・currentTag は最後に書き出し・更新したコミットとそのタグ。
  */
 export type OverlayDag = {
@@ -105,9 +106,9 @@ type GitRunner = (cwd: string, args: string[]) => string;
 /** GitRunner の版で、失敗したときは例外ではなく undefined を返す想定。 */
 type GitTryRunner = (cwd: string, args: string[]) => string | undefined;
 
-/** 設定 `microgit.useOverlayCheckout` が false でない（未設定を含む）とき true。 */
+/** 設定 `vereve.useOverlayCheckout` が false でない（未設定を含む）とき true。 */
 export function isOverlayCheckoutEnabled(getConfig: (key: string) => boolean | undefined): boolean {
-    return getConfig('microgit.useOverlayCheckout') !== false;
+    return getConfig('vereve.useOverlayCheckout') !== false;
 }
 
 /**
@@ -1068,7 +1069,8 @@ export function syncMergeToWorkspace(
     isSafeRepoRelativePath: (relPath: string, rootPath: string) => boolean,
     isMicroGitArtifactPath: (filePath: string, rootPath: string) => boolean,
     extraManagedFiles?: string[],
-): { written: string[]; deleted: string[]; skipped: number; conflicts: string[] } {
+    skipPaths?: ReadonlySet<string>,
+): { written: string[]; deleted: string[]; skipped: number; conflicts: string[]; skippedDirty: string[] } {
     const dag = readDag(paths);
     const mergeFiles = new Set(listFilesRecursive(paths.merge));
     const managed = new Set(dag.managedFiles);
@@ -1080,11 +1082,18 @@ export function syncMergeToWorkspace(
     const written: string[] = [];
     const deleted: string[] = [];
     const conflicts: string[] = [];
+    const skippedDirty: string[] = [];
     let skipped = 0;
+    // 未保存の編集があるパス（設計方針 §2.1.1 の B）。書きも消しもせず、キャッシュにも入れない
+    // （次に同期するとき、ディスクの中身から比べ直す）。大文字小文字を区別しない OS でも取りこぼさないよう、鍵をそろえる
+    const dirtyKey = (rel: string): string => (process.platform === 'win32' || process.platform === 'darwin' ? rel.toLowerCase() : rel);
+    const dirtyKeys = new Set([...(skipPaths ?? [])].map(dirtyKey));
+    const isDirtyPath = (rel: string): boolean => dirtyKeys.size > 0 && dirtyKeys.has(dirtyKey(rel));
 
     // 1. 消す
     for (const rel of managed) {
         if (mergeFiles.has(rel)) { continue; }
+        if (isDirtyPath(rel)) { skippedDirty.push(rel); continue; }
         if (!isSafeRepoRelativePath(rel, workspaceRoot)) { continue; }
         const to = path.join(workspaceRoot, ...rel.split('/'));
         if (isMicroGitArtifactPath(to, workspaceRoot)) { continue; }
@@ -1096,6 +1105,7 @@ export function syncMergeToWorkspace(
 
     // 2. 書く
     for (const rel of mergeFiles) {
+        if (isDirtyPath(rel)) { skippedDirty.push(rel); continue; }
         if (!isSafeRepoRelativePath(rel, workspaceRoot)) { continue; }
         const from = path.join(paths.merge, ...rel.split('/'));
         const to = path.join(workspaceRoot, ...rel.split('/'));
@@ -1144,7 +1154,7 @@ export function syncMergeToWorkspace(
     dag.managedFiles = Array.from(managed).sort();
     writeDag(paths, dag);
     writeSyncCache(paths, nextCache);
-    return { written, deleted, skipped, conflicts };
+    return { written, deleted, skipped, conflicts, skippedDirty };
 }
 
 /** dag.json の現在のコミットとタグを更新して書く。 */

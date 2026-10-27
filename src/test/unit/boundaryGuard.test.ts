@@ -1,6 +1,6 @@
 /**
  * ワークスペースへの書き込みの安全装置（boundaryGuard.ts）を確かめる単体テスト。VS Code を使わない。
- * ゲスト（カーネル版の中の agent）から届いたパス・一覧・中身を信用せず、ワークスペースの外・.git・MicroGit の作業フォルダには書かないことを確かめる。
+ * ゲスト（カーネル版の中の agent）から届いたパス・一覧・中身を信用せず、ワークスペースの外・.git・verEve の作業フォルダには書かないことを確かめる。
  * 観点：パスの形（相対・空の段・.. ・長さ）、.git への書き込みの拒否（大文字小文字・末尾のドットや空白・8.3 の短い名前）、
  * Windows で表せない名前、view の一覧の検証（種類・重複・大文字小文字と Unicode の正規化の衝突・件数の上限）、
  * 中身の sha256 の照合、リンクでワークスペースの外へ出る書き込みの拒否、
@@ -69,7 +69,7 @@ describe('.git への書き込みを弾く（CVE-2014-9390 と同じ種類の攻
         assert.strictEqual(checkPathPolicy('.github/workflows/ci.yml', linux), undefined);
     });
 
-    test('MicroGit の作業フォルダは弾く（大文字小文字を区別しない FS では大文字でも）', () => {
+    test('verEve の作業フォルダは弾く（大文字小文字を区別しない FS では大文字でも）', () => {
         assert.strictEqual(checkPathPolicy('.microgit/shadow/x', linux)?.reason, 'microgit-artifact');
         assert.strictEqual(checkPathPolicy('.microgit_shadow/x', linux)?.reason, 'microgit-artifact');
         assert.strictEqual(checkPathPolicy('.MICROGIT/x', windows)?.reason, 'microgit-artifact');
@@ -207,6 +207,55 @@ describe('ワークスペースへの反映', () => {
             assert.strictEqual(fs.readFileSync(path.join(ws.root, 'old.txt'), 'utf8'), 'NEW');
             assert.ok(fs.existsSync(path.join(ws.root, 'user-only.txt')));
             assert.ok(!fs.existsSync(path.join(ws.root, 'gone.txt')));
+        } finally {
+            ws.done();
+        }
+    });
+
+    test('skipPaths（未保存の編集があるファイル）は、書きも消しもせず、キャッシュにも入れない（設計方針 §2.1.1 の B）', async () => {
+        const ws = tempWorkspace();
+        try {
+            fs.writeFileSync(path.join(ws.root, 'edited.txt'), 'UNSAVED-ON-DISK');
+            fs.writeFileSync(path.join(ws.root, 'edited-gone.txt'), 'MINE');
+            fs.writeFileSync(path.join(ws.root, 'other.txt'), 'OLD');
+            fs.writeFileSync(path.join(ws.root, 'gone.txt'), 'G');
+            const guest = { 'edited.txt': 'HISTORY', 'other.txt': 'NEW' };
+            const r = await syncWorkspaceFromGuest({
+                workspaceRoot: ws.root,
+                viewLines: [f('edited.txt', 'HISTORY'), f('other.txt', 'NEW')],
+                managedFiles: ['edited.txt', 'edited-gone.txt', 'other.txt', 'gone.txt'],
+                fetchFiles: fetchFrom(guest),
+                traits: linux,
+                skipPaths: new Set(['edited.txt', 'edited-gone.txt']),
+            });
+            // 他のファイルは今までどおり同期する
+            assert.deepStrictEqual(r.written, ['other.txt']);
+            assert.deepStrictEqual(r.deleted, ['gone.txt']);
+            // 除外したものは、書く対象（view にある）も消す対象（view に無い）も触らない
+            assert.deepStrictEqual(r.skippedDirty.sort(), ['edited-gone.txt', 'edited.txt']);
+            assert.strictEqual(fs.readFileSync(path.join(ws.root, 'edited.txt'), 'utf8'), 'UNSAVED-ON-DISK');
+            assert.strictEqual(fs.readFileSync(path.join(ws.root, 'edited-gone.txt'), 'utf8'), 'MINE');
+            assert.ok(!('edited.txt' in r.cache));
+        } finally {
+            ws.done();
+        }
+    });
+
+    test('skipPaths は大文字小文字を区別しない OS では、綴りの違いを同じものとして除外する', async () => {
+        const ws = tempWorkspace();
+        try {
+            fs.writeFileSync(path.join(ws.root, 'Readme.md'), 'MINE');
+            const r = await syncWorkspaceFromGuest({
+                workspaceRoot: ws.root,
+                viewLines: [f('Readme.md', 'HISTORY')],
+                managedFiles: ['Readme.md'],
+                fetchFiles: fetchFrom({ 'Readme.md': 'HISTORY' }),
+                traits: windows,
+                skipPaths: new Set(['readme.md']),
+            });
+            assert.deepStrictEqual(r.written, []);
+            assert.deepStrictEqual(r.skippedDirty, ['Readme.md']);
+            assert.strictEqual(fs.readFileSync(path.join(ws.root, 'Readme.md'), 'utf8'), 'MINE');
         } finally {
             ws.done();
         }

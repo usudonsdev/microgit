@@ -427,6 +427,7 @@ export class FastMicroCommitter {
         const bare = /^(true|yes|on|1)$/i.test(this.config.get('core.bare') ?? 'false');
         const on = all === undefined ? !bare : /^(true|yes|on|1|always)$/i.test(all);
         if (!on) { return undefined; }
+        // 互換のため旧名のまま（extension.ts の commitEnv と同じ値。履歴に残る識別なので改名しない）
         const name = this.config.get('user.name') ?? 'MicroGit';
         const email = this.config.get('user.email') ?? 'microgit@local';
         const d = parseGitDate(undefined, now) as { seconds: number; tz: string };

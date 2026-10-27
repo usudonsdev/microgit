@@ -1,7 +1,7 @@
 /**
  * マイクロ履歴の永続性の水準（#11 の O-11、docs/adr/0002-durability.md）。
  *
- * Git の既定（core.fsync=committed,-loose-object）では、MicroGit が保存のたびに作る
+ * Git の既定（core.fsync=committed,-loose-object）では、verEve が保存のたびに作る
  * ばらのオブジェクト（loose object）も ref も、ディスクへの書き込みを待たない。
  * VS Code や拡張機能が落ちても記録は残るが、OS ごと落ちる・電源が切れると、直前の記録が失われたり、
  * ref が存在しないオブジェクトを指してリポジトリが壊れたりしうる。

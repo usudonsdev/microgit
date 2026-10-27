@@ -1,5 +1,8 @@
 # MicroGit 5 の公開の手順と、同梱する部品の扱い
 
+> 2026-10-26 に製品名を MicroGit から verEve に改めた（[rename-vereve.md](./rename-vereve.md)、[design-policy.md §2.5](./design-policy.md)）。本書は書いた時点の記録なので、名称・コマンド ID・設定キーは**旧称 MicroGit のまま**にしてある（`microgit.*` は今の `vereve.*`）。
+> 6.0.0 以降の VSIX は `vereve-<版>-<target>.vsix`（`scripts/package-vsix.mjs`）、拡張 ID は `usudonsdev.vereve`。**新しい拡張として公開する**ので、公開の手順は新規公開のもの（旧 `usudonsdev.microgit` の更新ではない）。6.0.0 のリリース作業と公開は未実施。以下の手順と記録は 5.x 当時のもの。
+
 | 項目 | 内容 |
 |---|---|
 | 関係する Issue | #19（MicroGit の内部機能として Marketplace に公開する） |
@@ -198,6 +201,11 @@ agent 1.1.0を使うため、この混在を見逃した。公開判定では手
 - DLL（GLib など）は Fedora 44 の MinGW のパッケージのもの。どの DLL がどのパッケージから来たか、その版・ライセンス・ソース RPM は、ビルドのときに `rpm` に聞いて `packages.tsv` に書く（`windows/qemu/build.sh`）。ソース RPM も同じコンテナで取る（あとで取り直すと版がずれる）
 - ソース一式（カーネルと QEMU の tarball、DLL のソース RPM、ビルドの設定と手順、`SHA256SUMS`）は `package.yml` の成果物 `third-party-sources` と、タグのときは GitHub Release の `third-party-sources-<tag>.tar`
 - GPLv2 の第 3 節は、実行形式を配るときに、ソースを一緒に渡すか、書面で申し出るかを求める。ダウンロードの場所で配るなら「同じ場所から」ソースを取れるようにすることでもよい。Marketplace（VSIX の置き場所）と GitHub Release（ソースの置き場所）は別の場所なので、厳密さを求めるなら §4 の 4 で書面による申し出を足す
+- **GitHub Release を削除しない（運用ルール、診断 L-11・2026-10-26）**：Marketplace と Open VSX で配る VSIX には GPL・LGPL の部品（カーネル、QEMU など）の実行形式が入るが、対応するソース（`third-party-sources-<tag>.tar`）を置いているのは GitHub Release だけである。上の GPLv2 第 3 節の「同じ場所から取れる」「実行形式を配る限り」という前提は、この Release が残っていることに依存する。したがって：
+  - 公開済みの版（Marketplace か Open VSX に出した版）の GitHub Release、その `third-party-sources-<tag>.tar` と `SHA256SUMS` は、**消さない・下書きに戻さない・アセットを差し替えない**。誤って公開した版でも、先に Marketplace と Open VSX から取り下げ（unpublish）、ストアに出ていない状態を確かめてから消す（Marketplace の取り下げでも、すでに入れた利用者の手元には VSIX が残る点に注意）
+  - リポジトリの名前変更・移転・可視性の変更（private 化）・アーカイブ・削除も、Release の URL に影響しうるので、行う前にこのルールを確かめる（名前の変更は GitHub が転送するが、新しい同名のリポジトリを作ると転送が切れる）
+  - 古い版の Release を整理したくなったときも、ストアにその版が残っている間は消さない。ストアから取り下げたあとに消してよいか（取り下げた後も、配った VSIX を持つ人にソースを渡す義務がどれだけ続くか）は運営者の判断【要確認】
+  - 将来 Release 以外の場所（別リポジトリ、Releases 以外の保管先）に移す場合は、先に移し先から取れることを確かめ、このファイルと THIRD_PARTY_NOTICES.md の「Source code」の記述を同じ変更で直す
 
 ## 6. Windows のセキュリティ機能と、同梱の QEMU
 

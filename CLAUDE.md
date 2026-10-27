@@ -16,9 +16,10 @@ Cursor と併用する。指示の正本は [AGENTS.md](AGENTS.md)。内容が�
 
 ## プロジェクト要約
 
-- VS Code / Cursor 拡張: 保存ごとのマイクロ履歴（MicroGit）
+- VS Code / Cursor 拡張: 保存ごとのマイクロ履歴（verEve。旧称 MicroGit）
 - 設計方針: [docs/design-policy.md](docs/design-policy.md)
 - 利用者向け: [README.md](README.md)
 - 卒業研究（ビルド検証エンジン・計画段階）: [docs/build-verification-engine.md](docs/build-verification-engine.md)
 - 次期メジャー（カーネル機能ポータブル化・要件確定）: [要件定義書](docs/microgit-kernel-feature-portability-requirements.md) / [初期設計](docs/microgit-kernel-feature-portability-design.md) / [補足](docs/microgit-kernel-feature-portability-supplement.md)。進捗は Issue #8（Epic）、ブランチ `feature/kernel-portability`
 - AI 編集の `[AI]` 印は Cursor フックの観測で付ける。Agent Skill にはしない（`docs/design-policy.md` §2.3）
+- **名称は verEve（versioning everything の略）に改めた**（運営者の決定 2026-10-26。旧称 MicroGit）。**6.0.0 として実装済み・未公開**（リリース作業・Marketplace/Open VSX への公開・旧拡張の非推奨化・GitHub リポジトリ名の変更は未実施）。拡張 ID `usudonsdev.vereve`、コマンド・設定は `vereve.*`。**履歴の `refs/microgit/*`、保存場所 `.microgit/`、同梱バイナリ名（`microgit-agent`・`microgit-vm`）は互換のため旧名のまま**（これらを改名しない。理由と却下案は `docs/design-policy.md` §2.5）。調査・進捗・未決・実機確認の項目は [docs/rename-vereve.md](docs/rename-vereve.md)

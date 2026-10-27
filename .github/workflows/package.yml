@@ -1,6 +1,6 @@
 name: Package VSIX (platform-specific)
 
-# MicroGit のプラットフォーム別 VSIX を作り（#19）、VS Code 自身のインストーラーで一時的な場所に入れてから、
+# verEve のプラットフォーム別 VSIX を作り（#19）、VS Code 自身のインストーラーで一時的な場所に入れてから、
 # 拡張機能テストを流す（Marketplace から入れたときと同じ形で動くか）。
 # Marketplace への公開（vsce publish）はしない。v* のタグを push したときだけ、VSIX と GPL・LGPL の部品の
 # ソースを付けた GitHub Release の「下書き」を作る（公開するかは人が確かめてから決める。docs/release.md）。
@@ -186,13 +186,13 @@ jobs:
           tag="${GITHUB_REF_NAME}"
           tar -C sources -cf "third-party-sources-$tag.tar" .
           cat > notes.md <<EOF
-          MicroGit $tag のプラットフォーム別 VSIX（下書き。Marketplace への公開は別の手順、docs/release.md）。
+          verEve $tag のプラットフォーム別 VSIX（下書き。Marketplace への公開は別の手順、docs/release.md）。
 
-          - microgit-*-win32-x64.vsix / linux-x64 / linux-arm64：カーネル版の部品入り
-          - microgit-*-darwin-arm64.vsix：Apple silicon Mac（Virtualization.framework）
-          - microgit-*-universal.vsix：Intel Mac など、それ以外の環境（Node.js 版だけ）
+          - vereve-*-win32-x64.vsix / linux-x64 / linux-arm64：カーネル版の部品入り
+          - vereve-*-darwin-arm64.vsix：Apple silicon Mac（Virtualization.framework）
+          - vereve-*-universal.vsix：Intel Mac など、それ以外の環境（Node.js 版だけ）
           - third-party-sources-$tag.tar：同梱した GPL・LGPL の部品（Linux カーネル、QEMU、DLL）のソースと、ビルドの設定・手順（THIRD_PARTY_NOTICES.md）
           - vsix.json：各 VSIX の大きさと sha256
           EOF
-          gh release create "$tag" -R "$GITHUB_REPOSITORY" --draft --title "MicroGit $tag" --notes-file notes.md \
+          gh release create "$tag" -R "$GITHUB_REPOSITORY" --draft --title "verEve $tag" --notes-file notes.md \
             dist/*.vsix dist/vsix.json "third-party-sources-$tag.tar"

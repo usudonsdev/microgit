@@ -63,11 +63,11 @@ OS mount は使わない。Node.js だけで OverlayFS 意味論を実装し、
 
 | キー | 既定 | 意味 |
 |------|------|------|
-| `microgit.useOverlayCheckout` | `true` | Overlay checkout を有効化 |
+| `vereve.useOverlayCheckout` | `true` | Overlay checkout を有効化 |
 
 ## コマンド
 
-- `MicroGit: Overlay Status` — `backend=nodejs space-for-time=views`
+- `verEve: Overlay Status` — `backend=nodejs space-for-time=views`
 
 ## 検証
 

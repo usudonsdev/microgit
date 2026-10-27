@@ -35,6 +35,7 @@ export type JournalEntry = {
 
 /** ジャーナルのファイルを置くフォルダ（<Git のディレクトリ>/microgit-journal） */
 export function journalDir(gitDir: string): string {
+    // 互換のため旧名のまま：残っているジャーナルの回復が、名前を変えると既存のファイルを見失う
     return path.join(gitDir, 'microgit-journal');
 }
 

@@ -1,5 +1,7 @@
 # OverlayFS で何を速くできるか：記録の正本にする案と、ビルドキャッシュに使う案
 
+> 2026-10-26 に製品名を MicroGit から verEve に改めた（[rename-vereve.md](./rename-vereve.md)、[design-policy.md §2.5](./design-policy.md)）。本書は書いた時点の記録なので、名称・コマンド ID・設定キーは**旧称 MicroGit のまま**にしてある（`microgit.*` は今の `vereve.*`）。
+
 | 項目 | 内容 |
 |---|---|
 | 目的 | 研究の目的「保存ごとの記録を速くし、そこに OverlayFS を役立てる」に対して、OverlayFS をどこに使えば効くかを、計測の内訳から検討する |

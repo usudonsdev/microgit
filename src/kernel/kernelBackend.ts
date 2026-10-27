@@ -43,6 +43,8 @@ export type CheckoutResult = {
     deleted: string[];
     unchanged: number;
     rejected: Rejection[];
+    /** 未保存の編集があるため、書きも消しもしなかったパス（skipPaths に当たったもの） */
+    skippedDirty: string[];
     ensure: EnsureResult;
     timings: { ensureMs: number; viewMs: number; syncMs: number; totalMs: number };
 };
@@ -170,7 +172,7 @@ export class KernelOverlayBackend {
 
     /**
      * target の時点にワークスペースを合わせる。
-     * managedFiles は MicroGit が記録したことのあるパス（ここにあって target に無いファイルだけ消す）。
+     * managedFiles は verEve が記録したことのあるパス（ここにあって target に無いファイルだけ消す）。
      * cacheFile はワークスペースのファイルの sha256 のキャッシュの置き場所（無ければ作る）。
      */
     async checkout(opts: {
@@ -179,6 +181,8 @@ export class KernelOverlayBackend {
         target: string;
         managedFiles: Iterable<string>;
         cacheFile?: string;
+        /** 書きも消しもしないパス（エディタに未保存の編集があるファイル。設計方針 §2.1.1 の B） */
+        skipPaths?: ReadonlySet<string>;
     }): Promise<CheckoutResult> {
         const t0 = Date.now();
         const ensure = await this.feeder.ensure(opts.shadowRepo, opts.target);
@@ -200,6 +204,7 @@ export class KernelOverlayBackend {
             fetchFiles: (paths) => this.readFiles(opts.target, paths),
             traits: this.options.traits,
             cache,
+            skipPaths: opts.skipPaths,
         });
         if (opts.cacheFile) {
             fs.mkdirSync(path.dirname(opts.cacheFile), { recursive: true });
@@ -211,6 +216,7 @@ export class KernelOverlayBackend {
             deleted: synced.deleted,
             unchanged: synced.unchanged,
             rejected: synced.rejected,
+            skippedDirty: synced.skippedDirty,
             ensure,
             timings: { ensureMs: t1 - t0, viewMs: t2 - t1, syncMs: t3 - t2, totalMs: t3 - t0 },
         };

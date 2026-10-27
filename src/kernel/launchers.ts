@@ -11,6 +11,10 @@
  * （backendSelector.ts）。Ubuntu 23.10 以降のように非特権のユーザー名前空間が止められている環境
  * （補足 S-3）は、起動してから unshare が失敗して分かる。
  *
+ * 互換のため旧名のまま：同梱の実行ファイル・ゲストイメージのファイル名（microgit-agent、microgit-vm）、環境変数 MICROGIT_AGENT_STATE_DIR、
+ * virtio-serial のポート名 `microgit`、一時ファイル・パイプの名前は、改名しない。ゲストの agent（Go）・microgit-vm（Swift）・
+ * ビルドスクリプトと CI が同じ名前を参照していて、Mac での実機ビルドと検証が要るため（docs/design-policy.md の改名の節）。
+ *
  * VS Code に依存しない（単体テストで確かめるため）。ファイルの有無やコマンドの場所は deps で受け取る。
  */
 import { randomBytes } from 'crypto';
@@ -209,8 +213,8 @@ function planWindows(deps: LauncherDeps): LaunchPlan {
     }
     const consoleLog = path.join(deps.logDir, 'microgit-guest-console.log');
     // 命令の通り道は名前付きパイプ。Windows 版 QEMU の stdio は遅く、大きなデータで中身が壊れた（agentConnection.ts）。
-    // 名前は毎回 128 ビットの乱数。QEMU のパイプは接続を 1 つしか受け付けないので、MicroGit がつないだあとは
-    // ほかのプロセスはつなげない。先を越されたら MicroGit はつなげずに Node 版に切り替わる（docs/kernel-backend.md §4）
+    // 名前は毎回 128 ビットの乱数。QEMU のパイプは接続を 1 つしか受け付けないので、verEve がつないだあとは
+    // ほかのプロセスはつなげない。先を越されたら verEve はつなげずに Node 版に切り替わる（docs/kernel-backend.md §4）
     const pipeName = `microgit-${(deps.randomId ?? (() => randomBytes(16).toString('hex')))()}`;
     return {
         ok: true,

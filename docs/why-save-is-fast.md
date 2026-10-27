@@ -1,5 +1,7 @@
 # 保存が速くなった理由：MicroGit と Git のソースコードの対比
 
+> 2026-10-26 に製品名を MicroGit から verEve に改めた（[rename-vereve.md](./rename-vereve.md)、[design-policy.md §2.5](./design-policy.md)）。本書は書いた時点の記録なので、名称・コマンド ID・設定キーは**旧称 MicroGit のまま**にしてある（`microgit.*` は今の `vereve.*`）。
+
 | 項目 | 内容 |
 |---|---|
 | 読む人 | MicroGit の保存の仕組みを理解したい人。記事・論文の下書きの材料 |

@@ -40,7 +40,7 @@ Windows（ホスト）
 
 - `-accel` を複数並べると、QEMU は前から順に試す。WHPX が使える PC では WHPX が選ばれた（コミット 0.1 ms で判別）
 - **先頭が使えないときの切り替え**：WHPX を無効にした PC は用意できず、GitHub の Windows のランナーでも WHPX が使えた（WHPX だけで起動 1,024 ms）。そこで、Windows に存在しない KVM を先頭に置いた `-accel kvm -accel tcg` で、「前から順に試す」仕組みそのものを確かめた。QEMU は `-accel kvm: invalid accelerator kvm` のあと `falling back to tcg` と出して TCG で起動した（`scripts/test/qemu-accel-fallback.mjs`。手元は配布版の QEMU、CI は同梱用のビルドで、CI では 1,878 ms で起動した）。ただしこれは「知らないアクセラレータ」の分岐で、「WHPX の初期化に失敗する」分岐は同じ繰り返しの別の枝で、直接は試していない
-- QEMU が stderr に出したこと（`falling back to tcg` など）は、`MicroGit: Overlay Status` の `launcher stderr` に出る
+- QEMU が stderr に出したこと（`falling back to tcg` など）は、`verEve: Overlay Status` の `launcher stderr` に出る
 - 命令の通り道は名前付きパイプ（[ADR-0006](./adr/0006-windows-named-pipe.md)）。stdio は遅く、大きなデータで中身が壊れた
 - `kernel-irqchip=off` は QEMU の WHPX でよく必要になる設定として付けている。外した場合は試していない
 - 試すときは `windows/run-golden.ps1`（`-Accel auto|whpx|tcg`）

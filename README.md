@@ -1,4 +1,6 @@
-# MicroGit
+# verEve
+
+**verEve = versioning everything**（すべてをバージョン管理する）の略です。表記は `verEve`、拡張 ID は小文字の `usudonsdev.vereve` です。**旧称 MicroGit**（〜5.2.0。拡張 ID `usudonsdev.microgit`）から 6.0.0 で改名しました。
 
 保存と同時に裏で自動コミットを行う、タイムトラベル・超高頻度履歴管理ツールです。
 
@@ -7,7 +9,7 @@
 現時点では次のみをサポートします。
 
 - **個人開発**: ローカルで保存のたびにマイクロ履歴を記録し、タイムトラベルする
-- **メインの push / pull を通じた他デバイス共有**: 作業ツリーにネスト `.git` は置かず、親リポジトリの `refs/microgit/<branch>/*` に履歴を載せる。双方が MicroGit を入れている前提で、`MicroGit: Publish/Fetch Micro History` が companion 同期を行う（通常の専用リモート常時同期ではない）
+- **メインの push / pull を通じた他デバイス共有**: 作業ツリーにネスト `.git` は置かず、親リポジトリの `refs/microgit/<branch>/*` に履歴を載せる。双方が verEve を入れている前提で、`verEve: Publish/Fetch Micro History` が companion 同期を行う（通常の専用リモート常時同期ではない）
 
 チーム向けのライブ同期や PR 自動レビュー連携は **将来的な実装予定** です。
 
@@ -25,13 +27,23 @@
 
 ## 使い方
 
-1. **コントロールパネル**: 左の Activity Bar の MicroGit アイコン（時計）を開くか、コマンドパレットで `MicroGit: Open Control Panel` を実行します。オンオフ、ジャンプ、グラフ表示を GUI から操作できます。
-2. **有効化**: パネルまたはステータスバーの `MicroGit: OFF` から有効化します。
+1. **コントロールパネル**: 左の Activity Bar の verEve アイコン（時計）を開くか、コマンドパレットで `verEve: Open Control Panel` を実行します。オンオフ、ジャンプ、グラフ表示を GUI から操作できます。
+2. **有効化**: パネルまたはステータスバーの `verEve: OFF` から有効化します。
 3. **履歴の自動記録**: 名前付きブランチ上でファイルを保存（`Ctrl + S` / `Cmd + S`）すると履歴が蓄積され、パネルとグラフがリアルタイム更新されます。
 4. **区間で確認**: 「メインコミット区間」ドロップダウンで、メインのコミット間に積まれたマイクロ履歴だけを絞り込めます。
-5. **他デバイスと共有**: 保存のたびに親の `refs/microgit/<現在ブランチ>/` へ publish されます。送る側で `MicroGit: Publish Micro History`（origin へ `refs/microgit/*` も push）、受け側で通常の `git pull` のあと `MicroGit: Fetch Micro History`。
-6. **グラフの表示**: パネルの「グラフを開く」、または `MicroGit: Show Graph` を実行します。開いたまま保存やジャンプ・区間フィルタに追従します。
+5. **他デバイスと共有**: 保存のたびに親の `refs/microgit/<現在ブランチ>/` へ publish されます。送る側で `verEve: Publish Micro History`（origin へ `refs/microgit/*` も push）、受け側で通常の `git pull` のあと `verEve: Fetch Micro History`。
+6. **グラフの表示**: パネルの「グラフを開く」、または `verEve: Show Graph` を実行します。開いたまま保存やジャンプ・区間フィルタに追従します。
 7. **ブランチ切替**: メインブランチを切り替えると、そのブランチ専属のマイクロ空間へ載せ替わります。
+
+## MicroGit（旧称）からの移行
+
+6.0.0 で名前を MicroGit から verEve に変えました。拡張 ID は変えられないため、**verEve は新しい拡張として配られます**（旧 MicroGit の更新ではありません）。履歴は引き継がれます（保存場所 `.microgit/` と、共有用の `refs/microgit/*` は、互換のため名前を変えていません）。
+
+1. **旧 MicroGit をアンインストール**（または無効化）します。
+2. **verEve をインストール**します。旧 MicroGit が有効なままだと、verEve は記録を始めず、「旧 MicroGit が有効です。旧拡張を無効化またはアンインストールしてから再読み込みしてください」と警告します（両方が同じ履歴へ書いて競合するのを防ぐため）。旧拡張を止めたら、ウィンドウを再読み込みしてください。
+3. **設定は自動で引き継がれます。** 初めて起動したとき、旧 `microgit.*` の設定（グローバル・ワークスペース）が残っていて、同じ範囲の `vereve.*` が未設定なら、新しい設定へコピーして一度だけ知らせます。旧い設定は消しません。フォルダごとの設定（マルチルートのフォルダ設定）は引き継がないので、必要なら手で直してください。
+4. **有効 / 無効（ステータスバーの ON / OFF）は引き継がれません**（拡張機能ごとの保存領域が別になるため）。フォルダごとに、`verEve: OFF` をクリックして有効にし直してください。
+5. **`keybindings.json` に旧コマンド ID（`microgit.toggle` など）があれば、手で `vereve.toggle` などに直してください**（コマンドは `microgit.*` → `vereve.*`。一覧は `package.json` の `contributes.commands`）。自動では直りません。
 
 ## カーネル版の Overlay（5.0.0〜）
 
@@ -46,9 +58,9 @@
 
 Ubuntu 23.10 以降の既定や、一部のコンテナの中など、非特権のユーザー名前空間が止められた Linux では Node.js 版になります。
 
-- どちらで動いているか：コマンド `MicroGit: Overlay Status` の先頭（`active=kernel` / `active=nodejs`）
-- 設定：`microgit.overlayBackend`（`auto` が既定、`kernel`、`nodejs`）。カーネル版を使いたくない場合は `nodejs` にしてください
-- 設定：`microgit.showSaveStatus`（`false` が既定）。保存のたびに、ステータスバーへ「[MicroGit] 記録 …」（同じ中身に戻したときは「[MicroGit] 同一変更のため HEAD のみ復帰 …」）を 3 秒出したいときは `true` にしてください
+- どちらで動いているか：コマンド `verEve: Overlay Status` の先頭（`active=kernel` / `active=nodejs`）
+- 設定：`vereve.overlayBackend`（`auto` が既定、`kernel`、`nodejs`）。カーネル版を使いたくない場合は `nodejs` にしてください
+- 設定：`vereve.showSaveStatus`（`false` が既定）。保存のたびに、ステータスバーへ「[verEve] 記録 …」（同じ中身に戻したときは「[verEve] 同一変更のため HEAD のみ復帰 …」）を 3 秒出したいときは `true` にしてください
 - 同梱している第三者のソフトウェアとライセンスは [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) を見てください
 
 ## 免責事項

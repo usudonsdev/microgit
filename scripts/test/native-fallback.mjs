@@ -28,7 +28,7 @@ const { BackendSelector } = require(path.join(ROOT, 'out', 'kernel', 'backendSel
 const arg = (name) => (process.argv.includes(name) ? process.argv[process.argv.indexOf(name) + 1] : undefined);
 const expect = arg('--expect');
 const reasonPattern = arg('--reason');
-// Windows の QEMU の動かし方（設定 microgit.kernel.accel と同じ）。whpx だけ・tcg だけを試して、どちらが使えるかを確かめる
+// Windows の QEMU の動かし方（設定 vereve.kernel.accel と同じ）。whpx だけ・tcg だけを試して、どちらが使えるかを確かめる
 const accel = arg('--accel');
 /** パスが存在するか（planLaunch に渡す）。 */
 const exists = (p) => fs.existsSync(p);

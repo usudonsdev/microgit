@@ -1,8 +1,34 @@
 # Change Log
 
-All notable changes to the "MicroGit" extension will be documented in this file.
+All notable changes to the "verEve" extension (formerly "MicroGit") will be documented in this file.
 
-## [Unreleased]
+> 5.2.0 以前の記述は、書いた時点の名称（MicroGit）・コマンド ID・設定キーのまま残している。
+
+## [6.0.0] - 未公開（2026-10-26 に実装。リリース作業と公開はまだ）
+
+**名前を MicroGit から verEve（versioning everything の略）に改めた。** 拡張 ID は変更できないため新しい拡張（`usudonsdev.vereve`）として出し直す。破壊的変更を含むのでメジャー版。経緯・影響範囲・据え置いたもの・未決は [docs/rename-vereve.md](docs/rename-vereve.md)、判断の理由は [docs/design-policy.md](docs/design-policy.md) §2.5。
+
+### Changed（破壊的）
+- **拡張 ID** `usudonsdev.microgit` → `usudonsdev.vereve`、表示名 MicroGit → verEve。ビューコンテナ `vereve`、ビュー `vereve.sidebar`、アイコン `media/vereve.svg`
+- **コマンド ID** `microgit.*` → `vereve.*`（10 個すべて。`vereve.publishMicroHistory` などの機能名は変えない）。`keybindings.json` に旧 ID があれば手で直す
+- **設定キー** `microgit.*` → `vereve.*`（8 個。`vereve.kernel.qemuPath` など）。旧キーからは次の「Added」の引き継ぎで移る
+- 画面の文言・通知・出力チャンネル（verEve Output）・ステータスバー（`verEve: ON / OFF`）の名称を verEve に
+- 有効 / 無効の状態（workspaceState）は、拡張機能ごとの保存領域が別になるため引き継がれない。フォルダごとにもう一度オンにする
+
+### Changed
+- **巻き戻し・ジャンプで、未保存の編集があるファイルを書き換えない**（診断 S-15 の続き。設計方針 §2.1.1 の B）。以前は、ディスクを書き換えたうえでエディタを読み直さないだけだったため、保存すると巻き戻しの結果が消えた。除外したファイルは通知と verEve Output で知らせる。保存すると、その内容が新しい記録になる
+
+### Added
+- **旧設定の引き継ぎ**：初回の起動で、旧 `microgit.*` の設定（グローバル・ワークスペース）を、同じ範囲の未設定の `vereve.*` へコピーし、一度だけ知らせる。旧キーは消さず、新キーの既存の値は上書きしない
+- **旧 MicroGit との共存対策**：旧 `usudonsdev.microgit` が有効だと、同じ shadow リポジトリへ二重に記録して競合するため、verEve は記録を始めず「旧 MicroGit が有効です。旧拡張を無効化またはアンインストールしてから再読み込みしてください」と警告する
+- `package.json` の contributes と、コード中のコマンド・設定・ビューの文字列が一致することを確かめる単体テスト
+
+### Security（5.2.0 のあとに入れて未公開だった分）
+- Webview（サイドバーとグラフ）に Content-Security-Policy（nonce 方式）を付けた。
+- 「Publish Micro History」は、origin へ送る前に確認ダイアログ（origin の URL と、全ブランチの `refs/microgit/*` を送ること）を出すようにした。
+
+### 変えていないもの（互換のため旧名のまま）
+- 履歴の ref の名前空間 `refs/microgit/*`（とその一時 ref `refs/microgit-remote/*`）、保存場所 `.microgit/`・`.git/microgit/repos/`・`microgit-journal`、同梱の部品のファイル名（`microgit-agent`、`microgit-vm`、ゲストイメージ）、コミットの作者名。既存の履歴を読めなくしないため、また Mac で実機のビルドと検証ができないため
 
 ## [5.2.0] - 2026-10-14
 

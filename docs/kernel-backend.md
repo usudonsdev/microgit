@@ -1,4 +1,4 @@
-# カーネル版の Overlay バックエンド（MicroGit への組み込み）
+# カーネル版の Overlay バックエンド（verEve への組み込み）
 
 | 項目 | 内容 |
 |---|---|
@@ -9,16 +9,16 @@
 
 ## 1. 何が変わるか（利用者から見て）
 
-MicroGit の「過去に戻る」（タイムトラベル、ブランチの切り替え）が、カーネルの OverlayFS で組み立てた過去の姿から反映されるようになる。使えない環境では、これまでどおり Node.js 版で動く。
+verEve の「過去に戻る」（タイムトラベル、ブランチの切り替え）が、カーネルの OverlayFS で組み立てた過去の姿から反映されるようになる。使えない環境では、これまでどおり Node.js 版で動く。
 
 | 設定 | 既定 | 意味 |
 |---|---|---|
-| `microgit.overlayBackend` | `auto` | `auto`：カーネル版を試し、だめなら Node.js 版（黙って切り替える）。`kernel`：カーネル版を使い、だめなら理由を知らせて Node.js 版。`nodejs`：Node.js 版だけ |
-| `microgit.kernel.qemuPath` | （空） | Windows の QEMU の場所。空なら同梱のもの |
-| `microgit.kernel.accel` | `auto` | Windows の QEMU の動かし方（`whpx` → `tcg`） |
-| `microgit.kernel.memoryMb` | `256` | 最小ゲストのメモリ |
+| `vereve.overlayBackend` | `auto` | `auto`：カーネル版を試し、だめなら Node.js 版（黙って切り替える）。`kernel`：カーネル版を使い、だめなら理由を知らせて Node.js 版。`nodejs`：Node.js 版だけ |
+| `vereve.kernel.qemuPath` | （空） | Windows の QEMU の場所。空なら同梱のもの |
+| `vereve.kernel.accel` | `auto` | Windows の QEMU の動かし方（`whpx` → `tcg`） |
+| `vereve.kernel.memoryMb` | `256` | 最小ゲストのメモリ |
 
-`MicroGit: Overlay Status` で、どちらのバックエンドで動いているか、起動にかかった時間、層の数、最後に戻ったときの時間の内訳が見られる。
+`verEve: Overlay Status` で、どちらのバックエンドで動いているか、起動にかかった時間、層の数、最後に戻ったときの時間の内訳が見られる。
 
 ## 2. 流れ
 
@@ -60,7 +60,7 @@ Windows 版 QEMU の stdio の chardev は、ホスト → ゲストが遅く、
 
 （2026-09-26、Windows 11、QEMU 11.1、WHPX）
 
-そこで Windows では `-chardev pipe,id=proto,path=microgit-<128 ビットの乱数>` にし、MicroGit は `\\.\pipe\microgit-<乱数>` につなぐ。Linux の QEMU（CI）と mac の microgit-vm と Linux の VM なしは stdin/stdout のまま。
+そこで Windows では `-chardev pipe,id=proto,path=microgit-<128 ビットの乱数>` にし、verEve は `\\.\pipe\microgit-<乱数>` につなぐ。Linux の QEMU（CI）と mac の microgit-vm と Linux の VM なしは stdin/stdout のまま。
 
 ## 5. 層の供給（layerFeeder.ts、ADR-0003 の実装）
 
@@ -81,7 +81,7 @@ Windows 版 QEMU の stdio の chardev は、ホスト → ゲストが遅く、
 
 agent の `view` と `readMany`（`TOO_LARGE` なら半分に分けて頼み直す）の結果を、必ず Boundary Guard（`syncWorkspaceFromGuest`）に通す。ゲストが直接ワークスペースに書く経路は無い（FR-3）。
 
-- 消してよいのは、MicroGit が記録したことのあるパス（Node.js 版の `dag.json` の `managedFiles` と、shadow の履歴に出てきたパスの和）
+- 消してよいのは、verEve が記録したことのあるパス（Node.js 版の `dag.json` の `managedFiles` と、shadow の履歴に出てきたパスの和）
 - ワークスペースのファイルの sha256 は、大きさと更新時刻が同じなら計算し直さない（`.microgit/overlay/meta/kernel-sync-cache.json`）
 - 反映しなかったものは出力に理由を出し、件数を通知する
 
@@ -102,7 +102,7 @@ NFR-2 の Phase 0 の受け入れ基準（Linux ネイティブが Node.js 版�
 | `src/test/unit/backendSelector.test.ts` | 設定ごとの選び方、起動 1 回、使えないときの切り替え（すぐ終わる agent・mount できない agent・版違い）、落ちたときの起動し直し。偽の agent を使う | 単体テスト（同上） |
 | `scripts/test/kernel-backend-e2e.mjs` | 15 シナリオ・126 回の過去に戻る操作で、カーネル版と Node.js 版のワークスペースがどちらも Git のツリーと一致するか。3 MiB、700ファイル、深さの上限 2、キャッシュ再構築も試す | WSL2（VM なし）、Windows（QEMU）、macOS（Virtualization.framework）、CI（QEMU arm64 / x86_64） |
 | `scripts/test/native-fallback.mjs` | その環境でカーネル版が起動できるか。GitHub の Ubuntu 24.04 では `uid_map` の理由で Node.js 版に切り替わること（補足 S-3） | WSL2・Windows（kernel）、CI（fallback） |
-| `src/test/suite/overlayBackend.test.ts` | 実際の VS Code の中で、MicroGit を有効にして保存し、過去に戻るコマンドでワークスペースが戻るか（日本語の名前、あとから作ったファイルの削除）。使ったバックエンドを Overlay Status で確かめる | Windows（kernel と nodejs の両方）、CI（nodejs） |
+| `src/test/suite/overlayBackend.test.ts` | 実際の VS Code の中で、verEve を有効にして保存し、過去に戻るコマンドでワークスペースが戻るか（日本語の名前、あとから作ったファイルの削除）。使ったバックエンドを Overlay Status で確かめる | Windows（kernel と nodejs の両方）、CI（nodejs） |
 
 差分テストは、Node.js 版の既存の不具合（N-7：ファイル ⇔ ディレクトリの置き換えで過去に戻ると例外）と、Boundary Guard の弱点（中のファイルが消える予定のディレクトリをファイルに置き換えられない）を見つけた。どちらも #14 で直した。
 
@@ -112,7 +112,7 @@ NFR-2 の Phase 0 の受け入れ基準（Linux ネイティブが Node.js 版�
 |---|---|
 | macOSのvirtio-consoleは約64 KiBを超えるJSON 1行で停止する | Macだけ24 KiBずつ`stage` / `readChunk`。詳細はagent-protocol.md §4.1.1 |
 | 1 回の commit の中身は 90 MiB まで（超えると Node.js 版） | 記録するのは保存したファイルだけなので、普通は届かない |
-| 層はゲストのメモリに置く（既定 256 MB、tmpfs は半分） | 大きいリポジトリでは `microgit.kernel.memoryMb` を増やす。溢れたら `ENOSPC` で捨てて作り直し、それでもだめなら Node.js 版 |
+| 層はゲストのメモリに置く（既定 256 MB、tmpfs は半分） | 大きいリポジトリでは `vereve.kernel.memoryMb` を増やす。溢れたら `ENOSPC` で捨てて作り直し、それでもだめなら Node.js 版 |
 | Dev Containers・Codespaces では試していない | 非特権のユーザー名前空間が使えなければ、probe で失敗して Node.js 版になる（S-3 と同じ仕組み） |
 | カーネル版からあとで Node.js 版に切り替わると、Node.js 版の層を最初から作るので、最初の 1 回は遅い | `ensureLayerExists` が必要な分だけ作る |
 | Windows on Arm、Intel Mac | 対象外（Node.js 版） |

@@ -1,11 +1,11 @@
 /**
- * 拡張機能テスト（VS Code の中で流す）。MicroGit を有効にして、VS Code の編集機能で保存し、過去に戻るコマンドで
+ * 拡張機能テスト（VS Code の中で流す）。verEve を有効にして、VS Code の編集機能で保存し、過去に戻るコマンドで
  * ワークスペースが戻るかを確かめる（#14）。
  * 観点：保存した 2 つの時点を行き来でき、あとから作ったファイルは消え、日本語の名前も戻る。3 MiB のファイルも戻る。
  * 保存の時間の計測（環境変数で走る。既定は飛ばす）。Overlay Status に、使ったバックエンドと速い記録の前提が出る。
  * 実行は npm test（node ./out/test/runTest.js）。node scripts/run-unit-tests.mjs では流れない。
  * 環境変数（どれも任意。付けないときは既定の動き）:
- *   MICROGIT_TEST_BACKEND_SETTING=auto / kernel / nodejs   設定 microgit.overlayBackend をその値にしてから試す
+ *   MICROGIT_TEST_BACKEND_SETTING=auto / kernel / nodejs   設定 vereve.overlayBackend をその値にしてから試す
  *   MICROGIT_TEST_EXPECT_BACKEND=kernel / nodejs           使ったバックエンドが、その値であることも確かめる（kernel のときは checkout の記録も見る）
  *   MICROGIT_TEST_SAVE_BENCH=<回数>                        保存の時間の計測を、その回数だけ行う（0 か未設定なら飛ばす）
  *   MICROGIT_TEST_SAVE_BENCH_OUT=<パス>                    計測の 1 回ごとの記録を、そのパスに JSON で書く
@@ -18,16 +18,16 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 
 /**
- * MicroGit を有効にして、VS Code の編集機能で保存し、過去に戻るコマンドでワークスペースが戻るかを確かめる（#14）。
+ * verEve を有効にして、VS Code の編集機能で保存し、過去に戻るコマンドでワークスペースが戻るかを確かめる（#14）。
  *
  * どのバックエンド（カーネル版か Node.js 版か）を使うかは環境しだい:
  *   - Windows で guest/.cache/qemu-win と guest/out/x86_64/Image があればカーネル版（QEMU）
  *   - Linux で guest/out/<arch>/init があり、非特権のユーザー名前空間が使えればカーネル版（VM なし）
  *   - どれも無い（CI の test ジョブなど）なら Node.js 版
  * 環境変数 MICROGIT_TEST_EXPECT_BACKEND（kernel / nodejs）を付けると、使ったバックエンドも確かめる。
- * 環境変数 MICROGIT_TEST_BACKEND_SETTING（auto / kernel / nodejs）を付けると、設定 microgit.overlayBackend をその値にしてから試す。
+ * 環境変数 MICROGIT_TEST_BACKEND_SETTING（auto / kernel / nodejs）を付けると、設定 vereve.overlayBackend をその値にしてから試す。
  */
-suite('MicroGit Overlay backend (save → jump)', function () {
+suite('verEve Overlay backend (save → jump)', function () {
     this.timeout(300_000);
 
     let root: string;
@@ -43,16 +43,16 @@ suite('MicroGit Overlay backend (save → jump)', function () {
         }
     };
 
-    /** microgit.internal.lastSave の戻り値。processed は処理を終えた保存の数、head は最後に作ったコミット。 */
+    /** vereve.internal.lastSave の戻り値。processed は処理を終えた保存の数、head は最後に作ったコミット。 */
     type LastSave = { processed: number; head?: string };
-    /** テスト専用の内部コマンド microgit.internal.lastSave で、最後の保存の状態を拡張機能から受け取る。 */
-    const lastSave = async () => (await vscode.commands.executeCommand<LastSave>('microgit.internal.lastSave'))!;
+    /** テスト専用の内部コマンド vereve.internal.lastSave で、最後の保存の状態を拡張機能から受け取る。 */
+    const lastSave = async () => (await vscode.commands.executeCommand<LastSave>('vereve.internal.lastSave'))!;
 
     /**
      * 保存ジョブ（キュー）が shadow にコミットを作るまで待つ。
      * 保存の処理の最中は Git を起動しない（#61）。テストは拡張機能と同じプロセスで動くので、ここで Git を起動すると
      * その間（execFileSync なら Windows で 30〜40 ms、非同期の execFile でも Linux の fork の数 ms）ループが止まり、
-     * MicroGit は agent の応答を読めず、層づくりの「通信」が長く測られていた。保存の数と最後のコミットは拡張機能から受け取る
+     * verEve は agent の応答を読めず、層づくりの「通信」が長く測られていた。保存の数と最後のコミットは拡張機能から受け取る
      */
     async function waitForNewHead(before: LastSave, timeoutMs = 60_000): Promise<string> {
         const deadline = Date.now() + timeoutMs;
@@ -100,12 +100,12 @@ suite('MicroGit Overlay backend (save → jump)', function () {
         assert.ok(folders, 'ワークスペースが開かれていません。');
         root = folders[0].uri.fsPath;
         shadow = path.join(root, '.microgit', 'shadow');
-        assert.ok(!fs.existsSync(shadow), 'MicroGit を有効にする前から .microgit/shadow がある（ほかのテストが作った？）');
+        assert.ok(!fs.existsSync(shadow), 'verEve を有効にする前から .microgit/shadow がある（ほかのテストが作った？）');
         const setting = process.env.MICROGIT_TEST_BACKEND_SETTING;
         if (setting) {
-            await vscode.workspace.getConfiguration().update('microgit.overlayBackend', setting, vscode.ConfigurationTarget.Workspace);
+            await vscode.workspace.getConfiguration().update('vereve.overlayBackend', setting, vscode.ConfigurationTarget.Workspace);
         }
-        await vscode.commands.executeCommand('microgit.enable');
+        await vscode.commands.executeCommand('vereve.enable');
     });
 
     test('保存した 2 つの時点を行き来でき、あとから作ったファイルは消え、日本語の名前も戻る', async () => {
@@ -115,7 +115,7 @@ suite('MicroGit Overlay backend (save → jump)', function () {
         assert.notStrictEqual(h1, h2);
         assert.notStrictEqual(h2, h3);
 
-        await vscode.commands.executeCommand('microgit.jumpToCommit', h1);
+        await vscode.commands.executeCommand('vereve.jumpToCommit', h1);
         assertRestored(h1, 'kb/メモ.txt');
         if (process.platform === 'win32') {
             // VS Code は Windows では CRLF で保存する。以前は shadow が LF に変えて記録し、戻すと LF になっていた（ADR-0012）
@@ -124,7 +124,7 @@ suite('MicroGit Overlay backend (save → jump)', function () {
         assert.ok(!fs.existsSync(path.join(root, 'kb', 'later.txt')), 'h1 の時点には無いファイルが残っている');
         assert.strictEqual(shadowHead(), h1);
 
-        await vscode.commands.executeCommand('microgit.jumpToCommit', h3);
+        await vscode.commands.executeCommand('vereve.jumpToCommit', h3);
         assert.strictEqual(fs.readFileSync(path.join(root, 'kb', 'メモ.txt'), 'utf8').replace(/\r\n/g, '\n'), 'v2\n');
         assertRestored(h2, 'kb/メモ.txt');
         assertRestored(h3, 'kb/later.txt');
@@ -138,11 +138,11 @@ suite('MicroGit Overlay backend (save → jump)', function () {
         const largeHead = await editAndSave('kb/large.txt', large);
         const smallHead = await editAndSave('kb/large.txt', 'small\n');
 
-        await vscode.commands.executeCommand('microgit.jumpToCommit', largeHead);
+        await vscode.commands.executeCommand('vereve.jumpToCommit', largeHead);
         assert.strictEqual(fs.readFileSync(path.join(root, 'kb', 'large.txt'), 'utf8'), large);
         assertRestored(largeHead, 'kb/large.txt');
 
-        await vscode.commands.executeCommand('microgit.jumpToCommit', smallHead);
+        await vscode.commands.executeCommand('vereve.jumpToCommit', smallHead);
         assertRestored(smallHead, 'kb/large.txt');
     });
 
@@ -151,15 +151,15 @@ suite('MicroGit Overlay backend (save → jump)', function () {
     const benchSaves = Number(process.env.MICROGIT_TEST_SAVE_BENCH ?? '0');
     (benchSaves > 0 ? test : test.skip)(`保存 ${benchSaves} 回の段階ごとの時間を計る`, async function () {
         this.timeout(0);
-        await vscode.commands.executeCommand('microgit.internal.waitForSaves');
-        await vscode.commands.executeCommand('microgit.internal.saveTimings', true);
+        await vscode.commands.executeCommand('vereve.internal.waitForSaves');
+        await vscode.commands.executeCommand('vereve.internal.saveTimings', true);
         const files = Array.from({ length: 20 }, (_, i) => `bench/dir${i % 4}/file${i}.ts`);
         const heads: Array<{ head: string; rel: string }> = [];
         for (let n = 0; n < benchSaves; n++) {
             const rel = files[n % files.length];
             const head = await editAndSave(rel, `// ${rel}\n${'x'.repeat(200)}\n// save ${n}\n`);
             heads.push({ head, rel });
-            await vscode.commands.executeCommand('microgit.internal.waitForSaves');
+            await vscode.commands.executeCommand('vereve.internal.waitForSaves');
         }
         // 過去に戻る操作の時間（#41）：途中の時点と最後の時点を 5 回ずつ行き来し、戻った中身が保存したときと同じか確かめる
         const travels: number[] = [];
@@ -168,14 +168,14 @@ suite('MicroGit Overlay backend (save → jump)', function () {
         for (let i = 0; i < 10; i++) {
             const to = i % 2 === 0 ? middle : last;
             const t0 = performance.now();
-            await vscode.commands.executeCommand('microgit.jumpToCommit', to.head);
+            await vscode.commands.executeCommand('vereve.jumpToCommit', to.head);
             travels.push(performance.now() - t0);
             assertRestored(to.head, to.rel);
         }
         // 最後の時点に戻して、ほかのテストに影響しないようにする
-        if (shadowHead() !== last.head) { await vscode.commands.executeCommand('microgit.jumpToCommit', last.head); }
+        if (shadowHead() !== last.head) { await vscode.commands.executeCommand('vereve.jumpToCommit', last.head); }
         type T = { stages: Record<string, number>; commitPhases?: Record<string, number>; recordedMs?: number; restorableMs?: number; totalMs: number; result: string; recorder?: string; layer?: string };
-        const all = await vscode.commands.executeCommand<T[]>('microgit.internal.saveTimings');
+        const all = await vscode.commands.executeCommand<T[]>('vereve.internal.saveTimings');
         const out = process.env.MICROGIT_TEST_SAVE_BENCH_OUT;
         if (out) { fs.writeFileSync(out, JSON.stringify({ platform: `${process.platform}-${process.arch}`, saves: all, travels }, null, 2)); }
         // 中央値（p50）と 95 パーセンタイル（p95）。saveTiming.ts の SaveTimingLog.summary と同じ求め方。
@@ -207,7 +207,7 @@ suite('MicroGit Overlay backend (save → jump)', function () {
     });
 
     test('Overlay Status で、使ったバックエンドが分かる', async () => {
-        await vscode.commands.executeCommand('microgit.overlayStatus');
+        await vscode.commands.executeCommand('vereve.overlayStatus');
         const status = vscode.workspace.textDocuments.map((d) => d.getText()).find((t) => t.startsWith('active='));
         assert.ok(status, 'Overlay Status の文書が開かれていない');
         const active = /^active=(\w+)/.exec(status)![1];

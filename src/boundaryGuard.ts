@@ -10,7 +10,7 @@
  * 検証すること:
  *   1. パスの形          相対、`/` 区切り、空・`.`・`..` の段なし、NUL・`\`・制御文字なし、長さの上限
  *   2. 触ってはいけない場所  `.git`（大文字小文字・末尾のドットや空白・8.3 の短い名前・macOS が無視する文字を含めて）と、
- *                        MicroGit の作業フォルダ（.microgit。移行前の .microgit_shadow / .microgit_logs / .microgit_overlay も）
+ *                        verEve の作業フォルダ（.microgit。移行前の .microgit_shadow / .microgit_logs / .microgit_overlay も）
  *   3. 種類              ファイルとディレクトリだけ。シンボリックリンクやデバイスは受け付けない
  *   4. ホストで表せるか（O-14）  Windows の予約名・使えない文字・末尾のドットや空白、
  *                        大文字小文字や Unicode の正規化だけが違う名前のぶつかり（大文字小文字を区別しない FS）
@@ -62,7 +62,7 @@ export const DEFAULT_LIMITS: GuardLimits = {
 /**
  * ゲストの入力を弾いた理由。
  * malformed は一覧の行の形が不正、bad-path は絶対パス・`..` などの不正なパス、git-dir は .git を指しうる名前、
- * microgit-artifact は MicroGit の作業フォルダ、unsupported-type はリンク・デバイス、windows-* は Windows で扱えない名前、
+ * microgit-artifact は verEve の作業フォルダ、unsupported-type はリンク・デバイス、windows-* は Windows で扱えない名前、
  * case-conflict は大文字小文字・正規化だけが違う名前のぶつかり、hash-mismatch は中身が一覧の sha256 と違う、
  * escapes-workspace は書き込み先の途中にワークスペースの外を指すリンクがある、type-conflict はファイルとディレクトリの食い違い。
  */
@@ -96,7 +96,8 @@ export type ValidatedView = {
     rejected: Rejection[];
 };
 
-/** ゲストが書いてはいけない、MicroGit 自身の作業フォルダ名（先頭の段で比べる）。ゲストの入力で履歴や記録を書き換えられないようにする。 */
+/** ゲストが書いてはいけない、verEve 自身の作業フォルダ名（先頭の段で比べる）。ゲストの入力で履歴や記録を書き換えられないようにする。 */
+// 互換のため旧名のまま（保存場所のフォルダ名。layout.ts の MICROGIT_ROOT_NAME と同じ）
 const ARTIFACT_DIRS = ['.microgit', '.microgit_shadow', '.microgit_logs', '.microgit_overlay'];
 
 /** Windows で使えないファイル名（拡張子が付いても使えない。COM¹ などの上付き数字も含む） */
@@ -200,7 +201,7 @@ export function validateViewEntries(
         const policy = checkPathPolicy(rel, traits);
         if (policy) { reject(rel, policy.reason, policy.detail, type === 'd'); continue; }
         if (type === 'l' || type === 'o') {
-            // MicroGit が記録するのは保存したファイルだけで、シンボリックリンクやデバイスは層に入らない（#10）
+            // verEve が記録するのは保存したファイルだけで、シンボリックリンクやデバイスは層に入らない（#10）
             reject(rel, 'unsupported-type', type);
             continue;
         }
@@ -292,9 +293,9 @@ export type SyncFromGuestOptions = {
     /** agent の view の一覧（検証前） */
     viewLines: readonly string[];
     /**
-     * これまでに MicroGit が記録したことのあるパス（shadow の履歴に出てきたもの）。
+     * これまでに verEve が記録したことのあるパス（shadow の履歴に出てきたもの）。
      * ここにあって view に無いファイルは、ワークスペースから消す。ここに無いファイル（利用者が
-     * MicroGit を使わずに置いたもの）は、view に無くても消さない。
+     * verEve を使わずに置いたもの）は、view に無くても消さない。
      */
     managedFiles: Iterable<string>;
     /** 中身を取ってくる。ホストのバックエンドが agent の readMany を呼ぶ */
@@ -302,6 +303,12 @@ export type SyncFromGuestOptions = {
     traits: HostTraits;
     limits?: GuardLimits;
     cache?: WorkspaceHashCache;
+    /**
+     * 書きも消しもしないパス（エディタに未保存の編集があるファイル。設計方針 §2.1.1 の B）。
+     * 比較は collisionKey で行う（大文字小文字を区別しない OS でも取りこぼさない）。
+     * キャッシュにも入れない（次に同期するとき、ディスクの中身から計算し直す）。
+     */
+    skipPaths?: ReadonlySet<string>;
 };
 
 /** syncWorkspaceFromGuest の結果。written は書いたもの、deleted は消したもの、unchanged は中身が同じで触らなかった数、rejected は弾いたもの。 */
@@ -312,6 +319,8 @@ export type SyncFromGuestResult = {
     rejected: Rejection[];
     /** 次回に渡すキャッシュ */
     cache: WorkspaceHashCache;
+    /** skipPaths に当たって、書きも消しもしなかったパス（view か managedFiles に出てきたものだけ） */
+    skippedDirty: string[];
 };
 
 /** ファイルの中身全体を読み、sha256（16 進）を返す。 */
@@ -339,7 +348,7 @@ function lstatOrUndefined(p: string): fs.Stats | undefined {
  *      ゲストが途中で落ちたら（fetchFiles が例外）、ワークスペースには何もしないまま例外を返す
  *   4. 消す → 5. 書く。消すのを先にするのは、「ファイル p → ディレクトリ p/」のように、
  *      古いファイルを消してからでないと新しいファイルを置けない場合があるため（#21 の N-3 と同じ形）
- * 利用者のディレクトリを丸ごと消すことはしない。置き先が（MicroGit の管理外の）ディレクトリなら、そのファイルは諦めて知らせる。
+ * 利用者のディレクトリを丸ごと消すことはしない。置き先が（verEve の管理外の）ディレクトリなら、そのファイルは諦めて知らせる。
  */
 export async function syncWorkspaceFromGuest(opts: SyncFromGuestOptions): Promise<SyncFromGuestResult> {
     const limits = opts.limits ?? DEFAULT_LIMITS;
@@ -350,12 +359,15 @@ export async function syncWorkspaceFromGuest(opts: SyncFromGuestOptions): Promis
     const oldCache = opts.cache ?? {};
     const cache: WorkspaceHashCache = {};
     let unchanged = 0;
+    const skipKeys = new Set([...(opts.skipPaths ?? [])].map((p) => collisionKey(p, opts.traits)));
+    const skippedDirty: string[] = [];
 
     // 2. 計画（読むだけ）
     const toDelete: string[] = [];
     for (const rel of new Set(opts.managedFiles)) {
         const key = collisionKey(rel, opts.traits);
         if (wanted.has(key) || rejectedPaths.has(key)) { continue; }
+        if (skipKeys.has(key)) { skippedDirty.push(rel); continue; }
         if (checkPathShape(rel, limits) || checkPathPolicy(rel, opts.traits)) { continue; }
         if (!isInsideWorkspace(opts.workspaceRoot, rel)) {
             rejected.push({ path: rel, reason: 'escapes-workspace' });
@@ -367,6 +379,7 @@ export async function syncWorkspaceFromGuest(opts: SyncFromGuestOptions): Promis
 
     const toFetch: GuestFile[] = [];
     for (const file of view.files) {
+        if (skipKeys.has(collisionKey(file.path, opts.traits))) { skippedDirty.push(file.path); continue; }
         if (!isInsideWorkspace(opts.workspaceRoot, file.path)) {
             rejected.push({ path: file.path, reason: 'escapes-workspace' });
             continue;
@@ -439,7 +452,7 @@ export async function syncWorkspaceFromGuest(opts: SyncFromGuestOptions): Promis
         written.push(file.path);
     }
 
-    return { written, deleted, unchanged, rejected, cache };
+    return { written, deleted, unchanged, rejected, cache, skippedDirty };
 }
 
 /** ディレクトリの中に（下の階層も含めて）ファイルが 1 つも無いか。リンクもファイルとして数える */

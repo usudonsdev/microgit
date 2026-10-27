@@ -14,7 +14,7 @@ import * as path from 'path';
  *
  * ワークスペースは、毎回作る一時的な Git リポジトリ（ブランチ main、最初のコミット 1 つ）。
  * 以前はこのリポジトリそのものを開いていたので、テストのたびに開発中のリポジトリに .microgit_shadow や
- * .git/microgit が残った。MicroGit を有効にして保存・過去に戻る操作まで試すテスト（overlayBackend.test.ts）を
+ * .git/microgit が残った。verEve を有効にして保存・過去に戻る操作まで試すテスト（overlayBackend.test.ts）を
  * 足したので、使い捨てのワークスペースにした（#14）。
  *
  * 環境変数 MICROGIT_TEST_VSIX に VSIX のパスを渡すと、リポジトリではなく、その VSIX を VS Code 自身の
@@ -69,7 +69,7 @@ function installVsix(vscodeExecutablePath: string, vsix: string, extensionsDir: 
         '--force',
     ], { env: cli.env, encoding: 'utf8' });
     console.log(out.trim());
-    const installed = fs.readdirSync(extensionsDir).filter((n) => n.startsWith('usudonsdev.microgit-'));
+    const installed = fs.readdirSync(extensionsDir).filter((n) => n.startsWith('usudonsdev.vereve-'));
     if (installed.length !== 1) { throw new Error(`入った拡張機能が 1 つでない: ${installed.join(', ') || '(無し)'}`); }
     const folder = path.join(extensionsDir, installed[0]);
     console.log(`installed: ${folder}`);
@@ -100,9 +100,9 @@ async function main() {
         const git = (...args: string[]) => execFileSync('git', args, { cwd: workspace, stdio: 'ignore' });
         git('init', '-q', '-b', 'main');
         git('config', 'core.autocrlf', 'false');
-        fs.writeFileSync(path.join(workspace, 'README.md'), '# MicroGit extension test workspace\n');
+        fs.writeFileSync(path.join(workspace, 'README.md'), '# verEve extension test workspace\n');
         git('add', '-A');
-        git('-c', 'user.name=MicroGit Test', '-c', 'user.email=test@example.invalid', 'commit', '-q', '-m', 'init');
+        git('-c', 'user.name=verEve Test', '-c', 'user.email=test@example.invalid', 'commit', '-q', '-m', 'init');
 
         const extensionTestsPath = path.resolve(__dirname, './suite/index');
         const vsix = process.env.MICROGIT_TEST_VSIX;

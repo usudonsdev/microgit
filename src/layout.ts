@@ -14,6 +14,7 @@ import * as path from 'path';
  * 以前の `.microgit_shadow` / `.microgit_logs` / `.microgit_overlay` は、新しい場所が空なら丸ごと移す。
  * 新しい場所に同じ名前が既にあるときは、ぶつからないものだけ移し、残った古いフォルダは消さない。
  */
+// 互換のため旧名のまま：保存場所のフォルダ名。改名すると既存の履歴・層を見失う（docs/design-policy.md の改名の節）
 export const MICROGIT_ROOT_NAME = '.microgit';
 
 /** 移行元の古いフォルダ名（5.1.1 より前）。キーは、移行先の `.microgit/` の下の名前（shadow・logs・overlay）と同じ。 */

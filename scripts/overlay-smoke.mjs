@@ -248,6 +248,36 @@ console.log('8. ワークスペースへの同期でファイル ⇔ ディレ�
   check('利用者のファイルがあるディレクトリは置き換えずに conflicts で知らせる', r3.conflicts.includes('userdir') && fs.existsSync(path.join(ws, 'userdir', 'mine.txt')), JSON.stringify(r3.conflicts));
 }
 
+// ---------------------------------------------------------------- 9
+console.log('9. 未保存の編集があるパスは、同期で書きも消しもしない（設計方針 §2.1.1 の B）');
+{
+  const ws = path.join(tmpRoot, 'sync-dirty');
+  const paths = o.ensureOverlayDirs(ws);
+  const safe = (rel) => !!rel && !path.isAbsolute(rel) && !rel.split('/').includes('..');
+  const artifact = (abs, root) => {
+    const top = path.relative(root, abs).split(path.sep)[0];
+    return top === '.microgit' || top.startsWith('.microgit_');
+  };
+  const managed = ['keep.txt', 'edited.txt', 'edited-gone.txt', 'plain.txt'];
+  const [b1, b2] = ['8', '9'].map((c) => c.repeat(40));
+  writeLayer(paths, b1, { 'keep.txt': 'K', 'edited.txt': 'E1', 'edited-gone.txt': 'G1', 'plain.txt': 'P1' });
+  writeLayer(paths, b2, { 'edited.txt': 'E2', 'edited-gone.txt': null, 'plain.txt': 'P2' });
+  o.expandViewAfterExport(paths, b1, undefined);
+  o.expandViewAfterExport(paths, b2, b1);
+  o.checkoutLayers(paths, [b1], 'mb-1');
+  o.syncMergeToWorkspace(ws, paths, safe, artifact, managed);
+  // 利用者が 2 つのファイルを編集中（ディスクに書いた内容を、未保存の編集の代わりにする）
+  fs.writeFileSync(path.join(ws, 'edited.txt'), 'MY-EDIT');
+  fs.writeFileSync(path.join(ws, 'edited-gone.txt'), 'MY-EDIT-2');
+  o.checkoutLayers(paths, [b1, b2], 'mb-1');
+  const r = o.syncMergeToWorkspace(ws, paths, safe, artifact, managed, new Set(['edited.txt', 'edited-gone.txt']));
+  check('除外したファイルの中身はそのまま（書かない・消さない）', read(path.join(ws, 'edited.txt')) === 'MY-EDIT' && read(path.join(ws, 'edited-gone.txt')) === 'MY-EDIT-2');
+  check('除外したパスを skippedDirty で返す', r.skippedDirty.slice().sort().join(',') === 'edited-gone.txt,edited.txt', JSON.stringify(r.skippedDirty));
+  check('他のファイルは巻き戻る', read(path.join(ws, 'plain.txt')) === 'P2');
+  const r2 = o.syncMergeToWorkspace(ws, paths, safe, artifact, managed);
+  check('次に除外なしで同期すると、指定の時点に揃う', read(path.join(ws, 'edited.txt')) === 'E2' && !fs.existsSync(path.join(ws, 'edited-gone.txt')) && r2.skippedDirty.length === 0);
+}
+
 o.removeTree(tmpRoot);
 if (failures) {
   console.error(`\n${failures} 件失敗`);
