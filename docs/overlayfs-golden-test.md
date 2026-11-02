@@ -38,7 +38,7 @@ scripts/golden/check-node.mjs            Node 実装で流して照合  → test
 
 ### 2.3 Node 側（check-node.mjs）
 
-MicroGit の保存経路と同じ道を通す。操作を shadow Git の作業ツリーに当ててコミットし、`exportCommitLayer` → `ensureExpandedView` で得たビューを 2 通り比べる。
+verEve の保存経路と同じ道を通す。操作を shadow Git の作業ツリーに当ててコミットし、`exportCommitLayer` → `ensureExpandedView` で得たビューを 2 通り比べる。
 
 | モード | 中身 |
 |---|---|
@@ -98,7 +98,7 @@ GitHub Actions の Ubuntu では `kernel.apparmor_restrict_unprivileged_userns =
 ### 4.1 分類から言えること
 
 - **N-1・N-2 は O-10（正本の定義、#11）の判断材料。** カーネルは「ファイルを 1 つずつ消した」（`delete-file` の commit 3 ではディレクトリが残る）と「ディレクトリごと消した」（`delete-dir` ではディレクトリも消える）を区別するが、Git からはこの 2 つを区別できない。したがって Git を正本にして層を Git から組み直す設計にすると、**カーネルのバックエンドでも組み直した時点で同じ差が出る**。「空になったディレクトリは消す」という対処は、今度は `delete-file` と食い違う
-- **N-3〜N-6 は #21 で直した。** カーネル移植とは関係なく、今の MicroGit の利用者にも起きうる不具合だった（ファイルとディレクトリの置き換え、`.wh.` で始まるファイル名、日本語のファイル名）。直し方は [NodeOverlay.md](./NodeOverlay.md) のレイヤ形式 v2 と、[学習用 02](./learning/02-git-objects-and-layer-format.md)
+- **N-3〜N-6 は #21 で直した。** カーネル移植とは関係なく、今の verEve の利用者にも起きうる不具合だった（ファイルとディレクトリの置き換え、`.wh.` で始まるファイル名、日本語のファイル名）。直し方は [NodeOverlay.md](./NodeOverlay.md) のレイヤ形式 v2 と、[学習用 02](./learning/02-git-objects-and-layer-format.md)
 - 残りは N-1・N-2 だけで、どちらも Git がディレクトリを記録しないことから来る。FR-1 の対象にフォールバックを含めるかどうか（補足 S-4）は #11 で決める
 
 ## 5. 記録した環境（meta.json）
@@ -125,7 +125,7 @@ GitHub Actions の Ubuntu では `kernel.apparmor_restrict_unprivileged_userns =
 |---|---|---|
 | ホストへの反映後の一致（大文字小文字だけ違う名前、Windows の予約名、Unicode の正規化差） | **#16（Boundary Guard）に移す** | ホストへ反映する処理そのものが Boundary Guard の責務なので、そこで Node とカーネルの両バックエンドの反映結果を比べる差分テストとして作る |
 | 複数のカーネルバージョン | **済み**（§3.1 の golden-kernel ジョブ） | — |
-| シンボリックリンク、実行ビット | **シナリオには入れない** | MicroGit が記録するのは VS Code で保存したテキスト文書だけで、shadow の作業ツリーには通常のファイルとして書かれる（`runShadowCommit` の `fs.writeFileSync`）。シンボリックリンクや実行ビットは記録される経路が無い。agent の view は `l`（リンク）と `o`（その他）を出せるので、記録の対象が広がったら足せる |
+| シンボリックリンク、実行ビット | **シナリオには入れない** | verEve が記録するのは VS Code で保存したテキスト文書だけで、shadow の作業ツリーには通常のファイルとして書かれる（`runShadowCommit` の `fs.writeFileSync`）。シンボリックリンクや実行ビットは記録される経路が無い。agent の view は `l`（リンク）と `o`（その他）を出せるので、記録の対象が広がったら足せる |
 | ハードリンク、xattr | **入れない** | 同上。Git もこれらを記録しない |
 | upper の中身（whiteout・opaque・redirect の表現）とコピーアップの挙動 | **#12 で扱う** | mount オプションを固定するときに、その影響として確かめる |
-| 性能（レイテンシ・スループット） | **#14 で扱う** | MicroGit に組み込んだ経路で測る |
+| 性能（レイテンシ・スループット） | **#14 で扱う** | verEve に組み込んだ経路で測る |

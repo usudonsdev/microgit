@@ -128,7 +128,7 @@ mac/run-golden.sh
 
 `run-golden.sh` は、起動ツールをビルドして ad-hoc 署名し、GitHub Actions の最新の成功した実行から `Image` を取ってきて、12 シナリオを流す。結果は `guest/out/arm64/guest-result-mac.json`、カーネルのログは `guest/out/arm64/console-mac.log` に残る。
 
-未pushのagent変更を含めてMicroGit本体まで試す場合は、固定版のGoをPATHに置いて次を実行する。
+未pushのagent変更を含めてverEve本体まで試す場合は、固定版のGoをPATHに置いて次を実行する。
 外付けinitramfsは開発用で、公開版では`guest/build.sh`が同じagentをImageへ埋め込む。
 
 ```bash
@@ -143,7 +143,7 @@ Mac で確かめたこと（2026-09-28、Apple silicon、macOS 26.5.1）：
 - [x] allnoconfig ベースのカーネルが Virtualization.framework で起動する
 - [x] 名前付きポートは `/dev/vport1p0` として見つかる
 - [x] 12 シナリオ一致。ready まで約0.6秒、commit p50/p95 0.13/0.30 ms、view 0.07/0.15 ms
-- [x] MicroGit本体の差分テスト15シナリオ・126回がGitのツリーと一致（3 MiB、700ファイル、日本語、バイナリ、分岐、キャッシュ再構築を含む）
+- [x] verEve本体の差分テスト15シナリオ・126回がGitのツリーと一致（3 MiB、700ファイル、日本語、バイナリ、分岐、キャッシュ再構築を含む）
 - [x] VS Code内で保存・過去移動、3 MiBの復元、`active=kernel`、成功した`lastCheckout`を確認
 
 実機で見つかった制限：virtio-consoleは約64 KiBを超えるJSON 1行で停止した。stdioを

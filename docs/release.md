@@ -5,7 +5,7 @@
 
 | 項目 | 内容 |
 |---|---|
-| 関係する Issue | #19（MicroGit の内部機能として Marketplace に公開する） |
+| 関係する Issue | #19（verEve の内部機能として Marketplace に公開する） |
 | 版 | 初版（2026-09-26）。公開はまだしていない |
 | 仕組み | [.github/workflows/package.yml](../.github/workflows/package.yml)、[scripts/package-vsix.mjs](../scripts/package-vsix.mjs)、[THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) |
 | 学習用 | [learning/10-packaging-and-licenses.md](./learning/10-packaging-and-licenses.md) |
@@ -106,7 +106,7 @@ agent 1.1.0を使うため、この混在を見逃した。公開判定では手
 
 1. `feature/kernel-portability` を `master` にマージする（PR を作り、CI がすべて通ることを確かめる）
 2. `master` で `v5.0.0` のタグを打って push する → `package.yml` が走り、VSIX の作成と 5 つの環境での確認のあと、GitHub Release の **下書き** を作る（VSIX、`vsix.json`、`third-party-sources-v5.0.0.tar`）
-3. 下書きの VSIX を手元の VS Code に入れて、`MicroGit: Overlay Status` で `active=kernel` と `lastCheckout:` を確かめる（Windows・Linux・Apple silicon Mac）
+3. 下書きの VSIX を手元の VS Code に入れて、`verEve: Overlay Status` で `active=kernel` と `lastCheckout:` を確かめる（Windows・Linux・Apple silicon Mac）
 4. Marketplace に公開する。プラットフォームごとに VSIX を渡す：
    ```
    npx vsce publish --packagePath microgit-5.0.0-win32-x64.vsix microgit-5.0.0-linux-x64.vsix microgit-5.0.0-linux-arm64.vsix microgit-5.0.0-darwin-arm64.vsix microgit-5.0.0-universal.vsix
@@ -190,10 +190,10 @@ agent 1.1.0を使うため、この混在を見逃した。公開判定では手
 |---|---|---|
 | 1 | Marketplace のリポジトリURL | `https://github.com/usudonsdev/microgit`（2026-10-02、利用者の決定でリポジトリの名前を microgit-test から microgit に変えた。古い URL は GitHub が転送する）。Go の agent のモジュール名（`guest/agent/go.mod`）は、ゲストの部品を作り直さないように古い名前のまま |
 | 2 | 著作権者 | `usudonsdev` |
-| 3 | O-5：自作のOverlayFS部品 | MicroGit本体と同じMIT。別リポジトリへ分離する時点で再検討 |
+| 3 | O-5：自作のOverlayFS部品 | verEve本体と同じMIT。別リポジトリへ分離する時点で再検討 |
 | 4 | GPL / LGPLのソース | 各GitHub Releaseに、対応する実行物と同時にソース一式を置く。書面による申し出方式は採らない |
 | 5 | Windows / macOS のコード署名 | Windowsは未署名、Macはad-hoc署名。Developer ID / notarizationは行わず、OSに止められた場合はNode.js版へフォールバック |
-| 6 | OverlayFS部品の置き場所 | 5.xではMicroGit本体に同梱。Phase 4で分離の必要性を再評価 |
+| 6 | OverlayFS部品の置き場所 | 5.xではverEve本体に同梱。Phase 4で分離の必要性を再評価 |
 
 ## 5. ライセンスとソース（NFR-7）
 
@@ -209,8 +209,8 @@ agent 1.1.0を使うため、この混在を見逃した。公開判定では手
 
 ## 6. Windows のセキュリティ機能と、同梱の QEMU
 
-- **SmartScreen**：インターネットから取ってきた印（Mark of the Web）の付いたファイルを、エクスプローラーなどから開くときに確かめる。MicroGit は VS Code が自分で展開した VSIX の中の QEMU を子プロセスとして起動するので、ふつうは出ない（手元の Windows 11 で、VSIX を VS Code の CLI で入れて起動し、警告は出なかった）
-- **Smart App Control**（Windows 11）：有効にしていると、クラウドでの評判が無く、有効な署名も無い実行ファイルと DLL を、子プロセスとして起動しても止める。自前でビルドした QEMU は評判が無いので、止められる見込みが高い。MicroGit は QEMU を起動したあと agent の「準備完了」の応答を待つので、止められれば起動の失敗として扱い、Node.js 版に切り替わる（機能は失われない）。避けるには Authenticode のコード署名が要る（§4 の 5）。Smart App Control が有効な PC での確認はしていない
+- **SmartScreen**：インターネットから取ってきた印（Mark of the Web）の付いたファイルを、エクスプローラーなどから開くときに確かめる。verEve は VS Code が自分で展開した VSIX の中の QEMU を子プロセスとして起動するので、ふつうは出ない（手元の Windows 11 で、VSIX を VS Code の CLI で入れて起動し、警告は出なかった）
+- **Smart App Control**（Windows 11）：有効にしていると、クラウドでの評判が無く、有効な署名も無い実行ファイルと DLL を、子プロセスとして起動しても止める。自前でビルドした QEMU は評判が無いので、止められる見込みが高い。verEve は QEMU を起動したあと agent の「準備完了」の応答を待つので、止められれば起動の失敗として扱い、Node.js 版に切り替わる（機能は失われない）。避けるには Authenticode のコード署名が要る（§4 の 5）。Smart App Control が有効な PC での確認はしていない
 - **ウイルス対策ソフト**：QEMU そのものは広く使われているが、見慣れない場所から仮想マシンを起動する動きを止める製品がありうる。その場合も Node.js 版に切り替わる
 - **仮想化機能の有無**：WHPX（Windows ハイパーバイザー プラットフォーム）が無効なら TCG（CPU のエミュレーション）で動く。管理者権限は要らない
 
@@ -218,9 +218,9 @@ agent 1.1.0を使うため、この混在を見逃した。公開判定では手
 
 QEMU のセキュリティの方針では、TCG（CPU のエミュレーション）で動かす使い方は「仮想化の使い方ではない」とされ、TCG の不具合はセキュリティの不具合として扱われない（ゲストの隔離を当てにしてはいけない）。仮想化の使い方として挙がっているのは KVM や HVF のようなハードウェアの仮想化で、マシンの種類では x86_64 の `q35` がその対象に入っている。
 
-MicroGit では：
+verEve では：
 
-- ゲストに入るのは MicroGit が作ったカーネルと agent だけで、外から届くのは **利用者のワークスペースのファイルの名前と中身** だけ。ゲストの OverlayFS はファイルの中身を解釈しない（バイト列として置くだけ）
+- ゲストに入るのは verEve が作ったカーネルと agent だけで、外から届くのは **利用者のワークスペースのファイルの名前と中身** だけ。ゲストの OverlayFS はファイルの中身を解釈しない（バイト列として置くだけ）
 - ゲストから返ってくるものは、ホストの Boundary Guard が検証してから反映する（ADR-0009）。ゲストが乗っ取られても、ワークスペースに書かれるのは検証を通ったものだけ
 - ただし、WHPX が無効で TCG で動いている PC では、「ゲストのカーネルが乗っ取られても QEMU の外には出られない」とは言えない。要件定義書 §7.3 が「ゲストカーネルの更新頻度」を緩められる理由に挙げた「侵害されても VM 内に閉じる」は、TCG では弱まる（要件定義書 §7.5）。心配な利用者は `microgit.kernel.accel` を `whpx` にする（WHPX が使えなければ Node.js 版になる）か、`microgit.overlayBackend` を `nodejs` にする
 
@@ -228,7 +228,7 @@ MicroGit では：
 
 | 部品 | 追う系列 | 定期の更新 | 臨時の更新 | 更新の確かめ方 |
 |---|---|---|---|---|
-| Linux カーネル | kernel.org の長期サポート版（今は 6.18.y） | MicroGit のマイナー版を出すたびに、その系列の最新に上げる | 有効にしている機能（OverlayFS、tmpfs、virtio-console・virtio-pci、agent が使うシステムコール）に関わる脆弱性が出たとき。`CONFIG_NET` を無効にしているので、ネットワークの脆弱性は関係ない | `guest/kernel/version.env` を kernel.org の `sha256sums.asc` の値で更新 → guest.yml（ゴールデンテスト、差分テスト、再現可能なビルド）→ package.yml |
+| Linux カーネル | kernel.org の長期サポート版（今は 6.18.y） | verEve のマイナー版を出すたびに、その系列の最新に上げる | 有効にしている機能（OverlayFS、tmpfs、virtio-console・virtio-pci、agent が使うシステムコール）に関わる脆弱性が出たとき。`CONFIG_NET` を無効にしているので、ネットワークの脆弱性は関係ない | `guest/kernel/version.env` を kernel.org の `sha256sums.asc` の値で更新 → guest.yml（ゴールデンテスト、差分テスト、再現可能なビルド）→ package.yml |
 | QEMU | 安定版の最新のパッチ版 | 同上 | `q35`、virtio-serial、WHPX に関わるセキュリティの勧告が出たとき（TCG はセキュリティの対象外、§7） | `windows/qemu/version.env` → qemu-windows.yml → package.yml |
 | DLL（GLib など） | Fedora の MinGW のパッケージ | QEMU を作り直すたびに、そのときの最新が入る | GLib などに脆弱性が出たとき、QEMU を作り直す | `packages.tsv` の版を前の版と比べる |
 | Go（agent） | Go のサポート中の版（新しい 2 つ） | 同上 | agent が使う標準ライブラリ（os、syscall、encoding/json、bufio など）に関わるセキュリティのリリースが出たとき | `guest/kernel/version.env` の `GO_VERSION` → guest.yml |

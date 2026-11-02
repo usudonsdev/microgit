@@ -1,4 +1,4 @@
-# MicroGit：Linuxカーネル機能ポータブル化 初期設計
+# verEve：Linuxカーネル機能ポータブル化 初期設計
 
 > 2026-10-26 に製品名を MicroGit から verEve に改めた（[rename-vereve.md](./rename-vereve.md)、[design-policy.md §2.5](./design-policy.md)）。本書は書いた時点の記録なので、名称・コマンド ID・設定キーは**旧称 MicroGit のまま**にしてある（`microgit.*` は今の `vereve.*`）。
 
@@ -16,10 +16,10 @@
 
 | 段階 | 形態 |
 |---|---|
-| 初期 | MicroGit の内部機能として VS Code Marketplace で提供 |
+| 初期 | verEve の内部機能として VS Code Marketplace で提供 |
 | 最終 | AI を用いて、任意のアプリに必要なカーネル機能を部品として詰め込める仕組み |
 
-MicroGit は「カーネル機能の部品化」の最初の適用例と位置づける。
+verEve は「カーネル機能の部品化」の最初の適用例と位置づける。
 
 ## 2. 背景と先行研究
 
@@ -37,7 +37,7 @@ MicroGit は「カーネル機能の部品化」の最初の適用例と位置�
 
 ### 機能要件
 - FR-1：全対応ホストで Linux OverlayFS と同一のセマンティクスを提供する
-- FR-2：MicroGit のマイクロコミット（レイヤーの積み重ね・スナップショット・差分取得・分岐）を OverlayFS 上で実現する
+- FR-2：verEve のマイクロコミット（レイヤーの積み重ね・スナップショット・差分取得・分岐）を OverlayFS 上で実現する
 - FR-3：ゲストの書き込みは upper layer に閉じ、ホスト側の検証を経てから実ファイル・履歴に反映する
 - FR-4：連続セーブに追従する
 
@@ -52,7 +52,7 @@ MicroGit は「カーネル機能の部品化」の最初の適用例と位置�
 
 ```
 ┌──────────────────── Host ────────────────────┐
-│ VS Code 拡張（MicroGit）                       │
+│ VS Code 拡張（verEve）                       │
 │  ├─ Backend Selector                          │
 │  │   ├─ Linux  : ネイティブ OverlayFS（VMなし）  │
 │  │   ├─ macOS  : Hypervisor/Virtualization.fw │
@@ -73,7 +73,7 @@ MicroGit は「カーネル機能の部品化」の最初の適用例と位置�
 
 ```
 ┌──────────────────── Host ─────────────────────────────┐
-│ VS Code 拡張（MicroGit）                                │
+│ VS Code 拡張（verEve）                                │
 │  ├─ 正本：shadow の Git（ADR-0001）                      │
 │  ├─ Backend Selector（src/kernel/backendSelector.ts）    │
 │  │   ├─ Linux  : unshare -Urm ＋ agent（VM なし）        │
@@ -125,7 +125,7 @@ MicroGit は「カーネル機能の部品化」の最初の適用例と位置�
 | `view` | 任意の層構成でのマージ済みビューを取得 |
 | `apply` | ホストで検証済みの差分を実ファイルへ反映（ホスト側で実行） |
 
-※ 既存 MicroGit の内部モデルに合わせて調整する
+※ 既存 verEve の内部モデルに合わせて調整する
 
 **第 2 版：確定した命令（プロトコル v1、docs/agent-protocol.md）**
 
@@ -164,7 +164,7 @@ mount のオプションは `userxattr,redirect_dir=nofollow,index=off,metacopy=
 | 0 | Linux ネイティブ OverlayFS で境界インターフェースを実装し、現行 Node.js 実装と比較 | 同一テストの通過と性能比較 |
 | 1 | 最小カーネル＋agent を作成し、macOS バックエンドで起動 | 起動時間・サイズ・スループットの計測 |
 | 2 | Windows バックエンドの実現方式を確定・実装 | 3 OS で同一テスト通過 |
-| 3 | MicroGit の内部機能として Marketplace で公開（フォールバック付き） | 公開 |
+| 3 | verEve の内部機能として Marketplace で公開（フォールバック付き） | 公開 |
 | 4 | 機能単位の部品として汎用化し、AI による組み込みを検討 | — |
 
 **第 2 版：進み具合（2026-09-26）** 要件定義書 §10 の表を参照。Phase 0 の最初の成果物は、本物のカーネルの挙動を記録したゴールデンテストにした（補足 S-13、docs/overlayfs-golden-test.md）。Phase 1 は macOS より先に、Linux と Windows でゲストを動かした（利用者の判断：「いったん mac は後で対応するとして、windows だけ進めます」）。
