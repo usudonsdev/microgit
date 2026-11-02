@@ -1,4 +1,4 @@
-// MicroGit の最小ゲストの init 兼 agent（Issue #15, #17, #12）。
+// verEve の最小ゲストの init 兼 agent（Issue #15, #17, #12）。
 //
 // カーネルは initramfs の /init としてこれを PID 1 で起動する。ゲストのユーザーランドはこの 1 ファイルだけで、
 // シェルは入れない（AD-7）。PID 1 が終わるとカーネルがパニックするので、main は戻らない。

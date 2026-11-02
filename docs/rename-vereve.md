@@ -56,7 +56,7 @@
 4. `refs/microgit/*` は据え置く方針を `docs/design-policy.md` に理由付きで書く（却下案: 全面改名 = 既存履歴との互換が切れる）。
 5. Marketplace と Open VSX に新拡張として公開し、旧拡張を非推奨にして移行先を案内（公開は運営者の Mac での手作業。`docs/release.md`。**Marketplace の PAT 廃止（2026-12-01）に伴う Entra ID 認証への移行が先**）。
 6. GitHub リポジトリ名を変更し、`package.json` の `repository` を更新。
-7. portfolio_hub 側（LP、`/legal/`、運営者情報、`docs/handoff/20-sites/microgit.md`、`open-items.md` の O-45）の表記を更新。
+7. portfolio_hub 側（LP、`/legal/`、運営者情報、`docs/handoff/20-sites/others.md` §3、`open-items.md` の O-45）の表記を更新。→ **済み**（2026-11-02、portfolio_hub `3f52c12`。LP のナビ・見出し・作品名を verEve にし、ストアのリンクは公開までは旧 ID のままと注記。`/legal/` と `build-legal.cjs` に MicroGit の記載は無かった。`20-sites/microgit.md` はハブに元から無く、`others.md` §3 に集約されている）。
 
 ## 5. 未決（運営者の判断）
 
@@ -84,7 +84,19 @@
 
 **確かめたこと**：`vsce package --no-dependencies --readme-path README-marketplace.md` が通り、マニフェストは `Id="vereve"` `DisplayName=verEve` `Version=6.0.0`、含まれるファイルは `media/vereve.svg` と `out/**` で、`scripts/package-vsix.mjs` の「入ってよいものの一覧」にも合う。`package-vsix.mjs` 自体は、CI の成果物（ゲストイメージ・QEMU・Mac のヘルパー）が要るので実行していない。
 
-**未実施（範囲外）**：リリース作業と公開（`vsce publish`・Open VSX）、旧拡張の非推奨化、GitHub リポジトリ名の変更（`package.json` の `repository` は旧 URL のまま）、商標の調査（J-PlatPat。§1・§2）、アイコンの再デザイン、portfolio_hub 側（LP・`/legal/`・`docs/handoff/20-sites/microgit.md`・`open-items.md` の O-45）、同梱バイナリ名の改名（Mac の実機検証が先）、`refs/microgit/*` の新旧両対応の移行設計。
+**残りの表記の見直し（2026-11-02、`claude/rename-residuals`）**：据え置く決まりのもの以外で、製品を指していた「MicroGit」を verEve に直した。1 件ずつ読んで判断した（機械的な全置換はしていない）。
+- 文書（現行の本文）：`why-save-is-fast.md`・`microgit-kernel-feature-portability-{requirements,design,supplement}.md`・`guest-phase1.md`・`release.md`・`overlayfs-research-directions.md`・`perceptible-delay.md`・`design-rationale.md`・`kernel-portability-walkthrough.md`・`overlayfs-golden-test.md`・`non-engineer-drive-sharing-design.md`・`docs/diagrams/*.html` の表示文言。
+- コメント・console の文言：`speed-bench.mjs`・`guest/demo.mjs`・`bench-durability.mjs`・`bench-backends.mjs`・`bench-micro-commit.mjs`・`kernel-backend-e2e.mjs`・`golden/check-node.mjs`・`golden/check-guest.mjs`・`guest/agent/{main,overlay}.go`・`mac/microgit-vm/main.swift`・`windows/qemu/build.sh`・`qemu-windows.yml`・`.cursor/hooks/mark-ai-edit.sh`。
+- 直さずに残した判断：
+  - 版を名乗る「MicroGit 4」「MicroGit 5.0.0」「MicroGit 5.0」「MicroGit 5 系」「MicroGit 5 の公開の手順」：当時の製品名と版の記録（verEve は 6.0.0 から）。
+  - 各文書の冒頭の旧称の注記、README・README-marketplace の「旧称」「移行」の節、`design-policy.md` の §2.5 と見出し・最終更新、`legacyExtension.ts`・`settingsMigration.ts`・`extension.ts` の「旧 MicroGit」（実際に出す警告文を含む）。
+  - 実在の識別子：`isMicroGitArtifactPath`・`generateMicroGitFileLog`・`stash/restoreMicroGitArtifacts`、コミットの作者 `'MicroGit'` / `microgit@local`（`extension.ts`・`fastMicroCommit.ts`・各ベンチ・テスト）。
+  - `src/shadowStore.ts` の「origin への microgit refs push/fetch」：`refs/microgit` という名前そのものを指すので据え置き。`extension.ts` の `refs/microgit を取り込みました` も同じ。
+  - `docs/diagrams/save-compare.html` の見出し「MicroGit 5.0.0」（版の記録）、`render.mjs` と図のコメントにある記事 `microgit-v5-*` の画像・ファイル名。
+  - `package.json` の `repository` URL、`docs/release.md` にある旧リポジトリ名の経緯（GitHub 側の改名は運営者）、ファイル名（`how-microgit-works.md` など）、tmp の接頭辞 `microgit-*`、`guest/build.sh` の `KBUILD_BUILD_USER=microgit`。
+- 検査：`npm ci` → `compile`・`lint`・`test:unit`（`manifestConsistency.test.ts` を含む）が通る。
+
+**未実施（範囲外）**：リリース作業と公開（`vsce publish`・Open VSX）、旧拡張の非推奨化、GitHub リポジトリ名の変更（`package.json` の `repository` は旧 URL のまま）、商標の調査（J-PlatPat。§1・§2）、アイコンの再デザイン、~~portfolio_hub 側~~（2026-11-02 に済み。§4 の 7）、同梱バイナリ名の改名（Mac の実機検証が先）、`refs/microgit/*` の新旧両対応の移行設計。
 
 ## 7. 実機（VS Code）で確かめる項目
 

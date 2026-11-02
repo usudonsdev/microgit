@@ -8,7 +8,7 @@
 - 共有の相手は、同じ会社やチームの人で、**Google Drive の共有フォルダ**で文書を共有する。
 - 全員が、この OSS(専用の拡張機能)と Google Drive(Drive for desktop)を入れている。それ以外のソフト(Word、Excel、PDF ビューアなど)は問わない。
 - **保存のたびの版管理は、ローカル環境だけで行う。** Drive への履歴のアップロードは、**利用者が明示的に押したときだけ**行う。
-- 現行の MicroGit(エンジニア版)も同じ形である。保存のたびにローカルへ記録し、共有は `Publish Micro History` と `Fetch Micro History` の明示操作で行う(`design-policy.md` §4、README)。非エンジニア版も、この操作の対応を引き継ぐ。運び手が Git ではなく Drive になる。
+- 現行の verEve(エンジニア版)も同じ形である。保存のたびにローカルへ記録し、共有は `Publish Micro History` と `Fetch Micro History` の明示操作で行う(`design-policy.md` §4、README)。非エンジニア版も、この操作の対応を引き継ぐ。運び手が Git ではなく Drive になる。
 
 ## 2. 結論(案)
 

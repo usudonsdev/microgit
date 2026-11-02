@@ -1,6 +1,6 @@
 name: QEMU for Windows (minimal)
 
-# MicroGit に同梱する、Windows 用の小さい QEMU をクロスビルドし（#18）、Windows のランナーで最小ゲストを起動して確かめる。
+# verEve に同梱する、Windows 用の小さい QEMU をクロスビルドし（#18）、Windows のランナーで最小ゲストを起動して確かめる。
 # できた qemu-win は成果物として残し、Windows 用の VSIX（#19）に入れる。
 # package.yml からも呼ばれる（workflow_call）。同じ実行の中でビルド・テストしたものを VSIX に入れるため。
 on:

@@ -23,7 +23,7 @@ import (
 
 // store はコミットを OverlayFS の層として持つ（命令の形 v1、docs/agent-protocol.md）。
 //
-// 層の名前（id）はホストが決める文字列で、MicroGit では Git のコミットのハッシュを使う。
+// 層の名前（id）はホストが決める文字列で、verEve では Git のコミットのハッシュを使う。
 // ディスク上のディレクトリ名は短い番号（l0, l1, ...）にする。lowerdir のオプション文字列は
 // 従来の mount(2) では 1 ページ（4096 バイト）までなので、40 文字のハッシュをそのまま使うと
 // 余裕が小さい（docs/adr/0003-layer-compaction.md）。

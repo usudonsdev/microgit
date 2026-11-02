@@ -12,7 +12,7 @@
  *     Linux:     unshare -Urm guest/out/x86_64/init
  *     QEMU:      qemu-system-x86_64 ... -chardev stdio,id=proto,signal=off -device virtserialport,chardev=proto,name=microgit
  *
- * シナリオごとに shadow と同じ形の Git の履歴を作り、MicroGit の保存と同じように各コミットの層を
+ * シナリオごとに shadow と同じ形の Git の履歴を作り、verEve の保存と同じように各コミットの層を
  * カーネル版に記録させる（recordCommit）。そのあと、いろいろな順番で各コミットに戻る操作をして、
  *   - カーネル版（KernelOverlayBackend.checkout → Boundary Guard → ワークスペース）
  *   - Node 版（ensureLayerExists → checkoutLayers → syncMergeToWorkspace）
@@ -68,7 +68,7 @@ const COMMIT_ENV = {
     GIT_COMMITTER_NAME: 'e2e', GIT_COMMITTER_EMAIL: 'e2e@example.invalid', GIT_COMMITTER_DATE: '2000-01-01T00:00:00Z',
 };
 
-/** ゴールデンテストのシナリオに、MicroGit でよく出る形（日本語名・バイナリ・大きいファイル）を足す */
+/** ゴールデンテストのシナリオに、verEve でよく出る形（日本語名・バイナリ・大きいファイル）を足す */
 const big = Buffer.alloc(3 * 1024 * 1024 + 7, 0x61);
 const bin = Buffer.from([0, 1, 2, 3, 255, 254, 10, 13, 0]);
 const extraScenarios = [
@@ -154,7 +154,7 @@ function diffMaps(expected, actual) {
 
 /** 相対パスで、正規化しても `..` の要素を含まなければ真（空・絶対パスは偽）。Node 版の syncMergeToWorkspace に渡す。 */
 const isSafeRepoRelativePath = (rel) => !!rel && !path.isAbsolute(rel) && !path.normalize(rel).split(path.sep).includes('..');
-/** abs が root 直下の .microgit か .microgit_ で始まるもの（MicroGit の作業用）の中なら真。Node 版の syncMergeToWorkspace に渡す。 */
+/** abs が root 直下の .microgit か .microgit_ で始まるもの（verEve の作業用）の中なら真。Node 版の syncMergeToWorkspace に渡す。 */
 const isMicroGitArtifactPath = (abs, root) => {
     const top = path.relative(root, abs).split(path.sep)[0];
     return top === '.microgit' || top.startsWith('.microgit_');
@@ -187,7 +187,7 @@ async function runScenario(backend, s, failures, stats) {
             execFileSync('git', ['commit', '-q', '--allow-empty', '-m', `c${i + 1}`], { cwd: repo, env: COMMIT_ENV, stdio: 'pipe' });
             const hash = runGit(repo, ['rev-parse', 'HEAD']).trim();
             hashes.push(hash);
-            // MicroGit の保存と同じく、コミットのたびに層を記録させる
+            // verEve の保存と同じく、コミットのたびに層を記録させる
             const r = await backend.recordCommit(repo, hash);
             stats.recorded++;
             if (r.snapshot) { stats.snapshots++; }

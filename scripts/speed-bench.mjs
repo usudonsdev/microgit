@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * MicroGit 速度ベンチ（Overlay + シャドウ Git 操作）
+ * verEve 速度ベンチ（Overlay + シャドウ Git 操作）
  * 使い方: node scripts/speed-bench.mjs
  * 環境変数:
  *   FILES=200   初期ファイル数
@@ -93,7 +93,7 @@ function writeLayer(paths, hash, files) {
   }
 }
 
-console.log('=== MicroGit speed bench ===');
+console.log('=== verEve speed bench ===');
 console.log(`platform=${process.platform} FILES=${FILES} COMMITS=${COMMITS} SWITCHES=${SWITCHES}`);
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'microgit-bench-'));

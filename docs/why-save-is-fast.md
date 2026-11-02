@@ -1,10 +1,10 @@
-# 保存が速くなった理由：MicroGit と Git のソースコードの対比
+# 保存が速くなった理由：verEve と Git のソースコードの対比
 
 > 2026-10-26 に製品名を MicroGit から verEve に改めた（[rename-vereve.md](./rename-vereve.md)、[design-policy.md §2.5](./design-policy.md)）。本書は書いた時点の記録なので、名称・コマンド ID・設定キーは**旧称 MicroGit のまま**にしてある（`microgit.*` は今の `vereve.*`）。
 
 | 項目 | 内容 |
 |---|---|
-| 読む人 | MicroGit の保存の仕組みを理解したい人。記事・論文の下書きの材料 |
+| 読む人 | verEve の保存の仕組みを理解したい人。記事・論文の下書きの材料 |
 | 前提にする知識 | Git の基本操作（add・commit）。Git の内部の知識は前提にしない |
 | 比べる Git | Git 2.50.0（手元の計測と同じ版）。ソースは [git/git の v2.50.0](https://github.com/git/git/tree/v2.50.0) |
 | 関係 | [学習用 11 回](./learning/11-writing-git-from-inside.md)（Git を内側から書く）、[14 回](./learning/14-write-ahead-journal.md)（ジャーナル）、[ADR-0014](./adr/0014-journal-single-fsync.md)、#32、#38、#49 |
@@ -13,16 +13,16 @@
 
 ## 1. 結論
 
-MicroGit は、保存 1 回で **普通の Git と同じファイル**（同じ形式・同じハッシュ）を書きます。違うのは、そこに至るまでの道のりです。
+verEve は、保存 1 回で **普通の Git と同じファイル**（同じ形式・同じハッシュ）を書きます。違うのは、そこに至るまでの道のりです。
 
 | 保存 1 回を記録する時間（Windows 11、ファイル 200 個） | 時間 |
 |---|---|
 | MicroGit 4（Git のコマンドを 16 回起動、履歴 10 回のとき） | 約 0.55 秒（履歴 1,000 回で 2.4 秒） |
 | 普通の Git（`git add` → `git commit`） | 約 0.107 秒 |
 | MicroGit 5.0.0 | 約 0.025 秒 |
-| **MicroGit（#49 の後、ADR-0015）** | **約 0.010 秒**（同じ日に測った普通の Git は約 0.090 秒） |
+| **verEve（#49 の後、ADR-0015）** | **約 0.010 秒**（同じ日に測った普通の Git は約 0.090 秒） |
 
-普通の Git と MicroGit は、停電対策の設定をそろえて比べています（[5.0.0 のデータ](./paper/data/micro-commit-journal-vs-git-win32-power.json)、[#49 の後のデータ](./paper/data/micro-commit-deferred-vs-git-win32-power.json)。同じ PC でも日によって Git の時間が違うので、比べるときは同じ日の行どうしで）。MicroGit 4 の行は、条件がそろっていない参考値です（[データ](./paper/data/micro-commit-baseline-win32.json)。停電対策あり。比べた Git は停電対策なしで約 0.08 秒）。
+普通の Git と verEve は、停電対策の設定をそろえて比べています（[5.0.0 のデータ](./paper/data/micro-commit-journal-vs-git-win32-power.json)、[#49 の後のデータ](./paper/data/micro-commit-deferred-vs-git-win32-power.json)。同じ PC でも日によって Git の時間が違うので、比べるときは同じ日の行どうしで）。MicroGit 4 の行は、条件がそろっていない参考値です（[データ](./paper/data/micro-commit-baseline-win32.json)。停電対策あり。比べた Git は停電対策なしで約 0.08 秒）。
 
 速くなった理由は、次の図の赤い行（Git だけがしていること）を省いたか、まとめたかです。灰色の行（中身を記録する、フォルダの一覧を作る）は、どちらもほとんど同じことをしています。
 
@@ -40,9 +40,9 @@ MicroGit は、保存 1 回で **普通の Git と同じファイル**（同じ�
 
 Windows はプロセスを作るのが特に重く、1 回あたり数十ミリ秒かかります。MicroGit 4 は保存 1 回で Git を 16 回起動していて、これだけで 0.5 秒近くになっていました。
 
-### MicroGit
+### verEve
 
-MicroGit は VS Code の拡張機能として、VS Code が開いている間ずっと動いています。Git のファイルを読み書きする部品（`FastMicroCommitter`）を、リポジトリごとに 1 つ作って使い回します。
+verEve は VS Code の拡張機能として、VS Code が開いている間ずっと動いています。Git のファイルを読み書きする部品（`FastMicroCommitter`）を、リポジトリごとに 1 つ作って使い回します。
 
 ```ts
 // src/extension.ts（recordMicroCommit）
@@ -62,9 +62,9 @@ const out = fc.record(input);   // プロセスを起動せず、同じプロセ
 
 Git は、コマンドが終わるたびに全部を忘れます。次のコマンドは、index（記録しているファイルの一覧）をディスクから読み直します（`read-cache.c`）。
 
-### MicroGit
+### verEve
 
-MicroGit は、前回の記録のあとの状態（index、フォルダの一覧、履歴の索引）をメモリに持っています。ほかの処理（過去に戻る操作など）が index を書き換えていないかは、**ファイルの更新時刻と大きさだけ** を見て判断し、変わっていたときだけ読み直します。
+verEve は、前回の記録のあとの状態（index、フォルダの一覧、履歴の索引）をメモリに持っています。ほかの処理（過去に戻る操作など）が index を書き換えていないかは、**ファイルの更新時刻と大きさだけ** を見て判断し、変わっていたときだけ読み直します。
 
 ```ts
 // src/fastMicroCommit.ts:205
@@ -101,9 +101,9 @@ changed = ie_match_stat(istate, ce, &st, options);
 
 （[read-cache.c:1515](https://github.com/git/git/blob/v2.50.0/read-cache.c#L1515)、[read-cache.c:1377](https://github.com/git/git/blob/v2.50.0/read-cache.c#L1377)。`git commit` の [builtin/commit.c:472](https://github.com/git/git/blob/v2.50.0/builtin/commit.c#L472) の `refresh_cache_or_die` から呼ばれる）
 
-### MicroGit
+### verEve
 
-VS Code は、保存したときに「保存されたのはこのファイル」と拡張機能に教えてくれます。MicroGit は、そのファイル 1 つだけを確かめて読みます。
+VS Code は、保存したときに「保存されたのはこのファイル」と拡張機能に教えてくれます。verEve は、そのファイル 1 つだけを確かめて読みます。
 
 ```ts
 // src/fastMicroCommit.ts:491（recordInner）
@@ -123,13 +123,13 @@ const blob = this.stageObject('blob', content);
 
 ファイルの中身を読み、ハッシュ（SHA-1）を計算し、圧縮して書く部分は、Git と同じです。結果も 1 ビット違わず同じでなければいけません（§9）。
 
-| | Git | MicroGit |
+| | Git | verEve |
 |---|---|---|
 | 中身を書く | `object-file.c` の `write_loose_object` | `src/fastGit/objects.ts` の `writeLooseObject` |
 | フォルダの一覧を作る | `cache-tree.c` の `cache_tree_update`（変わったフォルダだけ作り直す） | `src/fastMicroCommit.ts:313` の `treeHash`（変わったファイルから一番上までのフォルダだけ作り直す） |
 | コミットを作る | `commit.c:1690` の `commit_tree_extended` | `src/fastGit/objects.ts` の `serializeCommit` |
 
-フォルダの一覧も、Git は「cache-tree」という仕組みで、変わっていないフォルダの計算を省いています。MicroGit も同じ考え方です（フォルダごとにハッシュを覚えておき、変わったファイルの上のフォルダだけ消す）。
+フォルダの一覧も、Git は「cache-tree」という仕組みで、変わっていないフォルダの計算を省いています。verEve も同じ考え方です（フォルダごとにハッシュを覚えておき、変わったファイルの上のフォルダだけ消す）。
 
 ```ts
 // src/fastMicroCommit.ts:313
@@ -160,7 +160,7 @@ found_hook = access(path.buf, X_OK) >= 0;
 
 また、コミットするものがあるかを、index と HEAD を比べて確かめます（[builtin/commit.c:1041](https://github.com/git/git/blob/v2.50.0/builtin/commit.c#L1041) の `index_differs_from`）。
 
-### MicroGit
+### verEve
 
 マイクロ履歴にフックは要りません。「前と同じ中身か」は、メモリの索引（フォルダの一覧のハッシュ → コミット）を引くだけで分かります。
 
@@ -196,9 +196,9 @@ else
 
 ただ、`git add` と `git commit` は別々のプログラムなので、それぞれが自分の書いたものを確定させます。ブランチの書き換え（`refs/files-backend.c`）も別に確定させます。
 
-### MicroGit
+### verEve
 
-MicroGit は、保存 1 回で書くもの全部（ファイルの中身、フォルダの一覧、コミット、ブランチの指す先）を、まず **1 つの記録にまとめてジャーナルに書き、確定を 1 回だけ待ちます**。Git の形式のファイルは、確定を待たずに書き、保存が落ち着いてからまとめて確定させます。停電したら、次に起動したときにジャーナルから作り直します（[ADR-0014](./adr/0014-journal-single-fsync.md)）。
+verEve は、保存 1 回で書くもの全部（ファイルの中身、フォルダの一覧、コミット、ブランチの指す先）を、まず **1 つの記録にまとめてジャーナルに書き、確定を 1 回だけ待ちます**。Git の形式のファイルは、確定を待たずに書き、保存が落ち着いてからまとめて確定させます。停電したら、次に起動したときにジャーナルから作り直します（[ADR-0014](./adr/0014-journal-single-fsync.md)）。
 
 ```ts
 // src/fastMicroCommit.ts:370（applyTxn）
@@ -232,7 +232,7 @@ if (this.deferWrites) {
 
 ## 8. ⑧ 後片付け
 
-`git add` と `git commit` は、それぞれ index を書き出し（[read-cache.c:3311](https://github.com/git/git/blob/v2.50.0/read-cache.c#L3311) の `write_locked_index`。`git commit` は変わっていなければ省く）、プログラムを終えます。MicroGit は index を 1 回書くだけです（`src/fastGit/gitIndex.ts` の `writeIndex`）。
+`git add` と `git commit` は、それぞれ index を書き出し（[read-cache.c:3311](https://github.com/git/git/blob/v2.50.0/read-cache.c#L3311) の `write_locked_index`。`git commit` は変わっていなければ省く）、プログラムを終えます。verEve は index を 1 回書くだけです（`src/fastGit/gitIndex.ts` の `writeIndex`）。
 
 ---
 
@@ -240,7 +240,7 @@ if (this.deferWrites) {
 
 速くても、普通の Git と違うものを書いてしまっては意味がありません。Git のファイルの名前は **中身から計算したハッシュ** なので、中身が 1 ビットでも違えば、コミットの名前も変わります。
 
-`scripts/test/micro-commit-diff.mjs` は、同じ保存の列を「Git のコマンドで記録する版」と「MicroGit の速い版」の両方に流し、毎回次を比べます。
+`scripts/test/micro-commit-diff.mjs` は、同じ保存の列を「Git のコマンドで記録する版」と「verEve の速い版」の両方に流し、毎回次を比べます。
 
 - 最後のコミットの名前（ハッシュ）
 - ブランチ・タグ・index
@@ -257,7 +257,7 @@ CI で毎回、保存 300 回（改行が CRLF のファイルでは 150 回）�
 | 時刻 | 秒とタイムゾーン（`+0900` の形） |
 | index の形式 | Git が読み書きする版（v2・v3）と、各エントリの更新時刻など |
 
-MicroGit が扱えない設定のリポジトリ（SHA-256 のリポジトリ、新しい形式の ref、コミットの署名、改行の変換など）では、自分で書かずに Git のコマンドに切り替えます（`FastPathUnsupported`）。
+verEve が扱えない設定のリポジトリ（SHA-256 のリポジトリ、新しい形式の ref、コミットの署名、改行の変換など）では、自分で書かずに Git のコマンドに切り替えます（`FastPathUnsupported`）。
 
 ---
 
@@ -288,7 +288,7 @@ MicroGit が扱えない設定のリポジトリ（SHA-256 のリポジトリ、
 npm run compile
 # 普通の Git と、停電対策をそろえて比べる（保存 300 回）
 node scripts/bench-micro-commit.mjs --impls fast,git --durability power --saves 300 --checkpoints 100,300
-# MicroGit の段階ごとの時間
+# verEve の段階ごとの時間
 node scripts/bench-commit-phases.mjs
 # Git のコマンドで記録した結果と 1 ビット一致するか
 node scripts/test/micro-commit-diff.mjs --saves 300

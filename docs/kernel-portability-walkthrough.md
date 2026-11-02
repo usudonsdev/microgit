@@ -5,7 +5,7 @@
 | 項目 | 内容 |
 |---|---|
 | 対象 | `feature/kernel-portability` ブランチの実装（2026-09-26 時点） |
-| 読む人 | MicroGit の作者。OS や仮想化の専門知識は前提にしない |
+| 読む人 | verEve の作者。OS や仮想化の専門知識は前提にしない |
 | 関連 | 設計の理由は [初期設計書](./microgit-kernel-feature-portability-design.md)、決定と計測は [Phase 1](./guest-phase1.md)・[Windows](./windows-backend.md)、テストは [ゴールデンテスト](./overlayfs-golden-test.md) |
 
 この文書は「何がどこで動き、保存 1 回のあいだに何が起きるか」を順番に説明する。まず §1 の地図と §2 の旅を読み、気になった部品を §3 で読むのがおすすめ。§5 には手を動かして確かめる課題がある。
@@ -24,7 +24,7 @@ powershell -ExecutionPolicy Bypass -File windows\run-golden.ps1 -Demo -Step
 
 ---
 
-> MicroGit 本体への組み込み（保存と過去に戻る操作がカーネル版を使う流れ、設定、速さ）は [kernel-backend.md](./kernel-backend.md) にまとめた。この文書はデモを使って、ゲストの中で起きることを追う。
+> verEve 本体への組み込み（保存と過去に戻る操作がカーネル版を使う流れ、設定、速さ）は [kernel-backend.md](./kernel-backend.md) にまとめた。この文書はデモを使って、ゲストの中で起きることを追う。
 
 ## 1. 全体の地図
 
@@ -73,7 +73,7 @@ powershell -ExecutionPolicy Bypass -File windows\run-golden.ps1 -Demo -Step
 ```
 
 - `id`：答えと対応づけるための番号。agent は同じ `id` を付けて答える
-- `layer`：作る層の名前。名前はホスト（命令を出す側）が決める。デモでは番号、MicroGit に組み込むときは Git のコミットのハッシュを使う
+- `layer`：作る層の名前。名前はホスト（命令を出す側）が決める。デモでは番号、verEve に組み込むときは Git のコミットのハッシュを使う
 - `parent`：どの層の上に積むか。ここではコミット #0 の上。空文字列なら親の無い層
 - 命令の形の全体は [agent-protocol.md](./agent-protocol.md)（v1）
 - `ops`：やりたい操作の列。ゴールデンテストのシナリオと同じ形
