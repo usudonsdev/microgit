@@ -56,7 +56,7 @@
 4. `refs/microgit/*` は据え置く方針を `docs/design-policy.md` に理由付きで書く（却下案: 全面改名 = 既存履歴との互換が切れる）。
 5. Marketplace と Open VSX に新拡張として公開し、旧拡張を非推奨にして移行先を案内（公開は運営者の Mac での手作業。`docs/release.md`。**Marketplace の PAT 廃止（2026-12-01）に伴う Entra ID 認証への移行が先**）。
 6. GitHub リポジトリ名を変更し、`package.json` の `repository` を更新。
-7. portfolio_hub 側（LP、`/legal/`、運営者情報、`docs/handoff/20-sites/microgit.md`、`open-items.md` の O-45）の表記を更新。
+7. portfolio_hub 側（LP、`/legal/`、運営者情報、`docs/handoff/20-sites/others.md` §3、`open-items.md` の O-45）の表記を更新。→ **済み**（2026-11-02、portfolio_hub `3f52c12`。LP のナビ・見出し・作品名を verEve にし、ストアのリンクは公開までは旧 ID のままと注記。`/legal/` と `build-legal.cjs` に MicroGit の記載は無かった。`20-sites/microgit.md` はハブに元から無く、`others.md` §3 に集約されている）。
 
 ## 5. 未決（運営者の判断）
 
@@ -96,7 +96,7 @@
   - `package.json` の `repository` URL、`docs/release.md` にある旧リポジトリ名の経緯（GitHub 側の改名は運営者）、ファイル名（`how-microgit-works.md` など）、tmp の接頭辞 `microgit-*`、`guest/build.sh` の `KBUILD_BUILD_USER=microgit`。
 - 検査：`npm ci` → `compile`・`lint`・`test:unit`（`manifestConsistency.test.ts` を含む）が通る。
 
-**未実施（範囲外）**：リリース作業と公開（`vsce publish`・Open VSX）、旧拡張の非推奨化、GitHub リポジトリ名の変更（`package.json` の `repository` は旧 URL のまま）、商標の調査（J-PlatPat。§1・§2）、アイコンの再デザイン、portfolio_hub 側（LP・`/legal/`・`docs/handoff/20-sites/microgit.md`・`open-items.md` の O-45）、同梱バイナリ名の改名（Mac の実機検証が先）、`refs/microgit/*` の新旧両対応の移行設計。
+**未実施（範囲外）**：リリース作業と公開（`vsce publish`・Open VSX）、旧拡張の非推奨化、GitHub リポジトリ名の変更（`package.json` の `repository` は旧 URL のまま）、商標の調査（J-PlatPat。§1・§2）、アイコンの再デザイン、~~portfolio_hub 側~~（2026-11-02 に済み。§4 の 7）、同梱バイナリ名の改名（Mac の実機検証が先）、`refs/microgit/*` の新旧両対応の移行設計。
 
 ## 7. 実機（VS Code）で確かめる項目
 
