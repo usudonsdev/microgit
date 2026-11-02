@@ -3,7 +3,7 @@
  * マイクロ履歴の永続性の水準ごとに、保存 1 回ぶんの Git の手順の時間を測る（#11 の O-11、docs/adr/0002-durability.md）。
  * 使い方: node scripts/bench-durability.mjs   （N=40 回。環境変数 N で変えられる）
  *
- * MicroGit の保存（runShadowCommit）と同じ 4 手順（add → write-tree → commit-tree → update-ref）を、
+ * verEve の保存（runShadowCommit）と同じ 4 手順（add → write-tree → commit-tree → update-ref）を、
  * Git のプロセスとして 1 つずつ起動して測る。
  * 2026-09-26、Windows 11・Git 2.50.1 での結果: 既定 p50 99.9 ms、power（loose-object,reference を batch で fsync）p50 106.9 ms。
  */

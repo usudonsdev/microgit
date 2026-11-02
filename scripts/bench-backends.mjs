@@ -38,7 +38,7 @@ const tryRunGit = (cwd, args) => { try { return runGit(cwd, args); } catch { ret
 const env = { ...process.env, GIT_AUTHOR_NAME: 'b', GIT_AUTHOR_EMAIL: 'b@example.invalid', GIT_COMMITTER_NAME: 'b', GIT_COMMITTER_EMAIL: 'b@example.invalid' };
 /** 相対パスで、`..` の要素を含まなければ真（空・絶対パスは偽）。syncMergeToWorkspace の安全判定に渡す。 */
 const safe = (rel) => !!rel && !path.isAbsolute(rel) && !rel.split('/').includes('..');
-/** abs が root 直下の .microgit か .microgit_ で始まるもの（MicroGit の作業用）の中なら真。syncMergeToWorkspace に渡す。 */
+/** abs が root 直下の .microgit か .microgit_ で始まるもの（verEve の作業用）の中なら真。syncMergeToWorkspace に渡す。 */
 const artifact = (abs, root) => {
     const top = path.relative(root, abs).split(path.sep)[0];
     return top === '.microgit' || top.startsWith('.microgit_');

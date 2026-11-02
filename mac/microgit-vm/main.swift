@@ -1,4 +1,4 @@
-// MicroGit の最小ゲストを Virtualization.framework で起動する（Issue #17、Phase 1 の macOS バックエンド）。
+// verEve の最小ゲストを Virtualization.framework で起動する（Issue #17、Phase 1 の macOS バックエンド）。
 //
 // 使い方: microgit-vm --kernel <Image> [--initrd <initramfs>] [--console <ログの書き出し先>] [--memory-mb 256] [--cmdline "console=hvc0"]
 //

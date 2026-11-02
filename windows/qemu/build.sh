@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# MicroGit に同梱する、Windows 用の小さい QEMU をクロスビルドする（Issue #18、docs/windows-backend.md §4）。
+# verEve に同梱する、Windows 用の小さい QEMU をクロスビルドする（Issue #18、docs/windows-backend.md §4）。
 #
 # 使い方: windows/qemu/build.sh     （Fedora と MinGW の環境で。CI は fedora のコンテナで流す）
 # 必要なもの（Fedora）: gcc make python3 ninja-build bzip2 xz tar diffutils findutils perl
@@ -9,7 +9,7 @@
 # 環境変数: OUT（出力先。既定は windows/qemu/out）、MINIMAL_DEVICES（既定 1。0 にすると QEMU の既定の装置をすべて入れる）。
 #
 # 方針: 対象は x86_64 のエミュレーションだけ（--target-list=x86_64-softmmu）。アクセラレータは WHPX と TCG。
-# GUI・音声・USB・ネットワーク・VNC・SPICE・圧縮形式・暗号ライブラリなど、MicroGit の最小ゲスト
+# GUI・音声・USB・ネットワーク・VNC・SPICE・圧縮形式・暗号ライブラリなど、verEve の最小ゲスト
 # （-nodefaults、virtio-serial だけ）に要らないものは外す。
 set -euo pipefail
 
@@ -34,13 +34,13 @@ src="$CACHE/qemu-$QEMU_VERSION"
 [[ -d "$src" ]] || tar -xJf "$tarball" -C "$CACHE"
 
 # 装置を絞る（既定: 絞る）。QEMU の既定では x86_64 のあらゆる装置（NIC、音声、USB など）が入り、
-# 実行ファイルが 24.5 MB になった（2026-09-26）。MicroGit の最小ゲストが使うのは q35 のマシンと virtio のシリアルだけ。
+# 実行ファイルが 24.5 MB になった（2026-09-26）。verEve の最小ゲストが使うのは q35 のマシンと virtio のシリアルだけ。
 # 装置の一覧（Kconfig）は、ソースの configs/devices/x86_64-softmmu/ に microgit.mak を足して指定する
 # （Kconfig の select で、q35 に要るものは自動で入る）。MINIMAL_DEVICES=0 で QEMU の既定に戻せる
 device_args=()
 if [[ "${MINIMAL_DEVICES:-1}" == 1 ]]; then
     cat > "$src/configs/devices/x86_64-softmmu/microgit.mak" <<'MAK'
-# MicroGit の最小ゲスト用（windows/qemu/build.sh が書く）
+# verEve の最小ゲスト用（windows/qemu/build.sh が書く）
 CONFIG_Q35=y
 CONFIG_VIRTIO_PCI=y
 CONFIG_VIRTIO_SERIAL=y

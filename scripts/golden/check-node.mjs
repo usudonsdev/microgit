@@ -6,7 +6,7 @@
  * 使い方: npm run golden:check          （食い違いが既知の一覧と同じなら exit 0）
  *         npm run golden:check -- --update-known   （既知の一覧を今の結果で書き直す）
  *
- * MicroGit の保存経路と同じ道を通す: ops を shadow Git の作業ツリーに当ててコミットし、
+ * verEve の保存経路と同じ道を通す: ops を shadow Git の作業ツリーに当ててコミットし、
  * exportCommitLayer → ensureExpandedView で得たビューを比べる。ビューは 2 通り見る。
  *   saved:   保存時に expandViewAfterExport が親ビューから伸ばしたもの
  *   rebuilt: views/ を消して、レイヤだけから組み直したもの
@@ -133,7 +133,7 @@ function diffLines(expected, actual) {
 }
 
 /**
- * シナリオ s を、MicroGit の保存と同じ経路（exportCommitLayer → ensureExpandedView）で一時フォルダに流す。
+ * シナリオ s を、verEve の保存と同じ経路（exportCommitLayer → ensureExpandedView）で一時フォルダに流す。
  * saved（保存時に伸ばしたビュー）と rebuilt（層だけから組み直したビュー）の食い違いを返す。終わると一時フォルダを消す。
  */
 function runScenario(s) {

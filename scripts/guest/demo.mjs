@@ -27,7 +27,7 @@ const consoleLog = opts.includes('--console') ? opts[opts.indexOf('--console') +
 
 const timings = [];
 let agent;
-/** 層の名前はホストが決める（命令の形 v1）。MicroGit では Git のコミットのハッシュを使うが、デモでは番号 */
+/** 層の名前はホストが決める（命令の形 v1）。verEve では Git のコミットのハッシュを使うが、デモでは番号 */
 let nextLayer = 0;
 
 /** 段の見出し（「========== n. title ==========」）を表示する。 */
@@ -113,7 +113,7 @@ async function main() {
 
     heading(1, '最初の保存');
     const c0 = await commit('1 回目', -1, [
-        ['write', 'README.md', '# MicroGit デモ'],
+        ['write', 'README.md', '# verEve デモ'],
         ['write', 'src/app.js', "console.log('v1')"],
         ['write', 'notes/todo.txt', 'あとでやる'],
     ]);

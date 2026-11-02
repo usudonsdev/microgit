@@ -98,7 +98,7 @@ async function main() {
         await agent.call({ op: 'reset' });
         for (let i = 0; i < s.commits.length; i++) {
             const parent = parentOf(s, i);
-            // 層の名前はホストが決める（MicroGit では Git のコミットのハッシュ）。ここではコミットの番号
+            // 層の名前はホストが決める（verEve では Git のコミットのハッシュ）。ここではコミットの番号
             const layer = `c${i + 1}`;
             const c = await agent.call({ op: 'commit', layer, parent: parent >= 0 ? `c${parent + 1}` : '', ops: s.commits[i].ops });
             commitUs.push(c.elapsedUs);
