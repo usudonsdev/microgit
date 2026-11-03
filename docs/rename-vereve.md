@@ -96,7 +96,9 @@
   - `package.json` の `repository` URL、`docs/release.md` にある旧リポジトリ名の経緯（GitHub 側の改名は運営者）、ファイル名（`how-microgit-works.md` など）、tmp の接頭辞 `microgit-*`、`guest/build.sh` の `KBUILD_BUILD_USER=microgit`。
 - 検査：`npm ci` → `compile`・`lint`・`test:unit`（`manifestConsistency.test.ts` を含む）が通る。
 
-**未実施（範囲外）**：リリース作業と公開（`vsce publish`・Open VSX）、旧拡張の非推奨化、GitHub リポジトリ名の変更（`package.json` の `repository` は旧 URL のまま）、商標の調査（J-PlatPat。§1・§2）、アイコンの再デザイン、~~portfolio_hub 側~~（2026-11-02 に済み。§4 の 7）、同梱バイナリ名の改名（Mac の実機検証が先）、`refs/microgit/*` の新旧両対応の移行設計。
+**GitHub リポジトリ名の変更（2026-11-03、運営者の決定「すぐやる」）**：手順は 3 つ。① 運営者が GitHub の Settings → General → Repository name で `microgit` → `vereve` に変える（旧 URL は GitHub が転送する。clone 済みの remote はそのまま動く）。② このブランチ（`claude/rename-repo`）で `package.json` の `repository` を新 URL にした（本書と `docs/zenn.md` にも注記）。③ Zenn の GitHub 連携は改名で切れるので、zenn.dev のダッシュボードで連携し直す（運営者。`docs/zenn.md`）。portfolio_hub の `site/index.html` の GitHub リンクも新 URL にする。各 AI セッションのリポジトリ指定（`usudonsdev/microgit`）は改名後に `usudonsdev/vereve` で追加し直す。
+
+**未実施（範囲外）**：リリース作業と公開（`vsce publish`・Open VSX）、旧拡張の非推奨化、商標の調査（J-PlatPat。§1・§2）、アイコンの再デザイン、~~portfolio_hub 側~~（2026-11-02 に済み。§4 の 7）、同梱バイナリ名の改名（Mac の実機検証が先）、`refs/microgit/*` の新旧両対応の移行設計。
 
 ## 7. 実機（VS Code）で確かめる項目
 
