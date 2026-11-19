@@ -60,7 +60,7 @@
 
 ## 5. 未決（運営者の判断）
 
-- ~~`refs/microgit/*` と保存場所を据え置くか~~ → **据え置きで実装した**（2026-10-26。理由と却下案は design-policy §2.5）。将来の「新旧両方を読む」移行は未設計。
+- ~~`refs/microgit/*` と保存場所を据え置くか~~ → **据え置きで実装した**（2026-10-26。理由と却下案は design-policy §2.5）。将来の「新旧両方を読む」移行は未設計（**案のみ**: [rename-storage-migration-draft.md](./rename-storage-migration-draft.md)。決定ではない。正本は design-policy §2.5）。
 - ~~名称そのもの（verEve か verEvery か）~~ → **verEve で確定**（運営者の決定 2026-10-27。2026-10-26 時点では「改名は確定。verEvery か verEve で迷っている」だった）。このリポジトリの実装（verEve）のまま進める。**公開後は拡張 ID を変えられない**（別の拡張になる）。ハブ側の引き継ぎ: portfolio_hub `docs/handoff/50-status/session-handoff-2026-10-26-service-review.md` 2 章。
 - 旧拡張をいつ非推奨にするか（新版が公開されて動作確認できた後）。
 - 商標を出願するか（区分 9・42）。診断 L-15 の方針（有料 20〜30 人で確認）に従うなら、出願は後。
