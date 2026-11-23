@@ -152,7 +152,7 @@ function parseRate(s: string | undefined): number | undefined {
 }
 
 async function probe(file: string, ctx: DiffContext): Promise<MediaInfo> {
-    const out = await runTool(ctx.tools.ffprobePath!, ['-hide_banner', '-loglevel', 'error', '-show_streams', '-show_format', '-of', 'json', file],
+    const out = await runTool(ctx.tools.ffprobePath!, ['-hide_banner', '-loglevel', 'error', '-protocol_whitelist', 'file', '-show_streams', '-show_format', '-of', 'json', file],
         { timeoutMs: 30_000, maxBytes: 4 << 20 });
     let j: { streams?: ProbeStream[]; format?: { duration?: string } };
     try { j = JSON.parse(out.stdout.toString('utf8')); } catch { throw new DiffFormatError('動画の情報を読めない'); }
@@ -243,8 +243,10 @@ async function pool<T>(items: T[], n: number, fn: (x: T) => Promise<void>): Prom
 interface Envelope { rms: Float32Array; zcr: Float32Array }
 
 async function audioEnvelope(file: string, info: MediaInfo, ctx: DiffContext): Promise<Envelope> {
-    // 長さが分からないときは 2 時間ぶんまで
-    const maxSec = info.durationSec > 0 ? info.durationSec + 5 : 7200;
+    // 長さが分からないときも、長すぎるときも maxMediaSeconds まで（無音はほとんど圧縮されないので、細工すると
+    // 小さなファイルが巨大な PCM に展開される。メモリはヒープの外なので --max-old-space-size では止まらない。レビュー #3）
+    const cap = ctx.limits.maxMediaSeconds;
+    const maxSec = Math.min(cap, info.durationSec > 0 ? info.durationSec + 5 : cap);
     const { stdout } = await runTool(ctx.tools.ffmpegPath!, [...FFMPEG_PRE, '-i', file, '-map', '0:a:0', '-vn', '-sn', '-dn',
         '-ac', '1', '-ar', String(AUDIO_RATE), '-f', 's16le', '-'],
     { timeoutMs: decodeTimeout(info.durationSec), maxBytes: Math.ceil(maxSec * AUDIO_RATE * 2), truncateOk: true });

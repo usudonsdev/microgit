@@ -22,6 +22,8 @@ export interface DiffLimits {
     maxPixels: number;
     /** 動画の比較に使うフレームの数の上限（両方の版それぞれ） */
     maxVideoFrames: number;
+    /** 音声を復号する長さの上限（秒）。8 kHz・16 ビットで 1 時間 = 約 58 MB */
+    maxMediaSeconds: number;
 }
 
 export const DEFAULT_LIMITS: DiffLimits = {
@@ -31,6 +33,7 @@ export const DEFAULT_LIMITS: DiffLimits = {
     maxChanges: 5_000,
     maxPixels: 80_000_000,
     maxVideoFrames: 200_000,
+    maxMediaSeconds: 4 * 3600,
 };
 
 /** 上限を超えた（ZIP 爆弾、巨大な表など）。呼ぶ側は「大きすぎて比べられない」として表示する */

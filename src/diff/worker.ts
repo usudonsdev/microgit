@@ -6,6 +6,7 @@
  */
 import * as fs from 'fs';
 import { selectDriver } from './registry';
+import { killRunningTools } from './image';
 import { DiffContext, DiffFormatError, DiffLimitError, DiffLimits, ErrorDiff, ExternalTools, StructuredDiff } from './types';
 
 export interface WorkerRequest {
@@ -38,6 +39,10 @@ export async function runRequest(req: WorkerRequest): Promise<StructuredDiff> {
 }
 
 if (require.main === module) {
+    // 頼んだ側が止めた（時間切れ・取り消し）・切れたときは、動かしている ffmpeg も止めてから終わる（レビュー #10）
+    const stop = () => { killRunningTools(); process.exit(1); };
+    process.on('SIGTERM', stop);
+    process.on('disconnect', stop);
     process.on('message', (req: WorkerRequest) => {
         runRequest(req).then(
             (result) => { process.send?.(result, () => process.exit(0)); },

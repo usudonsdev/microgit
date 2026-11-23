@@ -165,6 +165,7 @@
         },
         "vereve.diff.ffmpegPath": {
           "type": "string",
+          "scope": "machine",
           "default": "",
           "description": "動画（と PNG 以外の画像）の差分に使う ffmpeg の場所。同じフォルダの ffprobe も使う。空なら PATH から探す。見つからなければ動画の差分は出せない（docs/structured-diff.md）"
         },

@@ -23,6 +23,8 @@ export interface Grid {
     /** 書式の指紋を、比べる観点ごとに分けたもの（指紋 → 観点ごとの値） */
     styleAspects?: (sig: string) => Record<string, string>;
     merges?: string[];
+    /** シートの名前（式の中の、自分のシートの名前の付いた参照を見分けるため） */
+    sheetName?: string;
 }
 
 const COL_FACTOR = 20000; // 列の最大は 16384
@@ -53,19 +55,44 @@ export function parseA1(ref: string): { r: number; c: number } | undefined {
     return { r: parseInt(m[2], 10), c: colIndex(m[1]) };
 }
 
+/** rewriteRefs の指定 */
+export interface RewriteOptions {
+    /** 自分のシートの名前。この名前の付いた参照も書き換える */
+    sheetName?: string;
+    /** シート名の付いた参照も全部書き換える（共有の式のずらし。Excel は他のシートの参照もずらす。レビュー #6） */
+    allSheets?: boolean;
+    /** 自分のシートの名前の付いた参照の、シート名をこの名前に書き換える（シートの名前を変えたとき。レビュー #7） */
+    renameSheet?: string;
+    /** 自分のシートの名前を外す（対応づけの指紋で、シートの名前を変えても同じ指紋にするため） */
+    dropOwnSheet?: boolean;
+}
+
+/** 参照の候補（シート名の付いたもの・付かないもの）。y：その位置からだけ試す */
+const RE_REF = /(?:('(?:[^']|'')+'|[A-Za-z0-9_.\u0080-\uffff]+)!)?(\$?)([A-Za-z]{1,3})(\$?)(\d{1,7})(?![A-Za-z0-9_(.!\u0080-\uffff])/y;
+/** 識別子・数値・名前の並び（参照でなければ、まとめて読み飛ばす） */
+const RE_WORD = /[A-Za-z0-9_.$\u0080-\uffff]+/y;
+
+function sheetQualifier(name: string): string {
+    return /^[A-Za-z_\u0080-\uffff][A-Za-z0-9_.\u0080-\uffff]*$/.test(name) ? `${name}!` : `'${name.replace(/'/g, "''")}'!`;
+}
+
 /**
- * 式の中のセル参照（シート名の付かないもの、または sheetName の付いたもの）を、mapRef で書き換える。
+ * 式の中のセル参照（シート名の付かないもの、または options.sheetName の付いたもの）を、mapRef で書き換える。
  * 文字列の中（"..."）は触らない。関数名（LOG10( など）・名前の定義は参照として扱わない。
- * mapRef が undefined を返したら #REF! にする
+ * mapRef が undefined を返したら #REF! にする。
+ * 線形の時間で読む：参照を試すのは語の並びの先頭だけで、だめなら並びごと読み飛ばす（細工した式で時間を使い切らないため。レビュー #1）。
+ * 引き受けること：列全体・行全体の参照（B:B、3:5）は書き換えない（レビュー #7）
  */
 export function rewriteRefs(
     formula: string,
     mapRef: (r: number, c: number, absR: boolean, absC: boolean) => { r: number; c: number } | undefined,
-    sheetName?: string,
+    options: RewriteOptions | string = {},
 ): string {
+    const opt: RewriteOptions = typeof options === 'string' ? { sheetName: options } : options;
     let out = '';
     let i = 0;
-    while (i < formula.length) {
+    const n = formula.length;
+    while (i < n) {
         const ch = formula[i];
         if (ch === '"') {
             const end = findStringEnd(formula, i);
@@ -73,29 +100,38 @@ export function rewriteRefs(
             i = end;
             continue;
         }
-        const rest = formula.slice(i);
-        const prev = i > 0 ? formula[i - 1] : '';
-        const m = /^((?:'(?:[^']|'')+'|[A-Za-z0-9_.\u0080-￿]+)!)?(\$?)([A-Za-z]{1,3})(\$?)(\d{1,7})(?![A-Za-z0-9_(.!])/.exec(rest);
-        if (m && !/[A-Za-z0-9_.$\u0080-￿]/.test(prev)) {
-            const qual = m[1];
-            const qualName = qual ? qual.slice(0, -1).replace(/^'|'$/g, '').replace(/''/g, "'") : undefined;
-            const own = !qual || (sheetName !== undefined && qualName === sheetName);
-            if (own) {
-                const r = parseInt(m[5], 10);
-                const c = colIndex(m[3]);
-                const mapped = mapRef(r, c, m[4] === '$', m[2] === '$');
-                out += (qual ?? '') + (mapped ? `${m[2]}${colName(mapped.c)}${m[4]}${mapped.r}` : '#REF!');
-            } else {
-                out += m[0];
+        const isQuote = ch === "'";
+        if (isQuote || /[A-Za-z0-9_.$\u0080-\uffff]/.test(ch)) {
+            RE_REF.lastIndex = i;
+            const m = RE_REF.exec(formula);
+            if (m) {
+                const qual = m[1];
+                const qualName = qual ? (qual.startsWith("'") ? qual.slice(1, -1).replace(/''/g, "'") : qual) : undefined;
+                const own = !qual || opt.allSheets || (opt.sheetName !== undefined && qualName === opt.sheetName);
+                if (own) {
+                    const mapped = mapRef(parseInt(m[5], 10), colIndex(m[3]), m[4] === '$', m[2] === '$');
+                    const q = qual && opt.dropOwnSheet && qualName === opt.sheetName ? '' : qual ? (opt.renameSheet !== undefined && qualName === opt.sheetName ? sheetQualifier(opt.renameSheet) : `${qual}!`) : '';
+                    out += q + (mapped ? `${m[2]}${colName(mapped.c)}${m[4]}${mapped.r}` : '#REF!');
+                } else {
+                    out += m[0];
+                }
+                i = RE_REF.lastIndex;
+                continue;
             }
-            i += m[0].length;
-            continue;
-        }
-        // 識別子（関数名・名前）はまとめて読み飛ばす（途中から参照として読まないため）
-        const id = /^[A-Za-z_\u0080-￿][A-Za-z0-9_.\u0080-￿]*/.exec(rest);
-        if (id && !/[A-Za-z0-9_.$]/.test(prev)) {
-            out += id[0];
-            i += id[0].length;
+            if (isQuote) {
+                // 閉じていない・参照の付かない引用は、そのまま残りを写す（閉じ引用符を探すのは 1 回だけ）
+                let j = i + 1;
+                while (j < n) { if (formula[j] === "'") { if (formula[j + 1] === "'") { j += 2; continue; } break; } j++; }
+                const end = Math.min(n, j + 1);
+                out += formula.slice(i, end);
+                i = end;
+                continue;
+            }
+            RE_WORD.lastIndex = i;
+            const w = RE_WORD.exec(formula);
+            const end = w ? RE_WORD.lastIndex : i + 1;
+            out += formula.slice(i, end);
+            i = end;
             continue;
         }
         out += ch;
@@ -123,7 +159,7 @@ export function shiftFormula(formula: string, dr: number, dc: number): string {
         const nc = absC ? c : c + dc;
         if (nr < 1 || nc < 1) { return undefined; }
         return { r: nr, c: nc };
-    });
+    }, { allSheets: true });
 }
 
 /** 対応づけた結果：旧の番号 → 新の番号（削除は undefined） */
@@ -160,7 +196,7 @@ function rowKeys(g: Grid, cols?: number[]): string[] {
         const r = keyRow(k);
         let list = byRow.get(r);
         if (!list) { list = []; byRow.set(r, list); }
-        list.push([keyCol(k), relCellText(v, r, keyCol(k))]);
+        list.push([keyCol(k), relCellText(v, r, keyCol(k), g.sheetName)]);
     }
     const out: string[] = [];
     const colPos = cols ? new Map(cols.map((c, i) => [c, i])) : undefined;
@@ -192,7 +228,7 @@ function colKeys(g: Grid, rows: number[]): string[] {
         const c = keyCol(k);
         let list = byCol.get(c);
         if (!list) { list = []; byCol.set(c, list); }
-        list.push([p, relCellText(v, keyRow(k), c)]);
+        list.push([p, relCellText(v, keyRow(k), c, g.sheetName)]);
     }
     const out: string[] = [];
     for (let c = 1; c <= g.cols; c++) {
@@ -205,9 +241,21 @@ function colKeys(g: Grid, rows: number[]): string[] {
 /**
  * 指紋に使うセルの文字列。式は相対の形（R[-1]C[0] のような、そのセルからの差）にして、行・列がずれても同じ指紋にする
  */
-function relCellText(c: CellSnapshot, r: number, col: number): string {
+const relCache = new WeakMap<CellSnapshot, string>();
+
+function relCellText(c: CellSnapshot, r: number, col: number, sheetName?: string): string {
     if (!c.f) { return cellText(c); }
-    const rel = rewriteRefs(c.f, (rr, cc, absR, absC) => ({ r: absR ? rr : rr - r + 1_000_000, c: absC ? cc : cc - col + 10_000 }));
+    // セルは位置ごとに別のオブジェクトなので、セルで覚えてよい（同じセルを何度も書き換えない。レビュー #1）
+    const hit = relCache.get(c);
+    if (hit !== undefined) { return hit; }
+    const v = relCellTextUncached(c, r, col, sheetName);
+    relCache.set(c, v);
+    return v;
+}
+
+function relCellTextUncached(c: CellSnapshot, r: number, col: number, sheetName?: string): string {
+    const rel = rewriteRefs(c.f ?? '', (rr, cc, absR, absC) => ({ r: absR ? rr : rr - r + 1_000_000, c: absC ? cc : cc - col + 10_000 }),
+        { sheetName, dropOwnSheet: true });
     return `${c.t ?? ''}\u0001\u0001${rel}`;
 }
 
@@ -248,7 +296,7 @@ function alignAxis(a: string[], b: string[]): PairedOp[] {
 }
 
 /** 2 つの表の差分。limit を超えたセルの変更は打ち切る */
-export function diffGrids(oldG: Grid, newG: Grid, maxChanges: number, sheetName?: string): Omit<SheetDiff, 'name' | 'status'> & { changed: boolean } {
+export function diffGrids(oldG: Grid, newG: Grid, maxChanges: number, sheetName?: string, oldSheetName?: string): Omit<SheetDiff, 'name' | 'status'> & { changed: boolean } {
     // 行を先に対応づける順と、列を先にする順の両方を試し、同じと分かったセルが多いほうを使う
     // （列を挿入すると全行の指紋が変わり、行を挿入すると全列の指紋が変わるため、どちらが先がよいかは変更しだい）
     const a = alignRowsFirst(oldG, newG);
@@ -281,7 +329,7 @@ export function diffGrids(oldG: Grid, newG: Grid, maxChanges: number, sheetName?
         const nk = cellKey(nr, nc);
         seenNew.add(nk);
         const ncell = newG.cells.get(nk);
-        const ch = compareCells(oc, ncell, oldG, newG, k, nk, mapOldRef, sheetName);
+        const ch = compareCells(oc, ncell, oldG, newG, k, nk, mapOldRef, sheetName, oldSheetName);
         if (ch) { push({ oldRef: a1(r, c), newRef: a1(nr, nc), ...ch }); }
     }
     for (const [k, nc] of newG.cells) {
@@ -364,7 +412,7 @@ function matchScore(oldG: Grid, newG: Grid, rowOps: PairedOp[], colOps: PairedOp
         const nc = cm.oldToNew.get(keyCol(k));
         if (nr === undefined || nc === undefined) { continue; }
         const ncell = newG.cells.get(cellKey(nr, nc));
-        if (ncell && ncell.v === oc.v && relCellText(ncell, nr, nc) === relCellText(oc, keyRow(k), keyCol(k))) { n++; }
+        if (ncell && ncell.v === oc.v && relCellText(ncell, nr, nc, newG.sheetName) === relCellText(oc, keyRow(k), keyCol(k), oldG.sheetName)) { n++; }
     }
     return n;
 }
@@ -387,6 +435,7 @@ function compareCells(
     nk: number,
     mapOldRef: (r: number, c: number) => { r: number; c: number } | undefined,
     sheetName: string | undefined,
+    oldSheetName: string | undefined,
 ): Pick<CellChange, 'change' | 'old' | 'new' | 'styleAspects'> | undefined {
     const oEmpty = isEmptyCell(oc);
     const nEmpty = isEmptyCell(nc);
@@ -396,7 +445,8 @@ function compareCells(
     const n = nc!;
     if (oc.f || n.f) {
         if (!oc.f || !n.f) { return { change: 'formula', old: oc, new: n }; }
-        const moved = rewriteRefs(oc.f, mapOldRef, sheetName);
+        // 旧の式は旧のシート名で書かれている。名前を変えたなら、自分のシートの参照の名前も新しい名前にしてから比べる
+        const moved = rewriteRefs(oc.f, mapOldRef, { sheetName: oldSheetName ?? sheetName, renameSheet: oldSheetName !== undefined && oldSheetName !== sheetName ? sheetName : undefined });
         if (normFormula(moved) !== normFormula(n.f)) { return { change: 'formula', old: oc, new: n }; }
         if ((oc.v ?? '') !== (n.v ?? '') || (oc.t ?? '') !== (n.t ?? '')) { return { change: 'computed', old: oc, new: n }; }
         return styleChange(oc, n, oldG, newG, ok, nk);

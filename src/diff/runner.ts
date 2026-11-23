@@ -34,7 +34,8 @@ export const CACHE_MAX_ENTRIES = 300;
 
 export function cacheKey(driverId: string, driverVersion: number, limits: DiffLimits, tools: ExternalTools, oldBytes?: Buffer, newBytes?: Buffer): string {
     const h = createHash('sha256');
-    h.update(`${driverId}@${driverVersion}\n${JSON.stringify(limits)}\n${tools.ffmpegPath ? 'ffmpeg' : 'no-ffmpeg'}\n`);
+    // ツールは場所まで入れる（ffprobe だけ後から入れた、別の ffmpeg に変えた、で古い結果を返さないため。レビュー #5）
+    h.update(`${driverId}@${driverVersion}\n${JSON.stringify(limits)}\n${tools.ffmpegPath ?? '-'}\n${tools.ffprobePath ?? '-'}\n`);
     h.update(oldBytes ? createHash('sha256').update(oldBytes).digest('hex') : '-');
     h.update('\n');
     h.update(newBytes ? createHash('sha256').update(newBytes).digest('hex') : '-');
@@ -64,12 +65,17 @@ export async function computeDiff(req: ComputeRequest): Promise<StructuredDiff> 
         if (newFile) { fs.writeFileSync(newFile, req.newBytes!); }
         const work = fs.mkdtempSync(path.join(tmpDir, 'work-'));
         const result = await runWorker({ path: req.path, oldFile, newFile, limits, tools, tmpDir: work }, req, driver.id, driver.version);
-        if (cacheFile && !(result.kind === 'error' && (result.reason === 'timeout' || result.reason === 'internal'))) {
+        // エラーのうち、入力で決まるもの（上限・形式）だけキャッシュする。ツールを使うドライバのエラーは、
+        // ツールの一時的な失敗やツールの入れ替えで変わりうるのでキャッシュしない（レビュー #5）
+        const usesTools = driver.id === 'image' || driver.id === 'video';
+        const cacheable = result.kind !== 'error' || (!usesTools && (result.reason === 'limit' || result.reason === 'format'));
+        if (cacheFile && cacheable) {
             writeCache(req.cacheDir!, cacheFile, result);
         }
         return result;
     } finally {
-        fs.rmSync(tmpDir, { recursive: true, force: true });
+        // Windows では、止めた ffmpeg がまだファイルを開いていて消せないことがある。消せなくても結果は返す（レビュー #10）
+        try { fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch { /* 一時フォルダは OS が片付ける */ }
     }
 }
 
@@ -94,7 +100,11 @@ function runWorker(wreq: WorkerRequest, req: ComputeRequest, driverId: string, d
             done = true;
             clearTimeout(timer);
             req.signal?.removeEventListener('abort', onAbort);
-            if (child.exitCode === null) { child.kill('SIGKILL'); }
+            if (child.exitCode === null) {
+                // まず SIGTERM（worker.ts が ffmpeg を止めてから終わる）。2 秒で終わらなければ SIGKILL
+                child.kill('SIGTERM');
+                setTimeout(() => { if (child.exitCode === null) { child.kill('SIGKILL'); } }, 2000).unref();
+            }
             resolve(r);
         };
         const timeoutMs = req.timeoutMs ?? 120_000;

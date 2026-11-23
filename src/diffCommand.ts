@@ -28,6 +28,14 @@ export interface DiffCommandDeps {
     log(message: string, level?: 'INFO' | 'WARN' | 'ERROR'): void;
 }
 
+/** blob が大きすぎて差分に使えない（readBlob が投げる） */
+export class BlobTooLargeError extends Error {
+    constructor(readonly size: number) {
+        super(`大きすぎて比べられない（${Math.round(size / 1024 / 1024)} MB。上限は 1 つの版あたり 512 MB）`);
+        this.name = 'BlobTooLargeError';
+    }
+}
+
 /** コミット・パスに使ってよい文字か（Git の引数に渡す前に確かめる） */
 const SAFE_REV = /^[0-9a-f]{7,64}$/;
 
@@ -72,8 +80,15 @@ export function registerStructuredDiff(context: vscode.ExtensionContext, deps: D
             }
         }
         const parent = await firstParent(deps, shadow, hash);
-        const oldBytes = parent && target.status !== 'A' ? await deps.readBlob(shadow, parent, target.path) : undefined;
-        const newBytes = target.status !== 'D' ? await deps.readBlob(shadow, hash, target.path) : undefined;
+        let oldBytes: Buffer | undefined;
+        let newBytes: Buffer | undefined;
+        try {
+            oldBytes = parent && target.status !== 'A' ? await deps.readBlob(shadow, parent, target.path) : undefined;
+            newBytes = target.status !== 'D' ? await deps.readBlob(shadow, hash, target.path) : undefined;
+        } catch (err: unknown) {
+            if (err instanceof BlobTooLargeError) { vscode.window.showWarningMessage(`[verEve] ${target.path}：${err.message}`); return; }
+            throw err;
+        }
         const head = (newBytes ?? oldBytes ?? Buffer.alloc(0)).subarray(0, 4096);
         const driver = selectDriver(target.path, head);
         const shortHash = hash.slice(0, 7);

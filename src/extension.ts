@@ -64,7 +64,7 @@ import { durabilityGitArgs, getDurability, setDurability } from './durability';
 import { PublishQueue } from './publishQueue';
 import { RecordedContents, SettleWatcher, decideExternalSave, isInsideGitDir, isTransientFileName } from './externalSave';
 import { buildPublishConfirmMessage } from './publishConfirm';
-import { registerStructuredDiff } from './diffCommand';
+import { BlobTooLargeError, registerStructuredDiff } from './diffCommand';
 
 /** workspaceState のキー：verEve が有効か（真偽値） */
 const STATE_ENABLED = 'vereve.enabled';
@@ -1353,16 +1353,24 @@ async function runGitAsync(cwd: string, args: string[]): Promise<string> {
 }
 
 /** runGitAsync が失敗したら、例外にせず undefined を返す版 */
+/** 差分に使う blob の大きさの上限（1 つの版あたり）。両方の版を拡張機能ホストのメモリに持つため */
+const MAX_DIFF_BLOB_BYTES = 512 * 1024 * 1024;
+
 /** shadow の blob（rev:relPath）をバイト列で読む。無ければ undefined。速い記録の書き出しを先に吐き出させる（ADR-0015） */
 async function readShadowBlob(cwd: string, rev: string, relPath: string): Promise<Buffer | undefined> {
     if (!isSafeGitRef(rev) || relPath.includes('\0')) { return undefined; }
     flushPendingGitWrites(cwd);
     try {
+        // 先に大きさを確かめる。差分の計算のために、拡張機能ホストに巨大な blob を読み込まない（レビュー #4）
+        const size = Number((await execFileAsync('git', ['cat-file', '-s', `${rev}:${relPath}`], { cwd, encoding: 'utf8', windowsHide: true })).stdout.trim());
+        if (!(size >= 0)) { return undefined; }
+        if (size > MAX_DIFF_BLOB_BYTES) { throw new BlobTooLargeError(size); }
         const { stdout } = await execFileAsync('git', ['cat-file', 'blob', `${rev}:${relPath}`], {
-            cwd, encoding: 'buffer', windowsHide: true, maxBuffer: 2 * 1024 * 1024 * 1024,
+            cwd, encoding: 'buffer', windowsHide: true, maxBuffer: MAX_DIFF_BLOB_BYTES + 1024,
         });
         return stdout as Buffer;
-    } catch {
+    } catch (err: unknown) {
+        if (err instanceof BlobTooLargeError) { throw err; }
         return undefined;
     }
 }

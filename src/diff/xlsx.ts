@@ -131,8 +131,27 @@ function siText(si: XmlElement): string {
     return s;
 }
 
-const RE_ROW = /<(?:\w+:)?row\b([^>]*?)(?:\/>|>([\s\S]*?)<\/(?:\w+:)?row>)/g;
-const RE_CELL = /<(?:\w+:)?c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/(?:\w+:)?c>)/g;
+/**
+ * name の要素を、文書の順に 1 つずつ取り出す（属性の文字列と中身）。閉じタグは開きタグのあとから 1 回だけ探し、
+ * 次の探索は閉じタグのあとから始める。閉じていない要素が続いても、全体を何度も読み直さない（線形。レビュー #1）。
+ * 閉じタグが見つからなければ、そこで終わる
+ */
+function* scanElements(text: string, name: string): Generator<[string, string]> {
+    const open = new RegExp(`<(?:\\w+:)?${name}\\b([^>]*?)(/?)>`, 'g');
+    const close = new RegExp(`</(?:\\w+:)?${name}>`, 'g');
+    let m: RegExpExecArray | null;
+    while ((m = open.exec(text))) {
+        if (m[2] === '/') { yield [m[1], '']; continue; }
+        close.lastIndex = open.lastIndex;
+        const c = close.exec(text);
+        if (!c) { return; }
+        yield [m[1], text.slice(open.lastIndex, c.index)];
+        open.lastIndex = close.lastIndex;
+    }
+}
+
+const MAX_ROWS = 1_048_576;
+const MAX_COLS = 16_384;
 const RE_F = /<(?:\w+:)?f\b([^>]*?)(?:\/>|>([\s\S]*?)<\/(?:\w+:)?f>)/;
 const RE_V = /<(?:\w+:)?v\b[^>]*>([\s\S]*?)<\/(?:\w+:)?v>/;
 const RE_IS = /<(?:\w+:)?is\b[^>]*>([\s\S]*?)<\/(?:\w+:)?is>/;
@@ -145,7 +164,7 @@ function attr(s: string, name: string): string | undefined {
 }
 
 /** シートの XML を表にする */
-function readSheet(book: Book, part: string, ctx: DiffContext, budget: { cells: number }): Grid {
+function readSheet(book: Book, part: string, ctx: DiffContext, budget: { cells: number }, sheetName?: string): Grid {
     const xml = book.zip.readText(part) ?? '';
     const cells = new Map<number, CellSnapshot>();
     const styleSig = new Map<number, string>();
@@ -155,25 +174,22 @@ function readSheet(book: Book, part: string, ctx: DiffContext, budget: { cells: 
     let rowNo = 0;
     const sd = /<(?:\w+:)?sheetData\b[^>]*?(?:\/>|>([\s\S]*?)<\/(?:\w+:)?sheetData>)/.exec(xml);
     const data = sd?.[1] ?? '';
-    RE_ROW.lastIndex = 0;
-    let rm: RegExpExecArray | null;
-    while ((rm = RE_ROW.exec(data))) {
-        const rAttr = attr(rm[1], 'r');
+    for (const [rowAttrs, body] of scanElements(data, 'row')) {
+        const rAttr = attr(rowAttrs, 'r');
         rowNo = rAttr ? parseInt(rAttr, 10) : rowNo + 1;
-        const body = rm[2] ?? '';
         let colNo = 0;
-        RE_CELL.lastIndex = 0;
-        let cm: RegExpExecArray | null;
-        while ((cm = RE_CELL.exec(body))) {
+        for (const [cellAttrs, inner] of scanElements(body, 'c')) {
+            const cm = [undefined, cellAttrs, inner] as const;
             const ref = attr(cm[1], 'r');
             const pos = ref ? parseA1(ref) : undefined;
             const r = pos?.r ?? rowNo;
             const c = pos?.c ?? colNo + 1;
             colNo = c;
+            // Excel の上限（1,048,576 行・16,384 列）を超える番地は読まない。セルの鍵（行 × 20000 + 列）がぶつかるため（レビュー #2）
+            if (!(r >= 1 && r <= MAX_ROWS && c >= 1 && c <= MAX_COLS)) { throw new DiffFormatError(`セルの番地が範囲の外（行 ${r}、列 ${c}）`); }
             if (--budget.cells < 0) { throw new DiffLimitError(`セルが多すぎる（上限 ${ctx.limits.maxCells}）`); }
             const t = attr(cm[1], 't') ?? 'n';
             const s = attr(cm[1], 's');
-            const inner = cm[2] ?? '';
             const snap: CellSnapshot = { t };
             const fm = RE_F.exec(inner);
             if (fm) {
@@ -245,6 +261,7 @@ function readSheet(book: Book, part: string, ctx: DiffContext, budget: { cells: 
         styleSig,
         styleAspects: (sig) => book.styleAspects.get(sig) ?? {},
         merges,
+        sheetName,
     };
 }
 
@@ -279,9 +296,9 @@ export const xlsxDriver: DiffDriver = {
         const sheets: SheetDiff[] = [];
         let truncated = false;
         for (const { o, n } of pairs) {
-            const og = o && oldBook ? readSheet(oldBook, o.part, ctx, budget) : emptyGrid();
-            const ng = n && newBook ? readSheet(newBook, n.part, ctx, budget) : emptyGrid();
-            const d = diffGrids(og, ng, Math.max(0, remaining), n?.name ?? o?.name);
+            const og = o && oldBook ? readSheet(oldBook, o.part, ctx, budget, o.name) : emptyGrid();
+            const ng = n && newBook ? readSheet(newBook, n.part, ctx, budget, n.name) : emptyGrid();
+            const d = diffGrids(og, ng, Math.max(0, remaining), n?.name ?? o?.name, o?.name);
             remaining -= d.cells.length;
             if (d.truncated) { truncated = true; }
             const status: SheetDiff['status'] = !o ? 'added' : !n ? 'deleted'

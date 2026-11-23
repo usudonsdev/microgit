@@ -193,15 +193,27 @@ function compareSlide(a: Slide, b: Slide, oldIndex: number, newIndex: number, if
 function compareShapes(a: Shape[], b: Shape[]): ShapeChange[] {
     const matchOf = new Map<number, number>(); // 新 → 旧
     const used = new Set<number>();
-    const tryMatch = (same: (x: Shape, y: Shape) => boolean) => {
+    // 鍵（id か名前）ごとに、まだ使っていない旧の図形の番号を並べておく。図形ごとに旧を全部見ない（O(n²) にしない。レビュー #1）
+    const tryMatch = (keyOf: (x: Shape) => string | undefined) => {
+        const byKey = new Map<string, number[]>();
+        a.forEach((x, k) => {
+            if (used.has(k)) { return; }
+            const key = keyOf(x);
+            if (key === undefined) { return; }
+            const list = byKey.get(key);
+            if (list) { list.push(k); } else { byKey.set(key, [k]); }
+        });
         for (let j = 0; j < b.length; j++) {
             if (matchOf.has(j)) { continue; }
-            const i = a.findIndex((x, k) => !used.has(k) && same(x, b[j]));
-            if (i >= 0) { matchOf.set(j, i); used.add(i); }
+            const key = keyOf(b[j]);
+            const list = key === undefined ? undefined : byKey.get(key);
+            while (list && list.length && used.has(list[0])) { list.shift(); }
+            const i = list?.shift();
+            if (i !== undefined) { matchOf.set(j, i); used.add(i); }
         }
     };
-    tryMatch((x, y) => !!x.id && x.id === y.id && x.isPic === y.isPic);
-    tryMatch((x, y) => !!x.name && x.name === y.name);
+    tryMatch((x) => (x.id ? `${x.isPic ? 'p' : 's'}:${x.id}` : undefined));
+    tryMatch((x) => (x.name ? x.name : undefined));
     const out: ShapeChange[] = [];
     for (let j = 0; j < b.length; j++) {
         const y = b[j];

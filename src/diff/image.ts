@@ -54,6 +54,8 @@ export interface RunToolOptions {
 export function runTool(file: string, args: string[], opt: RunToolOptions): Promise<{ stdout: Buffer; truncated: boolean }> {
     return new Promise((resolve, reject) => {
         const child = spawn(file, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+        runningTools.add(child);
+        child.on('exit', () => runningTools.delete(child));
         const chunks: Buffer[] = [];
         let size = 0;
         let truncated = false;
@@ -89,7 +91,18 @@ export function runTool(file: string, args: string[], opt: RunToolOptions): Prom
 }
 
 /** ffmpeg に渡す前置きの引数 */
-export const FFMPEG_PRE = ['-nostdin', '-hide_banner', '-loglevel', 'error'];
+// -protocol_whitelist file：入力にできるのはローカルのファイルだけ。細工したファイル（再生リストや concat の形式）が
+// 別のファイルや URL を読み込ませるのを防ぐ（レビュー #9）
+export const FFMPEG_PRE = ['-nostdin', '-hide_banner', '-loglevel', 'error', '-protocol_whitelist', 'file'];
+
+/** 動いている外部ツールのプロセス。worker.ts が止められるときに道連れにする（レビュー #10） */
+export const runningTools = new Set<ReturnType<typeof spawn>>();
+
+/** 動いている外部ツールを全部止める */
+export function killRunningTools(): void {
+    for (const c of runningTools) { try { c.kill('SIGKILL'); } catch { /* ignore */ } }
+    runningTools.clear();
+}
 
 /** 版の中身を置いたファイル。worker.ts が作っていなければ tmpDir に書く */
 export async function inputFile(given: string | undefined, bytes: Buffer, ctx: DiffContext, p: string): Promise<string> {
@@ -278,7 +291,7 @@ async function decodeImage(bytes: Buffer, given: string | undefined, input: Diff
     if (isPng(bytes)) { return decodePng(bytes, ctx.limits.maxPixels); }
     if (!ctx.tools.ffmpegPath || !ctx.tools.ffprobePath) { return undefined; }
     const file = await inputFile(given, bytes, ctx, input.path);
-    const probe = await runTool(ctx.tools.ffprobePath, ['-hide_banner', '-loglevel', 'error', '-select_streams', 'v:0',
+    const probe = await runTool(ctx.tools.ffprobePath, ['-hide_banner', '-loglevel', 'error', '-protocol_whitelist', 'file', '-select_streams', 'v:0',
         '-show_entries', 'stream=width,height', '-of', 'json', file], { timeoutMs: 30_000, maxBytes: 1 << 20 });
     let w = 0;
     let h = 0;

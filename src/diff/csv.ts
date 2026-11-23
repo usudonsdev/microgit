@@ -52,7 +52,13 @@ export function parseCsv(text: string, delim: string, maxCells: number): string[
             field += ch; i++; continue;
         }
         if (ch === '"' && field === '') { inQ = true; i++; continue; }
-        if (ch === delim) { endField(); i++; continue; }
+        if (ch === delim) {
+            endField();
+            // Excel と同じ列の上限。セルの鍵（行 × 20000 + 列）がぶつからないように（レビュー #2）
+            if (row.length >= 16_384) { throw new DiffLimitError('列が多すぎる（上限 16384）'); }
+            i++;
+            continue;
+        }
         if (ch === '\r' || ch === '\n') {
             endField();
             rows.push(row);

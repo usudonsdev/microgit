@@ -37,7 +37,7 @@ export function decodeEntities(s: string): string {
             if (!Number.isFinite(code) || code < 0 || code > 0x10ffff) { return m; }
             try { return String.fromCodePoint(code); } catch { return m; }
         }
-        return ENTITIES[body] ?? m;
+        return Object.prototype.hasOwnProperty.call(ENTITIES, body) ? ENTITIES[body] : m;
     });
 }
 
@@ -45,6 +45,8 @@ export function decodeEntities(s: string): string {
 export function parseXml(text: string): XmlElement {
     const root: XmlElement = { name: '#document', attrs: {}, children: [] };
     const stack: XmlElement[] = [root];
+    // 開いている要素の名前ごとの数。対応する開きタグの無い閉じタグで、スタックを毎回たどらないため（レビュー #1）
+    const openCount = new Map<string, number>();
     let i = 0;
     const n = text.length;
     while (i < n) {
@@ -86,9 +88,13 @@ export function parseXml(text: string): XmlElement {
             const end = text.indexOf('>', lt + 2);
             if (end < 0) { break; }
             const name = text.slice(lt + 2, end).trim();
-            // 対応する開きタグまで戻る。見つからなければ無視する
-            for (let k = stack.length - 1; k > 0; k--) {
-                if (stack[k].name === name) { stack.length = k; break; }
+            // 対応する開きタグまで戻る。開いていなければ無視する
+            if ((openCount.get(name) ?? 0) > 0) {
+                for (let k = stack.length - 1; k > 0; k--) {
+                    const nm = stack[k].name;
+                    openCount.set(nm, (openCount.get(nm) ?? 1) - 1);
+                    if (nm === name) { stack.length = k; break; }
+                }
             }
             i = end + 1;
             continue;
@@ -110,7 +116,7 @@ export function parseXml(text: string): XmlElement {
         if (!m) { i = j + 1; continue; }
         const el: XmlElement = { name: m[1], attrs: parseAttrs(body.slice(m[1].length)), children: [] };
         stack[stack.length - 1].children.push(el);
-        if (!selfClose) { stack.push(el); }
+        if (!selfClose) { stack.push(el); openCount.set(el.name, (openCount.get(el.name) ?? 0) + 1); }
         i = j + 1;
     }
     const top = root.children.find(isElement);
@@ -124,7 +130,8 @@ function pushText(parent: XmlElement, raw: string): void {
 }
 
 function parseAttrs(s: string): Record<string, string> {
-    const out: Record<string, string> = {};
+    // 属性の名前に __proto__ などが来ても、普通のキーとして持つ（プロトタイプの無いオブジェクト。レビュー #8）
+    const out: Record<string, string> = Object.create(null);
     const re = /([^\s=]+)\s*=\s*("([^"]*)"|'([^']*)')/g;
     let m: RegExpExecArray | null;
     while ((m = re.exec(s))) {
