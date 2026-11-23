@@ -38,6 +38,10 @@ pub struct Engine {
     pub cfg: Config,
     /// チーム ID。まだ何も Publish していない端末は、履歴フォルダの目印に合わせて変えることがある(share::effective_team)
     team: Mutex<String>,
+    /// Publish・Fetch・裏での分割を、1 つずつ行うための錠(レビュー #6・#7: 分割と Publish、取り込みと Publish の食い違いを防ぐ)
+    pub(crate) op: Mutex<()>,
+    /// 分けられない(ZIP でない、分けても一致しない、読めない)と分かった記録。毎回読み直さないため(レビュー #5)
+    no_convert: Mutex<std::collections::HashSet<String>>,
     pub dir: PathBuf,
     pub local: ChunkStore,
     records_dir: PathBuf,
@@ -83,6 +87,8 @@ impl Engine {
         };
         let e = Engine {
             team: Mutex::new(cfg.team_id.clone()),
+            op: Mutex::new(()),
+            no_convert: Mutex::new(Default::default()),
             cfg,
             dir: dir.to_path_buf(),
             local,
@@ -169,8 +175,8 @@ impl Engine {
 
     /// 履歴の対象か: 共有フォルダの中の、無視しないファイル(設計メモ §7.2。アップロード済みかは判定できないので、中にあることで代える)
     pub fn rel_of(&self, abs: &Path) -> Option<String> {
-        let root = fs::canonicalize(self.shared()).unwrap_or_else(|_| self.shared().to_path_buf());
-        let abs = fs::canonicalize(abs).unwrap_or_else(|_| abs.to_path_buf());
+        let root = crate::util::norm_path(self.shared());
+        let abs = crate::util::norm_path(abs);
         let rel = rel_posix(&root, &abs)?;
         (!is_ignored_rel(&rel)).then_some(rel)
     }
@@ -230,11 +236,6 @@ impl Engine {
                 if l.sha256 == sha {
                     return Ok(None);
                 }
-            }
-            // 他の人の版と同じ中身(Drive が届けた本文)なら記録しない
-            let g = self.inner.lock().unwrap();
-            if g.by_path.get(&path_key(rel)).map(|v| v.iter().any(|x| x.device != self.cfg.device_id && x.sha256 == sha)).unwrap_or(false) {
-                return Ok(None);
             }
         }
         let chunks = self.local.put_chunked(bytes)?;
@@ -307,24 +308,42 @@ impl Engine {
     /// まだ Publish していない自分の記録のうち、ZIP の文書を分けた形に置き換える(裏の処理。preflate メモ §5)。
     /// 置き換えた数を返す
     pub fn convert_pending(&self) -> Result<usize> {
+        let _op = self.op.lock().unwrap();
+        self.convert_pending_locked()
+    }
+
+    /// `op` の錠を持っている呼び出し元から使う
+    pub(crate) fn convert_pending_locked(&self) -> Result<usize> {
+        let skip = self.no_convert.lock().unwrap().clone();
         let todo: Vec<Record> = {
             let g = self.inner.lock().unwrap();
             g.by_path
                 .values()
                 .flatten()
                 .filter(|r| r.device == self.cfg.device_id && r.seq > g.state.published_upto)
-                .filter(|r| matches!(r.content, Content::Whole { .. }))
+                .filter(|r| matches!(r.content, Content::Whole { .. }) && !skip.contains(&r.id))
                 .cloned()
                 .collect()
         };
         let mut n = 0;
         for r in todo {
-            let bytes = self.materialize(&r)?;
+            // 1 つの記録が読めなくても、ほかの記録の分割と Publish を止めない(レビュー #5)
+            let give_up = |id: &str| {
+                self.no_convert.lock().unwrap().insert(id.to_string());
+            };
+            let Ok(bytes) = self.materialize(&r) else {
+                give_up(&r.id);
+                continue;
+            };
             if !bytes.starts_with(b"PK\x03\x04") {
+                give_up(&r.id);
                 continue;
             }
             let split = ooxml::split(&bytes);
-            let ooxml::Split::Zip { skeleton, offsets, parts } = split else { continue };
+            let ooxml::Split::Zip { skeleton, offsets, parts } = split else {
+                give_up(&r.id);
+                continue;
+            };
             let mut zp = Vec::new();
             for p in parts {
                 let (mode, data, corr) = match p.data {
@@ -349,11 +368,12 @@ impl Engine {
             };
             // 置き換える前に、新しい形から元に戻ることを確かめる
             if self.materialize(&nr).is_err() {
+                give_up(&r.id);
                 continue;
             }
             let mut g = self.inner.lock().unwrap();
-            if r.seq <= g.state.published_upto {
-                continue; // 途中で Publish された。出した記録は書き換えない
+            if r.seq <= g.state.published_upto || !g.ids.contains_key(&r.id) {
+                continue; // 途中で Publish された、または写しとして消された。書き戻さない(レビュー #6)
             }
             self.write_record(&nr)?;
             replace(&mut g, nr);
@@ -366,6 +386,9 @@ impl Engine {
     pub fn versions(&self, rel: &str) -> Vec<VersionView> {
         let g = self.inner.lock().unwrap();
         let Some(v) = g.by_path.get(&path_key(rel)) else { return Vec::new() };
+        // 「いまの内容」は、一覧の最後ではなく、ディスクのファイルの中身で決める(時計のずれや、同じ中身に戻したときも正しく出す)
+        let disk = fs::read(abs_from_rel(self.shared(), rel)).ok().map(|b| sha256_hex(&b));
+        let cur_idx = disk.as_ref().and_then(|d| v.iter().rposition(|r| &r.sha256 == d));
         let times: HashMap<&str, &str> = v.iter().map(|r| (r.id.as_str(), r.time.as_str())).collect();
         let mut out = Vec::new();
         for (i, r) in v.iter().enumerate() {
@@ -386,7 +409,7 @@ impl Engine {
                 size: r.size,
                 published: r.device != self.cfg.device_id || r.seq <= g.state.published_upto,
                 diverged,
-                is_current: i + 1 == v.len(),
+                is_current: Some(i) == cur_idx,
             });
         }
         out.reverse();

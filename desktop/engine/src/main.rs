@@ -43,10 +43,9 @@ fn main() {
 fn run() -> anyhow::Result<()> {
     let dir = config::data_dir();
     std::fs::create_dir_all(&dir)?;
-    if alive(&dir).is_some() {
-        return Ok(()); // もう動いている
-    }
-    // 2 つ同時に起動されても、片方だけが動くように、ロック用のポートを使わずに runtime.json の作成で決める
+    // 常駐は 1 つだけにする。OS のファイルの錠で決めるので、同時に何個起動されても(右クリックで複数のファイルを選んだときなど)
+    // 1 つだけが動く。錠はプロセスが終われば外れる(レビュー #1)
+    let Some(_lock) = take_lock(&dir)? else { return Ok(()) };
     let server = tiny_http::Server::http("127.0.0.1:0").map_err(|e| anyhow::anyhow!("画面のための待ち受けを始められない: {e}"))?;
     let port = server.server_addr().to_ip().map(|a| a.port()).unwrap_or(0);
     let token = engine::util::random_hex(16);
@@ -124,8 +123,21 @@ fn setup(folder: Option<&String>, name: Option<&String>) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// 履歴ストアを使う権利(同じストアを 2 つのプロセスが同時に開かないため)。取れなければ None
+fn take_lock(dir: &std::path::Path) -> anyhow::Result<Option<std::fs::File>> {
+    let f = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(dir.join("run.lock"))?;
+    match f.try_lock() {
+        Ok(()) => Ok(Some(f)),
+        Err(std::fs::TryLockError::WouldBlock) => Ok(None),
+        Err(std::fs::TryLockError::Error(e)) => Err(e.into()),
+    }
+}
+
 fn publish() -> anyhow::Result<()> {
     let dir = config::data_dir();
+    let Some(_lock) = take_lock(&dir)? else {
+        anyhow::bail!("verEve が動いています。画面の「チームに共有する」を使ってください")
+    };
     let Some(c) = config::load(&dir)? else { anyhow::bail!("まだ設定されていません") };
     let e = engine::engine::Engine::open(c, &dir)?;
     let s = engine::share::publish(&e)?;

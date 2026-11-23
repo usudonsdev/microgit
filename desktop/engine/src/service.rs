@@ -88,8 +88,9 @@ pub fn run_loop(e: Arc<Engine>, st: Arc<Status>) -> anyhow::Result<()> {
         }
     })?;
     w.watch(e.shared(), RecursiveMode::Recursive)?;
-    scan_all(&e);
+    // 先にチームの版を取り込んでから、全ファイルを見る。逆だと、Drive が届けた他の人の本文を自分の保存として記録してしまう(レビュー #3)
     run_fetch(&e, &st);
+    scan_all(&e);
     let root = std::fs::canonicalize(e.shared()).unwrap_or_else(|_| e.shared().to_path_buf());
     let mut dirty: HashMap<PathBuf, Instant> = HashMap::new();
     let mut log_changed: Option<Instant> = None;

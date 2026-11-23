@@ -44,18 +44,56 @@ pub fn random_hex(n: usize) -> String {
 
 /// 共有フォルダからの相対パスを、区切りを `/` にした文字列にする。共有フォルダの外なら None
 pub fn rel_posix(root: &Path, abs: &Path) -> Option<String> {
-    let r = abs.strip_prefix(root).ok()?;
+    let rc: Vec<_> = root.components().collect();
+    let ac: Vec<_> = abs.components().collect();
+    if ac.len() <= rc.len() {
+        return None;
+    }
+    let same = |a: &std::path::Component, b: &std::path::Component| {
+        let (a, b) = (a.as_os_str().to_string_lossy(), b.as_os_str().to_string_lossy());
+        if cfg!(windows) { a.to_lowercase() == b.to_lowercase() } else { a == b }
+    };
+    if !rc.iter().zip(&ac).all(|(a, b)| same(a, b)) {
+        return None;
+    }
     let mut parts = Vec::new();
-    for c in r.components() {
+    for c in &ac[rc.len()..] {
         match c {
             std::path::Component::Normal(s) => parts.push(s.to_str()?.to_string()),
             _ => return None,
         }
     }
-    if parts.is_empty() {
-        return None;
-    }
     Some(parts.join("/"))
+}
+
+/// パスを比べられる形にする: 実在すれば実体のパス、無ければ親フォルダの実体 + 名前(消したファイルも戻せるように)。
+/// Windows の `\\?\` の前置きは外す
+pub fn norm_path(p: &Path) -> PathBuf {
+    let c = std::fs::canonicalize(p).ok().or_else(|| {
+        let parent = std::fs::canonicalize(p.parent()?).ok()?;
+        Some(parent.join(p.file_name()?))
+    });
+    strip_verbatim(&c.unwrap_or_else(|| p.to_path_buf()))
+}
+
+pub fn strip_verbatim(p: &Path) -> PathBuf {
+    let s = p.display().to_string();
+    if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+        PathBuf::from(format!(r"\\{rest}"))
+    } else if let Some(rest) = s.strip_prefix(r"\\?\") {
+        PathBuf::from(rest)
+    } else {
+        p.to_path_buf()
+    }
+}
+
+/// 他の端末から届いた記録のパスとして安全か(共有フォルダの外や履歴フォルダを指さない。#9)
+pub fn is_safe_rel(rel: &str) -> bool {
+    !rel.is_empty()
+        && !rel.contains('\\')
+        && !rel.chars().any(|c| c.is_control())
+        && rel.split('/').all(|s| !s.is_empty() && s != "." && s != ".." && !s.contains(':'))
+        && !is_ignored_rel(rel)
 }
 
 pub fn abs_from_rel(root: &Path, rel: &str) -> PathBuf {

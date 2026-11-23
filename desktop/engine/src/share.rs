@@ -90,6 +90,7 @@ pub struct PublishSummary {
 /// 自分の、まだ出していない版を共有フォルダへ出す。
 /// 手順(設計メモ §3): ①無いチャンクを書く ②全部あることを確かめる ③記録を一時名で書いて改名する。
 pub fn publish(e: &Engine) -> Result<PublishSummary> {
+    let _op = e.op.lock().unwrap();
     let shared = e.shared();
     if !shared.is_dir() {
         bail!("共有フォルダ {} が見つかりません", shared.display());
@@ -100,7 +101,7 @@ pub fn publish(e: &Engine) -> Result<PublishSummary> {
     let member = Member { device_id: e.cfg.device_id.clone(), display_name: e.cfg.display_name.clone() };
     write_atomic(&root.join("members").join(format!("{}.json", e.cfg.device_id)), serde_json::to_string_pretty(&member)?.as_bytes())?;
     // 出す前に、ZIP の文書を分けた形にしておく(出した記録は書き換えないため)
-    e.convert_pending()?;
+    e.convert_pending_locked()?;
     let (recs, _) = e.my_unpublished();
     let remote = ChunkStore::new(root.join("chunks"));
     let logdir = root.join("log").join(&e.cfg.device_id);
@@ -108,7 +109,9 @@ pub fn publish(e: &Engine) -> Result<PublishSummary> {
     let mut sum = PublishSummary::default();
     for r in &recs {
         for id in r.chunk_ids() {
-            if !remote.has(&id) {
+            // 既にあっても、壊れていれば書き直す(途中で切れたファイルが残っていると、他の人が永久に保留になる。レビュー #8)
+            let intact = remote.read_raw(&id).map(|raw| crate::store::decode_verify(&id, &raw).is_ok()).unwrap_or(false);
+            if !intact {
                 let raw = e.local.read_raw(&id)?;
                 write_atomic(&remote.path_of(&id), &raw)?;
                 sum.chunks += 1;
@@ -137,6 +140,7 @@ pub struct FetchSummary {
 
 /// 他の端末が出した版を、ローカルの履歴ストアへ取り込む。文書そのものには触れない(設計メモ §4.1)
 pub fn fetch(e: &Engine) -> Result<FetchSummary> {
+    let _op = e.op.lock().unwrap();
     let root = history_root(e.shared());
     let mut sum = FetchSummary::default();
     let team = effective_team(e)?;
@@ -176,7 +180,7 @@ pub fn fetch(e: &Engine) -> Result<FetchSummary> {
                 sum.rejected += 1;
                 continue;
             }
-            if r.path.split('/').any(|s| s.is_empty() || s == "." || s == "..") || r.path.contains('\\') {
+            if !crate::util::is_safe_rel(&r.path) {
                 sum.rejected += 1; // 共有フォルダの外を指す記録は取り込まない
                 continue;
             }

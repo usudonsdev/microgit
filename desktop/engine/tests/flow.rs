@@ -334,3 +334,51 @@ fn body_delivered_before_history_does_not_leave_a_duplicate_version() {
     assert!(b.get(&echo.id).is_none());
     assert_eq!(b.unpublished_count(), 0);
 }
+
+#[test]
+fn current_version_follows_disk_content_and_unreadable_record_does_not_block_publish() {
+    let v = env();
+    let a = Engine::open(cfg(&v.shared, "佐藤", "aaaa", "team1"), &v.a_dir).unwrap();
+    let b = Engine::open(cfg(&v.shared, "鈴木", "bbbb", "team1"), &v.b_dir).unwrap();
+    let f = v.shared.join("a.txt");
+    write(&f, b"x");
+    b.record_file(&f).unwrap();
+    share::publish(&b).unwrap();
+    share::fetch(&a).unwrap();
+    write(&f, b"y");
+    a.record_file(&f).unwrap();
+    // 鈴木さんの版と同じ中身に戻した: 自分の保存として記録し、「いまの内容」はその版になる(レビュー #4)
+    write(&f, b"x");
+    assert!(a.record_file(&f).unwrap().is_some());
+    let vs = a.versions("a.txt");
+    assert!(vs[0].is_current);
+    assert!(!vs.iter().find(|x| x.size == 1 && x.mine && vs.iter().position(|y| y.id == x.id) == Some(1)).map(|x| x.is_current).unwrap_or(false));
+    // y の版は「いまの内容」ではないので、戻せる
+    let y = vs.iter().find(|x| x.mine && !x.is_current).unwrap().id.clone();
+    a.restore("a.txt", &y).unwrap();
+    assert_eq!(fs::read(&f).unwrap(), b"y");
+    // 自分のチャンクが 1 つ壊れても、Publish は止まらない(レビュー #5)
+    let g = v.shared.join("b.xlsx");
+    write(&g, &fixture("sample.xlsx"));
+    let r = a.record_file(&g).unwrap().unwrap();
+    let st = engine::config::store_dir(&v.a_dir, &v.shared).join("chunks");
+    let c = r.chunk_ids()[0].clone();
+    fs::write(st.join(&c[..2]).join(&c), b"broken").unwrap();
+    assert!(a.convert_pending().is_ok());
+}
+
+#[test]
+fn records_pointing_into_history_folder_are_rejected() {
+    let v = env();
+    let a = Engine::open(cfg(&v.shared, "佐藤", "aaaa", "team1"), &v.a_dir).unwrap();
+    let b = Engine::open(cfg(&v.shared, "鈴木", "bbbb", "team1"), &v.b_dir).unwrap();
+    let f = v.shared.join("a.txt");
+    write(&f, b"x");
+    a.record_file(&f).unwrap();
+    share::publish(&a).unwrap();
+    for bad in [".microgit-history/team.json", "C:/x.txt", "a\r\nb.txt"] {
+        assert!(!engine::util::is_safe_rel(bad), "{bad:?}");
+    }
+    assert!(engine::util::is_safe_rel("営業部/見積.xlsx"));
+    assert_eq!(share::fetch(&b).unwrap().imported, 1);
+}

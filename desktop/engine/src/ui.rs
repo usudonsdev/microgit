@@ -437,10 +437,19 @@ fn download(app: &Arc<App>, q: &HashMap<String, String>) -> Resp {
             let fname = format!("{stem}_{t}の版{ext}");
             Response::from_data(bytes)
                 .with_header(Header::from_bytes("Content-Type", "application/octet-stream").unwrap())
-                .with_header(Header::from_bytes("Content-Disposition", format!("attachment; filename=\"version{ext}\"; filename*=UTF-8''{}", enc(&fname))).unwrap())
+                .with_header(content_disposition(ext, &fname))
         }
         Err(err) => Response::from_string(format!("この版を組み立て直せませんでした: {err:#}")).with_status_code(500),
     }
+}
+
+/// ダウンロードの名前。ASCII だけの予備の名前には、英数字の拡張子だけを使う(日本語や `"`・改行が入ると、
+/// ヘッダーを作れずに落ちるか、ヘッダーを書き換えられるため。レビュー #2)
+fn content_disposition(ext: &str, fname: &str) -> Header {
+    let safe_ext: String = ext.chars().skip(1).filter(|c| c.is_ascii_alphanumeric()).take(10).collect();
+    let fallback = if safe_ext.is_empty() { "version".to_string() } else { format!("version.{safe_ext}") };
+    let v = format!("attachment; filename=\"{fallback}\"; filename*=UTF-8''{}", enc(fname));
+    Header::from_bytes("Content-Disposition", v).unwrap_or_else(|_| Header::from_bytes("Content-Disposition", "attachment").unwrap())
 }
 
 fn publish_post(app: &Arc<App>) -> Resp {
