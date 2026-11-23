@@ -66,6 +66,6 @@
 未確認：
 
 - 実機の Excel・Word・PowerPoint・LibreOffice が保存したファイル（テストの見本はテストの中で組み立てた最小の形）。特に、Excel の共有の式・配列数式・テーブル（ListObject）、Word の変更履歴とフィールド。
-- 差分のパネルの見た目（Webview の描画は自動テストで確かめていない。結果の JSON までを確かめた）。
+- 差分のパネルは、Chromium（Playwright）で CSV と動画の実際の結果を描いて確かめた（スクリプトのエラーなし、セルの値 `<b>田中</b>` は HTML にならず文字のまま出る）。VS Code の Webview の中での見た目（テーマの色）は未確認。
 - Windows・macOS での子プロセスの起動と ffmpeg の探し方。
 - 大きいファイルの時間（10 万セルの xlsx、10 分の 1080p の動画）。

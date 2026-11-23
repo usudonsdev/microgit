@@ -56,8 +56,8 @@ export class DiffView {
     dispose(): void { this.panel?.dispose(); }
 }
 
-/** パネルの HTML。スクリプトは文字列で、Webview の中で動く。バッククォートを使わない（このテンプレートの中なので） */
-const DIFF_HTML = `<!DOCTYPE html>
+/** パネルの HTML（描画の確認のために export する）。スクリプトは文字列で、Webview の中で動く。バッククォートを使わない（このテンプレートの中なので） */
+export const DIFF_HTML = `<!DOCTYPE html>
 <html lang="ja">
 <head>
 <meta charset="UTF-8" />
