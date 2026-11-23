@@ -195,6 +195,20 @@ suite('verEve Overlay backend (save → jump)', function () {
             fs.writeFileSync(path.join(root, 'ignored-out', 'build.js'), 'out');
             await assertNoNewRecord('一時ファイル・無視するファイル');
 
+            // 構造を理解した差分：VS Code の外で保存した CSV の、1 つ前の保存との差（docs/structured-diff.md）
+            before = await lastSave();
+            fs.writeFileSync(path.join(root, 'ext', 'data.csv'), 'id,name\n1,a\n');
+            const c1 = await waitForNewHead(before, 30_000);
+            before = await lastSave();
+            fs.writeFileSync(path.join(root, 'ext', 'data.csv'), 'id,name\n1,b\n2,c\n');
+            const c2 = await waitForNewHead(before, 30_000);
+            assert.notStrictEqual(c1, c2);
+            await vscode.commands.executeCommand('vereve.showStructuredDiff', c2, 'ext/data.csv');
+            const sd = await vscode.commands.executeCommand<{ kind: string; summary: string }>('vereve.internal.lastStructuredDiff');
+            assert.ok(sd, '差分の結果が無い');
+            assert.strictEqual(sd.kind, 'table');
+            assert.match(sd.summary, /1 行追加、1 セル変更/);
+
             // 4. エディタで保存したファイルは、監視の通知で二重に記録しない
             await editAndSave('ext/note.txt', 'editor save\n');
             await assertNoNewRecord('エディタの保存のあと');
