@@ -36,6 +36,8 @@ struct Inner {
 
 pub struct Engine {
     pub cfg: Config,
+    /// チーム ID。まだ何も Publish していない端末は、履歴フォルダの目印に合わせて変えることがある(share::effective_team)
+    team: Mutex<String>,
     pub dir: PathBuf,
     pub local: ChunkStore,
     records_dir: PathBuf,
@@ -80,6 +82,7 @@ impl Engine {
             Err(_) => State::default(),
         };
         let e = Engine {
+            team: Mutex::new(cfg.team_id.clone()),
             cfg,
             dir: dir.to_path_buf(),
             local,
@@ -140,6 +143,24 @@ impl Engine {
     fn write_record(&self, r: &Record) -> Result<()> {
         write_atomic(&self.record_path(r), serde_json::to_string_pretty(r)?.as_bytes())?;
         Ok(())
+    }
+
+    pub fn team_id(&self) -> String {
+        self.team.lock().unwrap().clone()
+    }
+
+    /// チーム ID を変えて、設定にも書く(share::effective_team からだけ呼ぶ)
+    pub(crate) fn adopt_team(&self, team: &str) -> Result<()> {
+        let mut c = self.cfg.clone();
+        c.team_id = team.to_string();
+        c.team_generated = false;
+        crate::config::save(&self.dir, &c)?;
+        *self.team.lock().unwrap() = team.to_string();
+        Ok(())
+    }
+
+    pub fn published_upto(&self) -> u64 {
+        self.inner.lock().unwrap().state.published_upto
     }
 
     pub fn shared(&self) -> &Path {
@@ -209,6 +230,11 @@ impl Engine {
                 if l.sha256 == sha {
                     return Ok(None);
                 }
+            }
+            // 他の人の版と同じ中身(Drive が届けた本文)なら記録しない
+            let g = self.inner.lock().unwrap();
+            if g.by_path.get(&path_key(rel)).map(|v| v.iter().any(|x| x.device != self.cfg.device_id && x.sha256 == sha)).unwrap_or(false) {
+                return Ok(None);
             }
         }
         let chunks = self.local.put_chunked(bytes)?;
@@ -344,9 +370,11 @@ impl Engine {
         let mut out = Vec::new();
         for (i, r) in v.iter().enumerate() {
             let prev = if i > 0 { Some(&v[i - 1]) } else { None };
-            let diverged = match prev {
-                Some(p) => r.parent.as_deref() != Some(p.id.as_str()) && r.device != p.device,
-                None => false,
+            // 親が一覧に無い(消した写しを指している、など)ときは、分岐とはみなさない
+            let diverged = match (prev, r.parent.as_deref()) {
+                (Some(p), Some(par)) => par != p.id && r.device != p.device && times.contains_key(par),
+                (Some(p), None) => r.device != p.device,
+                _ => false,
             };
             out.push(VersionView {
                 id: r.id.clone(),
@@ -434,14 +462,35 @@ impl Engine {
         self.save_state(&st)
     }
 
-    /// 他の端末の記録を取り込む(チャンクは呼び出し側が先に入れておく)
+    /// 他の端末の記録を取り込む(チャンクは呼び出し側が先に入れておく)。
+    /// 取り込んだ版と同じ中身の、自分のまだ出していない「保存」の版は、Drive が本文を先に届けたために監視が拾った写しなので、消す
+    /// (設計メモ §4 の表「取り込んだ他人の本文を、自分の保存と誤認する」)。中身は取り込んだ版に残るので、失われるものは無い
     pub(crate) fn import(&self, r: Record) -> Result<()> {
         if self.has_record(&r.id) {
             return Ok(());
         }
         self.write_record(&r)?;
         let mut g = self.inner.lock().unwrap();
+        let k = path_key(&r.path);
+        let sha = r.sha256.clone();
         insert(&mut g, r);
+        let upto = g.state.published_upto;
+        let me = self.cfg.device_id.clone();
+        let echoes: Vec<Record> = g
+            .by_path
+            .get(&k)
+            .map(|v| v.iter().filter(|x| x.device == me && x.seq > upto && x.kind == Kind::Save && x.sha256 == sha).cloned().collect())
+            .unwrap_or_default();
+        for x in &echoes {
+            let _ = fs::remove_file(self.record_path(x));
+            g.ids.remove(&x.id);
+        }
+        if !echoes.is_empty() {
+            if let Some(v) = g.by_path.get_mut(&k) {
+                v.retain(|x| !echoes.iter().any(|e| e.id == x.id));
+            }
+            reindex(&mut g, &k);
+        }
         Ok(())
     }
 }

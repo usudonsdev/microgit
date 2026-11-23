@@ -82,7 +82,7 @@ pub fn local_time(rfc: &str) -> String {
 
 fn short_time(rfc: &str) -> String {
     match chrono::DateTime::parse_from_rfc3339(rfc) {
-        Ok(t) => t.with_timezone(&chrono::Local).format("%m/%d %H:%M").to_string(),
+        Ok(t) => t.with_timezone(&chrono::Local).format("%m/%d %H:%M:%S").to_string(),
         Err(_) => rfc.to_string(),
     }
 }
@@ -305,13 +305,20 @@ pub fn make_config(dir: &Path, folder: &str, name: &str) -> std::result::Result<
     let _ = std::fs::remove_file(&probe);
     let old = config::load(dir).ok().flatten();
     let device_id = old.as_ref().map(|c| c.device_id.clone()).unwrap_or_else(config::new_device_id);
+    let mut team_generated = false;
     let team_id = match share::read_marker(&p) {
         Ok(Some(m)) if m.format == share::SHARED_FORMAT => m.team_id,
         Ok(Some(m)) => return Err(format!("このフォルダの履歴は、このアプリと形式の版が違います(形式 {})。アプリを更新してください。", m.format)),
-        Ok(None) => config::new_team_id(),
+        Ok(None) => {
+            // 目印をすぐ作る。後から設定する人は、このチーム ID に加わる(設計メモ §3.1)
+            let id = config::new_team_id();
+            team_generated = true;
+            share::check_or_create_marker(&p, &id).map_err(|e| format!("履歴フォルダを作れませんでした: {e:#}"))?;
+            id
+        }
         Err(_) => return Err("このフォルダの履歴の目印(team.json)を読めませんでした。".into()),
     };
-    Ok(Config { shared_folder: p, display_name: name.into(), device_id, team_id })
+    Ok(Config { shared_folder: p, display_name: name.into(), device_id, team_id, team_generated })
 }
 
 fn setup_post(app: &Arc<App>, q: &HashMap<String, String>) -> Resp {
@@ -388,7 +395,7 @@ fn version_row(app: &App, e: &Engine, abs: &Path, v: &VersionView) -> String {
         )
     };
     format!(
-        "<tr><td>{}</td><td>{}</td><td>{}<br>{}</td><td>{}</td><td>{}<a class=\"btn\" href=\"/download?{}&path={}&id={}\">この版を書き出す</a></td></tr>",
+        "<tr><td>{}</td><td>{}</td><td>{}<br>{}</td><td>{}</td><td>{}<a class=\"btn\" download href=\"/download?{}&path={}&id={}\">この版を書き出す</a></td></tr>",
         esc(&local_time(&v.time)),
         esc(&who(e, if v.mine { &e.cfg.device_id } else { "" }, &v.author)),
         esc(&what),

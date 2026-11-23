@@ -24,7 +24,11 @@ fn env() -> Env {
 }
 
 fn cfg(shared: &Path, name: &str, dev: &str, team: &str) -> Config {
-    Config { shared_folder: shared.to_path_buf(), display_name: name.into(), device_id: dev.into(), team_id: team.into() }
+    Config { shared_folder: shared.to_path_buf(), display_name: name.into(), device_id: dev.into(), team_id: team.into(), team_generated: false }
+}
+
+fn cfg_generated(shared: &Path, name: &str, dev: &str, team: &str) -> Config {
+    Config { team_generated: true, ..cfg(shared, name, dev, team) }
 }
 
 fn write(p: &Path, b: &[u8]) {
@@ -291,4 +295,42 @@ fn reopen_keeps_sequence_and_published_state() {
     write(&f, b"3");
     let r = a.record_file(&f).unwrap().unwrap();
     assert_eq!(r.seq, 3);
+}
+
+#[test]
+fn two_people_who_set_up_before_any_publish_join_one_team() {
+    let v = env();
+    // 2 人とも、目印が無いときに設定した(別々のチーム ID)。先に出した人のチームに、もう 1 人が加わる
+    let a = Engine::open(cfg_generated(&v.shared, "佐藤", "aaaa", "teamA"), &v.a_dir).unwrap();
+    let b = Engine::open(cfg_generated(&v.shared, "鈴木", "bbbb", "teamB"), &v.b_dir).unwrap();
+    let f = v.shared.join("a.txt");
+    write(&f, b"a");
+    a.record_file(&f).unwrap();
+    share::publish(&a).unwrap();
+    write(&f, b"b");
+    b.record_file(&f).unwrap();
+    share::publish(&b).unwrap();
+    assert_eq!(b.team_id(), "teamA");
+    assert_eq!(share::fetch(&a).unwrap().imported, 1);
+    assert_eq!(engine::config::load(&v.b_dir).unwrap().unwrap().team_id, "teamA", "設定にも書く");
+}
+
+#[test]
+fn body_delivered_before_history_does_not_leave_a_duplicate_version() {
+    let v = env();
+    let a = Engine::open(cfg(&v.shared, "佐藤", "aaaa", "team1"), &v.a_dir).unwrap();
+    let b = Engine::open(cfg(&v.shared, "鈴木", "bbbb", "team1"), &v.b_dir).unwrap();
+    let f = v.shared.join("a.txt");
+    write(&f, b"from A");
+    a.record_file(&f).unwrap();
+    // Drive が本文だけを先に B に届け、B の監視が拾った
+    let echo = b.record_file(&f).unwrap().unwrap();
+    assert_eq!(b.unpublished_count(), 1);
+    share::publish(&a).unwrap();
+    share::fetch(&b).unwrap();
+    let vs = b.versions("a.txt");
+    assert_eq!(vs.len(), 1, "写しは消え、佐藤さんの版だけが残る");
+    assert_eq!(vs[0].author, "佐藤");
+    assert!(b.get(&echo.id).is_none());
+    assert_eq!(b.unpublished_count(), 0);
 }

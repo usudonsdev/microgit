@@ -17,6 +17,11 @@ pub struct Config {
     pub device_id: String,
     /// チーム ID。履歴フォルダの目印(team.json)と照らす(設計メモ §3.1)
     pub team_id: String,
+    /// チーム ID を、この端末で作ったか(true)、履歴フォルダの目印から読んだか(false)。
+    /// 自分で作った ID だけは、まだ何も出していなければ、目印のチームに合わせてよい(share::effective_team)。
+    /// 目印から読んだのに後で目印と食い違うなら、違うフォルダを選んだ事故とみなして断る
+    #[serde(default)]
+    pub team_generated: bool,
 }
 
 pub fn data_dir() -> PathBuf {

@@ -65,6 +65,22 @@ pub fn check_or_create_marker(shared: &Path, team_id: &str) -> Result<()> {
     }
 }
 
+/// 使うチーム ID を決める。目印と違っていても、この端末がまだ何も出していなければ、目印のチームに加わる
+/// (2 人が、どちらも Publish する前に設定したとき、別々のチーム ID になるのを直す)。出したことがあれば、違うチームとして断る
+pub fn effective_team(e: &Engine) -> Result<String> {
+    let mine = e.team_id();
+    if let Some(m) = read_marker(e.shared())? {
+        if m.team_id != mine && m.format == SHARED_FORMAT {
+            let never_published = e.cfg.team_generated && e.published_upto() == 0 && !history_root(e.shared()).join("log").join(&e.cfg.device_id).exists();
+            if never_published {
+                e.adopt_team(&m.team_id)?;
+                return Ok(m.team_id);
+            }
+        }
+    }
+    Ok(mine)
+}
+
 #[derive(Debug, Default, PartialEq)]
 pub struct PublishSummary {
     pub records: usize,
@@ -78,7 +94,8 @@ pub fn publish(e: &Engine) -> Result<PublishSummary> {
     if !shared.is_dir() {
         bail!("共有フォルダ {} が見つかりません", shared.display());
     }
-    check_or_create_marker(shared, &e.cfg.team_id)?;
+    let team = effective_team(e)?;
+    check_or_create_marker(shared, &team)?;
     let root = history_root(shared);
     let member = Member { device_id: e.cfg.device_id.clone(), display_name: e.cfg.display_name.clone() };
     write_atomic(&root.join("members").join(format!("{}.json", e.cfg.device_id)), serde_json::to_string_pretty(&member)?.as_bytes())?;
@@ -122,8 +139,9 @@ pub struct FetchSummary {
 pub fn fetch(e: &Engine) -> Result<FetchSummary> {
     let root = history_root(e.shared());
     let mut sum = FetchSummary::default();
+    let team = effective_team(e)?;
     let Some(m) = read_marker(e.shared())? else { return Ok(sum) };
-    if m.team_id != e.cfg.team_id || m.format != SHARED_FORMAT {
+    if m.team_id != team || m.format != SHARED_FORMAT {
         return Err(anyhow!("履歴フォルダのチーム ID か形式の版が一致しないため、取り込みません"));
     }
     let remote = ChunkStore::new(root.join("chunks"));
