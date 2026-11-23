@@ -8,7 +8,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import { describe, test } from 'node:test';
-import { MIGRATED_SETTING_NAMES, planSettingsMigration, settingsMigrationMessage } from '../../settingsMigration';
+import { MIGRATED_SETTING_NAMES, SETTINGS_ADDED_AFTER_RENAME, planSettingsMigration, settingsMigrationMessage } from '../../settingsMigration';
 
 describe('旧設定 microgit.* から vereve.* への引き継ぎ', () => {
     test('旧キーだけに値があれば、同じ範囲の新キーへそのままコピーする', () => {
@@ -52,9 +52,11 @@ describe('旧設定 microgit.* から vereve.* への引き継ぎ', () => {
         assert.deepStrictEqual(planSettingsMigration(['global'], { notASetting: { global: 1 } }, {}), []);
     });
 
-    test('引き継ぎ対象は package.json の設定 vereve.* と過不足なく一致する', () => {
+    test('引き継ぎ対象は package.json の設定 vereve.* と過不足なく一致する（改名のあとに足した設定を除く）', () => {
         const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', '..', 'package.json'), 'utf8'));
-        const declared = Object.keys(pkg.contributes.configuration.properties).map((k) => k.replace(/^vereve\./, '')).sort();
+        const added: readonly string[] = SETTINGS_ADDED_AFTER_RENAME;
+        const declared = Object.keys(pkg.contributes.configuration.properties).map((k) => k.replace(/^vereve\./, ''))
+            .filter((k) => !added.includes(k)).sort();
         assert.deepStrictEqual([...MIGRATED_SETTING_NAMES].sort(), declared);
     });
 

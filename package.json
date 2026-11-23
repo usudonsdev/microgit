@@ -148,6 +148,17 @@
           "default": "auto",
           "description": "Windows の QEMU で最小ゲストを動かす方法"
         },
+        "vereve.externalSaves.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "VS Code の外で保存されたファイル（Excel、画像の編集ソフト、外部の AI エージェントなど）も記録する。ワークスペースのファイルを監視し、書き終わってから（大きさと更新時刻が 1 秒変わらなくなってから）記録する。一時ファイル・ロックファイル・.gitignore で無視されるファイル・メインの HEAD と同じ中身（git checkout などの書き換え）は記録しない（docs/external-saves.md）"
+        },
+        "vereve.externalSaves.maxFileSizeMb": {
+          "type": "number",
+          "default": 100,
+          "minimum": 0,
+          "description": "VS Code の外で保存されたファイルを記録する大きさの上限（MB）。超えるファイルは記録しない。0 で上限なし"
+        },
         "vereve.kernel.memoryMb": {
           "type": "number",
           "default": 256,

@@ -90,8 +90,8 @@ describe('コマンド', () => {
 });
 
 describe('設定キー', () => {
-    test('contributes.configuration のキーは 8 個で、すべて vereve.*', () => {
-        assert.strictEqual(settingKeys.length, 8);
+    test('contributes.configuration のキーは 10 個で、すべて vereve.*', () => {
+        assert.strictEqual(settingKeys.length, 10);
         for (const k of settingKeys) { assert.ok(k.startsWith('vereve.'), k); }
     });
 

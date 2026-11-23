@@ -146,6 +146,69 @@ suite('verEve Overlay backend (save → jump)', function () {
         assertRestored(smallHead, 'kb/large.txt');
     });
 
+    // VS Code の外で保存されたファイルの記録（vereve.externalSaves.enabled、docs/external-saves.md）
+    test('VS Code の外で保存したファイルを記録し、一時ファイル・無視するファイル・エディタの保存の二重・過去に戻る操作の書き込みは記録しない', async function () {
+        this.timeout(120_000);
+        await vscode.workspace.getConfiguration().update('vereve.externalSaves.enabled', true, vscode.ConfigurationTarget.Workspace);
+        // 監視は設定の変更の通知で作られ、OS の監視が動き出すまで少しかかる。その前に書いた変更は届かない
+        await new Promise((r) => setTimeout(r, 1500));
+        try {
+            /** 監視の通知が届き、書き終わりの判定（1 秒）と記録が終わるのに十分な時間だけ待って、記録が増えていないことを確かめる */
+            const assertNoNewRecord = async (label: string) => {
+                const before = await lastSave();
+                await new Promise((r) => setTimeout(r, 4000));
+                await vscode.commands.executeCommand('vereve.internal.waitForSaves');
+                const after = await lastSave();
+                // 記録の列に足されてもいない（中身が同じで結果が unchanged になる場合も数える）
+                assert.strictEqual(after.processed, before.processed, `${label}：記録の列に足された`);
+            };
+            const showBytes = (head: string, rel: string) =>
+                execFileSync('git', ['-C', shadow, 'cat-file', 'blob', `${head}:${rel}`], { maxBuffer: 64 * 1024 * 1024 });
+
+            // 1. VS Code を通さずに書いたバイナリ（Excel の保存の代わり）は記録される。中身はそのままのバイト列
+            const bin1 = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0xff, 0x0d, 0x0a, 0x01]);
+            let before = await lastSave();
+            fs.mkdirSync(path.join(root, 'ext'), { recursive: true });
+            fs.writeFileSync(path.join(root, 'ext', 'book.xlsx'), bin1);
+            const e1 = await waitForNewHead(before, 30_000);
+            assert.ok(showBytes(e1, 'ext/book.xlsx').equals(bin1), '記録した中身が書いたバイト列と違う');
+
+            // 2. 少しずつ書き足す（書き出しの途中）ファイルは、書き終わってから 1 回だけ記録される
+            before = await lastSave();
+            const growing = path.join(root, 'ext', 'movie.bin');
+            fs.writeFileSync(growing, Buffer.alloc(1024, 1));
+            for (let i = 0; i < 4; i++) {
+                await new Promise((r) => setTimeout(r, 400));
+                fs.appendFileSync(growing, Buffer.alloc(1024, 2 + i));
+            }
+            const e2 = await waitForNewHead(before, 30_000);
+            assert.strictEqual(showBytes(e2, 'ext/movie.bin').length, 5 * 1024, '書き出しの途中で記録された');
+            await assertNoNewRecord('書き終わったあと');
+
+            // 3. ロックファイル・一時ファイル・.gitignore で無視されるファイルは記録しない
+            before = await lastSave();
+            fs.writeFileSync(path.join(root, '.gitignore'), 'ignored-out/\n');
+            await waitForNewHead(before, 30_000); // .gitignore 自体は VS Code の外の保存として記録される
+            fs.writeFileSync(path.join(root, 'ext', '~$book.xlsx'), 'lock');
+            fs.writeFileSync(path.join(root, 'ext', '~WRL0001.tmp'), 'tmp');
+            fs.mkdirSync(path.join(root, 'ignored-out'), { recursive: true });
+            fs.writeFileSync(path.join(root, 'ignored-out', 'build.js'), 'out');
+            await assertNoNewRecord('一時ファイル・無視するファイル');
+
+            // 4. エディタで保存したファイルは、監視の通知で二重に記録しない
+            await editAndSave('ext/note.txt', 'editor save\n');
+            await assertNoNewRecord('エディタの保存のあと');
+
+            // 5. 過去に戻る操作がワークスペースに書いたファイルは記録しない
+            await vscode.commands.executeCommand('vereve.jumpToCommit', e1);
+            assert.ok(fs.readFileSync(path.join(root, 'ext', 'book.xlsx')).equals(bin1));
+            await assertNoNewRecord('過去に戻ったあと');
+            assert.strictEqual(shadowHead(), e1);
+        } finally {
+            await vscode.workspace.getConfiguration().update('vereve.externalSaves.enabled', undefined, vscode.ConfigurationTarget.Workspace);
+        }
+    });
+
     // 保存 1 回の処理の段階ごとの時間（#37）。MICROGIT_TEST_SAVE_BENCH=<回数> のときだけ走る計測
     // （MICROGIT_TEST_SAVE_BENCH_OUT=<パス> で、1 回ごとの記録を JSON に書く）
     const benchSaves = Number(process.env.MICROGIT_TEST_SAVE_BENCH ?? '0');

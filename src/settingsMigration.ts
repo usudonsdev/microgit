@@ -27,6 +27,12 @@ export const MIGRATED_SETTING_NAMES = [
     'kernel.memoryMb',
 ] as const;
 
+/** 改名（6.0.0）のあとに足した設定。旧名（microgit.*）が存在しないので引き継がない */
+export const SETTINGS_ADDED_AFTER_RENAME = [
+    'externalSaves.enabled',
+    'externalSaves.maxFileSizeMb',
+] as const;
+
 export const LEGACY_SETTING_PREFIX = 'microgit.';
 export const SETTING_PREFIX = 'vereve.';
 

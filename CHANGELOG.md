@@ -19,6 +19,7 @@ All notable changes to the "verEve" extension (formerly "MicroGit") will be docu
 - **巻き戻し・ジャンプで、未保存の編集があるファイルを書き換えない**（診断 S-15 の続き。設計方針 §2.1.1 の B）。以前は、ディスクを書き換えたうえでエディタを読み直さないだけだったため、保存すると巻き戻しの結果が消えた。除外したファイルは通知と verEve Output で知らせる。保存すると、その内容が新しい記録になる
 
 ### Added
+- **VS Code の外で保存されたファイルの記録（試験的、既定はオフ）**：設定 `vereve.externalSaves.enabled` で、ワークスペースのファイルを監視し、Excel・画像や動画の編集ソフト・外部のツールが保存したファイルも記録する。書き終わり（大きさと更新時刻が 1 秒変わらない）を待ち、一時ファイル・ロックファイル、`.gitignore` で無視されるファイル、メインの HEAD と同じ中身（`git checkout` などの書き換え）、過去に戻る操作が書いたファイル、エディタの保存との二重は記録しない。`vereve.externalSaves.maxFileSizeMb`（既定 100）を超えるファイルも記録しない。xlsx のセル差分など構造を理解した差分の第 0 段階（[docs/external-saves.md](docs/external-saves.md)、[docs/structured-diff.md](docs/structured-diff.md)）
 - **旧設定の引き継ぎ**：初回の起動で、旧 `microgit.*` の設定（グローバル・ワークスペース）を、同じ範囲の未設定の `vereve.*` へコピーし、一度だけ知らせる。旧キーは消さず、新キーの既存の値は上書きしない
 - **旧 MicroGit との共存対策**：旧 `usudonsdev.microgit` が有効だと、同じ shadow リポジトリへ二重に記録して競合するため、verEve は記録を始めず「旧 MicroGit が有効です。旧拡張を無効化またはアンインストールしてから再読み込みしてください」と警告する
 - `package.json` の contributes と、コード中のコマンド・設定・ビューの文字列が一致することを確かめる単体テスト

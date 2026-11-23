@@ -62,6 +62,7 @@ import { LEGACY_CONFLICT_WARNING, evaluateLegacyConflict } from './legacyExtensi
 import { LEGACY_SETTING_PREFIX, MIGRATED_SETTING_NAMES, SETTING_PREFIX, SettingScope, planSettingsMigration, settingsMigrationMessage } from './settingsMigration';
 import { durabilityGitArgs, getDurability, setDurability } from './durability';
 import { PublishQueue } from './publishQueue';
+import { RecordedContents, SettleWatcher, decideExternalSave, isInsideGitDir, isTransientFileName } from './externalSave';
 import { buildPublishConfirmMessage } from './publishConfirm';
 
 /** workspaceState のキー：verEve が有効か（真偽値） */
@@ -289,7 +290,7 @@ export function activate(context: vscode.ExtensionContext) {
         refreshUi(undefined);
     }
 
-    // 保存のたびに、保存の記録を列（saveChain）に足す。次のときは足さない：成果物のフォルダの中・ワークスペースの外、
+    // 保存のたびに、保存の記録を列（saveChain）に足す（enqueueRecordSave）。次のときは足さない：成果物のフォルダの中・ワークスペースの外、
     // syncBranchPolicy が false（無効、または記録できないブランチ）、ルートに .git が無い（テスト用の test_dummy.py は除く）、
     // 列に未処理の仕事（pendingSaveJobs > 0）がある間の、直前と同じパス・同じ内容の保存。足した仕事は、走るときにもう一度ブランチと有効状態を確かめる
     context.subscriptions.push(
@@ -297,97 +298,20 @@ export function activate(context: vscode.ExtensionContext) {
             if (!workspaceFolders) { return; }
             const rootPath = workspaceFolders[0].uri.fsPath;
             const absPath = document.uri.fsPath;
-
             if (isMicroGitArtifactPath(absPath, rootPath)) { return; }
             if (!isPathInsideRoot(absPath, rootPath)) { return; }
-
-            if (!syncBranchPolicy(rootPath)) {
-                refreshUi(rootPath);
-                return;
-            }
-
-            const gitPath = path.join(rootPath, '.git');
-            const isTestFile = absPath.endsWith('test_dummy.py');
-            if (!fs.existsSync(gitPath) && !isTestFile) {
-                ExtensionLogger.log('Git管理外のフォルダのため、処理をスキップしました。', 'WARN');
-                void ExtensionLogger.exportLogFile(rootPath);
-                return;
-            }
-
             // 発行時点の内容を固定（実行時のディスク／ジャンプ後状態に引きずられない）
-            const snapshot = captureSaveSnapshot(document);
-            const contentHash = createHash('sha1').update(snapshot).digest('hex');
-
-            // キュー消化前の同一パス・同一内容の連続エンキューだけ畳む
-            if (
-                pendingSaveJobs > 0 &&
-                lastEnqueuedSave &&
-                lastEnqueuedSave.absPath === absPath &&
-                lastEnqueuedSave.contentHash === contentHash
-            ) {
-                ExtensionLogger.log(`同一内容のため保存ジョブを省略: ${absPath}`);
-                return;
-            }
-            lastEnqueuedSave = { absPath, contentHash };
-
-            ExtensionLogger.log(`ファイル保存イベントを検知（スナップショット）: ${absPath}`);
-
-            const enqueuedBranch = getCurrentBranch(rootPath);
-            pendingSaveJobs++;
-            // 段階ごとの時間（#37）。保存のイベントの時刻から数える
-            const timer = new SaveTimer(performance.now());
-            let saveResult = 'skipped';
-            enqueueSave(async () => {
-                timer.mark('queue');
-                try {
-                    // 実行時点でブランチ／有効状態を再確認（投入後に切替されても誤記録しない）
-                    if (!syncBranchPolicy(rootPath)) {
-                        ExtensionLogger.log('保存ジョブ実行時: 記録不可のためスキップ', 'WARN');
-                        refreshUi(rootPath);
-                        return;
-                    }
-                    const runningBranch = getCurrentBranch(rootPath);
-                    if (enqueuedBranch && runningBranch && enqueuedBranch !== runningBranch) {
-                        ExtensionLogger.log(
-                            `保存ジョブ実行時: ブランチが変わったためスキップ（${enqueuedBranch} → ${runningBranch}）`,
-                            'WARN'
-                        );
-                        refreshUi(rootPath);
-                        return;
-                    }
-
-                    timer.mark('policy');
-                    lastSaveOutcome = undefined;
-                    const result = await runShadowCommit(rootPath, absPath, snapshot, timer);
-                    saveResult = result;
-                    if ((result === 'created' || result === 'rewound') && useOverlayCheckout()) {
-                        // 新しいコミットのときは何もしない。ワークスペースはもう保存した内容で、層は runShadowCommit で
-                        // 書き出してある（カーネル版は agent に、Node.js 版は .microgit/overlay/layers に）。
-                        // Node.js 版は以前ここで「過去の姿のビュー」を作り直していて、保存のたびに 0.5〜0.6 秒かかっていた（#41）。
-                        // ビューは、過去に戻るときに、いちばん近い展開済みのビューから必要な層だけ当てて作る。
-                        // 同じ中身に戻した（rewound）ときは、ワークスペースを合わせるので今までどおり。HEAD は記録した結果から取る（#37）
-                        const outcome = lastSaveOutcome as { head: string; layerByKernel: boolean } | undefined;
-                        if (result === 'rewound') {
-                            const head = outcome?.head ?? tryRunGit(shadowWorkTreePath(rootPath), ['rev-parse', 'HEAD'])?.trim();
-                            if (head) {
-                                await applyOverlayCheckout(rootPath, head, { syncWorkspace: result === 'rewound' });
-                            }
-                        }
-                        timer.mark('overlay');
-                    }
-                    // 画面・timeline.log・log_latest.json は列の外で、まとめて（#37）
-                    scheduleAfterSaveRefresh(rootPath, result === 'created' || result === 'rewound' ? absPath : undefined);
-                    timer.skip();
-                } finally {
-                    saveTimings.add(timer.finish(saveResult));
-                    savesProcessed++;
-                    pendingSaveJobs = Math.max(0, pendingSaveJobs - 1);
-                    if (pendingSaveJobs === 0) {
-                        lastEnqueuedSave = undefined;
-                    }
-                }
-            });
+            enqueueRecordSave(rootPath, absPath, () => captureSaveSnapshot(document), 'editor');
         })
+    );
+
+    // VS Code の外で保存されたファイルの記録（vereve.externalSaves.*、docs/external-saves.md）。既定は無効
+    configureExternalSaves(context);
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeConfiguration((e) => {
+            if (e.affectsConfiguration('vereve.externalSaves')) { configureExternalSaves(context); }
+        }),
+        { dispose: () => disposeExternalSaves() },
     );
 
     // vereve.toggle：有効 / 無効を切り替える。有効にできるのは、名前付きブランチの上だけ（detached HEAD は不可）
@@ -777,6 +701,284 @@ async function flushAfterSaveRefresh(): Promise<void> {
 /** 保存の記録を saveChain の後ろに足す。前の仕事が失敗しても、この仕事は走る */
 function enqueueSave(task: () => Promise<void>): void {
     saveChain = saveChain.then(task, task);
+}
+
+/**
+ * 保存の記録を列（saveChain）に足す。source は、エディタの保存（onDidSaveTextDocument）か、VS Code の外の保存（ファイルの監視）か。
+ * 記録してよくない（無効・記録できないブランチ・Git 管理外）なら足さない。readSnapshot は、足す時点の中身を返す
+ * （記録しないときにファイルを読まないよう、確かめたあとで呼ぶ）
+ */
+function enqueueRecordSave(rootPath: string, absPath: string, readSnapshot: () => Buffer, source: 'editor' | 'external'): void {
+    if (!syncBranchPolicy(rootPath)) {
+        refreshUi(rootPath);
+        return;
+    }
+
+    const gitPath = path.join(rootPath, '.git');
+    const isTestFile = absPath.endsWith('test_dummy.py');
+    if (!fs.existsSync(gitPath) && !isTestFile) {
+        ExtensionLogger.log('Git管理外のフォルダのため、処理をスキップしました。', 'WARN');
+        void ExtensionLogger.exportLogFile(rootPath);
+        return;
+    }
+
+    const snapshot = readSnapshot();
+    const contentHash = createHash('sha1').update(snapshot).digest('hex');
+
+    // キュー消化前の同一パス・同一内容の連続エンキューだけ畳む
+    if (
+        pendingSaveJobs > 0 &&
+        lastEnqueuedSave &&
+        lastEnqueuedSave.absPath === absPath &&
+        lastEnqueuedSave.contentHash === contentHash
+    ) {
+        ExtensionLogger.log(`同一内容のため保存ジョブを省略: ${absPath}`);
+        return;
+    }
+    lastEnqueuedSave = { absPath, contentHash };
+    // 監視からの同じ中身の通知（エディタの保存のあと）を記録しない
+    recordedContents.remember(absPath, contentHash);
+
+    ExtensionLogger.log(`${source === 'editor' ? 'ファイル保存イベント' : 'VS Code の外の保存'}を検知（スナップショット）: ${absPath}`);
+
+    const enqueuedBranch = getCurrentBranch(rootPath);
+    pendingSaveJobs++;
+    // 段階ごとの時間（#37）。保存のイベントの時刻から数える
+    const timer = new SaveTimer(performance.now());
+    let saveResult = 'skipped';
+    enqueueSave(async () => {
+        timer.mark('queue');
+        try {
+            // 実行時点でブランチ／有効状態を再確認（投入後に切替されても誤記録しない）
+            if (!syncBranchPolicy(rootPath)) {
+                ExtensionLogger.log('保存ジョブ実行時: 記録不可のためスキップ', 'WARN');
+                refreshUi(rootPath);
+                return;
+            }
+            const runningBranch = getCurrentBranch(rootPath);
+            if (enqueuedBranch && runningBranch && enqueuedBranch !== runningBranch) {
+                ExtensionLogger.log(
+                    `保存ジョブ実行時: ブランチが変わったためスキップ（${enqueuedBranch} → ${runningBranch}）`,
+                    'WARN'
+                );
+                refreshUi(rootPath);
+                return;
+            }
+
+            timer.mark('policy');
+            lastSaveOutcome = undefined;
+            const result = await runShadowCommit(rootPath, absPath, snapshot, timer);
+            saveResult = result;
+            if ((result === 'created' || result === 'rewound') && useOverlayCheckout()) {
+                // 新しいコミットのときは何もしない。ワークスペースはもう保存した内容で、層は runShadowCommit で
+                // 書き出してある（カーネル版は agent に、Node.js 版は .microgit/overlay/layers に）。
+                // Node.js 版は以前ここで「過去の姿のビュー」を作り直していて、保存のたびに 0.5〜0.6 秒かかっていた（#41）。
+                // ビューは、過去に戻るときに、いちばん近い展開済みのビューから必要な層だけ当てて作る。
+                // 同じ中身に戻した（rewound）ときは、ワークスペースを合わせるので今までどおり。HEAD は記録した結果から取る（#37）
+                const outcome = lastSaveOutcome as { head: string; layerByKernel: boolean } | undefined;
+                if (result === 'rewound') {
+                    const head = outcome?.head ?? tryRunGit(shadowWorkTreePath(rootPath), ['rev-parse', 'HEAD'])?.trim();
+                    if (head) {
+                        await applyOverlayCheckout(rootPath, head, { syncWorkspace: result === 'rewound' });
+                    }
+                }
+                timer.mark('overlay');
+            }
+            // 画面・timeline.log・log_latest.json は列の外で、まとめて（#37）
+            scheduleAfterSaveRefresh(rootPath, result === 'created' || result === 'rewound' ? absPath : undefined);
+            timer.skip();
+        } finally {
+            saveTimings.add(timer.finish(saveResult));
+            savesProcessed++;
+            pendingSaveJobs = Math.max(0, pendingSaveJobs - 1);
+            if (pendingSaveJobs === 0) {
+                lastEnqueuedSave = undefined;
+            }
+        }
+    });
+}
+
+
+/** ファイルの監視（VS Code の外の保存の記録）。無効なら undefined */
+let externalWatcher: vscode.FileSystemWatcher | undefined;
+/** 書き終わるまで待つ部品。無効なら undefined */
+let settleWatcher: SettleWatcher | undefined;
+/** パスごとの、最後に記録した（または verEve が書いた）中身のハッシュ。エディタの保存と監視の二重の記録を防ぐ */
+const recordedContents = new RecordedContents();
+/** 書き終わったと判定するまで、大きさと更新時刻が変わらずにいるべき時間（ミリ秒）。docs/external-saves.md */
+const EXTERNAL_SETTLE_MS = 1000;
+/** 新しいフォルダの通知で中を見るとき、候補にするファイルの数の上限（大きなフォルダを丸ごとコピーしたときに止まらないため） */
+const EXTERNAL_DIR_SCAN_LIMIT = 1000;
+/** verEve がワークスペースに書いている最中の数（入れ子あり） */
+let workspaceWriteDepth = 0;
+/** 書き終わったファイルの判定（Git を起動する）を 1 件ずつ流す列。git checkout などで大量の通知が来ても、Git を並列に大量起動しない */
+let externalChain: Promise<void> = Promise.resolve();
+
+/**
+ * verEve 自身がワークスペースに書く処理（過去に戻る操作など）を包む。書いているあいだは、監視の通知を受け付けない。
+ * 通知は書き終わったあと少し遅れても届く。それは handleSettledExternalFile が「shadow の HEAD と同じ中身」として落とす
+ * （時間で区切って無視する案は、直後の利用者の本当の保存を落としたので採らない。docs/external-saves.md）
+ */
+async function withWorkspaceWrites<T>(fn: () => Promise<T>): Promise<T> {
+    workspaceWriteDepth++;
+    try {
+        return await fn();
+    } finally {
+        workspaceWriteDepth--;
+    }
+}
+
+/** 設定 vereve.externalSaves.enabled に合わせて、ファイルの監視を作る・止める */
+function configureExternalSaves(context: vscode.ExtensionContext): void {
+    disposeExternalSaves();
+    const folder = vscode.workspace.workspaceFolders?.[0];
+    if (!folder) { return; }
+    if (!vscode.workspace.getConfiguration().get<boolean>('vereve.externalSaves.enabled', false)) { return; }
+    const rootPath = folder.uri.fsPath;
+
+    settleWatcher = new SettleWatcher(EXTERNAL_SETTLE_MS, (absPath) => {
+        externalChain = externalChain
+            .then(() => handleSettledExternalFile(rootPath, absPath))
+            .catch((err: unknown) => {
+                const msg = err instanceof Error ? err.message : String(err);
+                ExtensionLogger.log(`VS Code の外の保存の記録に失敗: ${absPath}: ${msg}`, 'WARN');
+            });
+    }, {
+        stat: (p) => {
+            try {
+                const st = fs.statSync(p);
+                return st.isFile() ? { size: st.size, mtimeMs: st.mtimeMs } : undefined;
+            } catch { return undefined; }
+        },
+        setTimer: (fn, ms) => setTimeout(fn, ms),
+        clearTimer: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
+    });
+
+    /** 記録の候補にしてよいパスか（成果物・ワークスペースの外・.git の中・一時ファイルは外す） */
+    const acceptable = (absPath: string): boolean => {
+        if (isMicroGitArtifactPath(absPath, rootPath) || !isPathInsideRoot(absPath, rootPath)) { return false; }
+        const rel = toPosixRelative(rootPath, absPath);
+        return !!rel && !isInsideGitDir(rel) && !isTransientFileName(rel);
+    };
+    const onChange = (uri: vscode.Uri, created: boolean) => {
+        if (uri.scheme !== 'file') { return; }
+        if (workspaceWriteDepth > 0) { return; }
+        if (!isEnabled()) { return; }
+        const absPath = uri.fsPath;
+        if (!acceptable(absPath)) { return; }
+        if (created) {
+            // 新しいフォルダの中に、監視が見張り始める前に書かれたファイルは通知が来ないことがある（再帰の監視の競合。
+            // テストで、フォルダを作ってすぐ書いたファイルがときどき記録されなかった）。フォルダの作成の通知で中を見る
+            let isDir = false;
+            try { isDir = fs.statSync(absPath).isDirectory(); } catch { return; }
+            if (isDir) {
+                for (const file of listFilesUnder(absPath, EXTERNAL_DIR_SCAN_LIMIT)) {
+                    if (acceptable(file)) { settleWatcher?.notify(file); }
+                }
+                return;
+            }
+        }
+        settleWatcher?.notify(absPath);
+    };
+    externalWatcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(folder, '**/*'));
+    externalWatcher.onDidChange((uri) => onChange(uri, false));
+    externalWatcher.onDidCreate((uri) => onChange(uri, true));
+    externalWatcher.onDidDelete((uri) => { settleWatcher?.forget(uri.fsPath); recordedContents.forget(uri.fsPath); });
+    context.subscriptions.push(externalWatcher);
+    ExtensionLogger.log('VS Code の外の保存の記録を有効にしました（vereve.externalSaves.enabled）');
+}
+
+/** dir の下のファイル（再帰。.git と成果物のフォルダには入らない）を、最大 limit 個返す */
+function listFilesUnder(dir: string, limit: number): string[] {
+    const out: string[] = [];
+    const stack = [dir];
+    while (stack.length > 0 && out.length < limit) {
+        const d = stack.pop()!;
+        let entries: fs.Dirent[];
+        try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { continue; }
+        for (const e of entries) {
+            if (out.length >= limit) { break; }
+            const full = path.join(d, e.name);
+            if (e.isDirectory()) {
+                if (e.name !== '.git' && !ARTIFACT_ROOTS.includes(e.name as typeof ARTIFACT_ROOTS[number])) { stack.push(full); }
+            } else if (e.isFile()) {
+                out.push(full);
+            }
+        }
+    }
+    return out;
+}
+
+function disposeExternalSaves(): void {
+    externalWatcher?.dispose();
+    externalWatcher = undefined;
+    settleWatcher?.dispose();
+    settleWatcher = undefined;
+}
+
+/**
+ * 書き終わったファイルを記録するか決め、するなら列に足す。記録しないのは：
+ * 無効・verEve が書いている最中、大きすぎる・一時ファイル（decideExternalSave）、メインの Git が無視するファイル（.gitignore。ビルドの出力など）、
+ * 最後に記録した中身と同じ（エディタの保存の二重）、shadow の HEAD と同じ中身（過去に戻る操作が書いたファイル。記録しても unchanged になるだけ）、
+ * メインの HEAD と同じ中身（git checkout・pull などの書き換え）
+ */
+async function handleSettledExternalFile(rootPath: string, absPath: string): Promise<void> {
+    if (!isEnabled() || workspaceWriteDepth > 0) { return; }
+    const rel = toPosixRelative(rootPath, absPath);
+    if (!rel) { return; }
+    let size: number;
+    try {
+        const st = fs.statSync(absPath);
+        if (!st.isFile()) { return; }
+        size = st.size;
+    } catch { return; }
+    const maxMb = vscode.workspace.getConfiguration().get<number>('vereve.externalSaves.maxFileSizeMb', 100);
+    const decision = decideExternalSave(rel, size, Math.max(0, maxMb) * 1024 * 1024);
+    if (!decision.record) {
+        ExtensionLogger.log(`VS Code の外の保存を記録しない（${decision.reason}）: ${rel}`);
+        return;
+    }
+    if (await isIgnoredByMainRepo(rootPath, rel)) { return; }
+
+    let snapshot: Buffer;
+    try { snapshot = fs.readFileSync(absPath); } catch { return; }
+    const contentHash = createHash('sha1').update(snapshot).digest('hex');
+    if (recordedContents.isKnown(absPath, contentHash)) { return; }
+    // 過去に戻る操作が書いた中身（shadow の HEAD と同じ）。runGitAsync は速い記録の書き出しを先に吐き出させる（ADR-0015）
+    const shadowBlob = await tryRunGitAsync(shadowWorkTreePath(rootPath), ['rev-parse', '--verify', '--quiet', `HEAD:${rel}`]);
+    // git checkout・pull・stash などが書いた中身（メインの HEAD と同じ）
+    if ((shadowBlob && gitBlobHash(snapshot, shadowBlob.trim()) === shadowBlob.trim()) || await equalsMainHeadBlob(rootPath, rel, snapshot)) {
+        // 次に同じ中身の通知が来ても Git を起動しない
+        recordedContents.remember(absPath, contentHash);
+        return;
+    }
+    enqueueRecordSave(rootPath, absPath, () => snapshot, 'external');
+}
+
+/** メインのリポジトリが無視するファイル（.gitignore など）なら true。判定できなければ false（記録する側に倒す） */
+async function isIgnoredByMainRepo(rootPath: string, rel: string): Promise<boolean> {
+    try {
+        await execFileAsync('git', ['check-ignore', '-q', '--', rel], { cwd: rootPath, windowsHide: true });
+        return true; // 終了コード 0 = 無視される
+    } catch {
+        return false; // 1 = 無視されない、それ以外 = 判定できない
+    }
+}
+
+/** 中身がメインのリポジトリの HEAD のそのパスの blob と同じなら true。HEAD に無い・判定できなければ false */
+async function equalsMainHeadBlob(rootPath: string, rel: string, content: Buffer): Promise<boolean> {
+    let headBlob: string;
+    try {
+        const { stdout } = await execFileAsync('git', ['rev-parse', '--verify', '--quiet', `HEAD:${rel}`], { cwd: rootPath, windowsHide: true });
+        headBlob = String(stdout).trim();
+    } catch { return false; }
+    return headBlob.length > 0 && gitBlobHash(content, headBlob) === headBlob;
+}
+
+/** content を Git の blob にしたときのハッシュ。like（比べる相手のハッシュ）の長さで SHA-1 か SHA-256 かを決める */
+function gitBlobHash(content: Buffer, like: string): string {
+    const algo = like.length === 64 ? 'sha256' : 'sha1';
+    return createHash(algo).update(`blob ${content.length}\0`).update(content).digest('hex');
 }
 
 /** 保存のたびに親 refs へ push しない。連続保存は最後の1回に間引く */
@@ -1466,6 +1668,15 @@ async function applyOverlayCheckout(
     targetHash: string,
     options?: { syncWorkspace?: boolean },
 ): Promise<void> {
+    // ワークスペースに書くあいだ、監視からの記録を止める（利用者の保存ではない）
+    return withWorkspaceWrites(() => applyOverlayCheckoutInner(rootPath, targetHash, options));
+}
+
+async function applyOverlayCheckoutInner(
+    rootPath: string,
+    targetHash: string,
+    options?: { syncWorkspace?: boolean },
+): Promise<void> {
     const shadowRepoPath = shadowWorkTreePath(rootPath);
     const syncWorkspace = options?.syncWorkspace !== false;
 
@@ -1526,6 +1737,11 @@ async function applyOverlayCheckout(
  * Overlay を使わないときは、target のコミットで変わったファイル（無ければ全ファイル）を git show で 1 つずつ書き戻す（Git に無いものは消す）
  */
 async function sharedTimeTravel(target: string, rootPath: string): Promise<void> {
+    // ワークスペースに書くあいだ、監視からの記録を止める（利用者の保存ではない）
+    return withWorkspaceWrites(() => sharedTimeTravelInner(target, rootPath));
+}
+
+async function sharedTimeTravelInner(target: string, rootPath: string): Promise<void> {
     const shadowRepoPath = shadowWorkTreePath(rootPath);
 
     if (!isSafeGitRef(target)) {
