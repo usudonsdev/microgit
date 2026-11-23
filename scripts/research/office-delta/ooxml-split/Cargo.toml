@@ -1,0 +1,24 @@
+[package]
+name = "vereve-ooxml-split"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "vereve_ooxml_split"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "ooxml-split"
+path = "src/main.rs"
+
+[dependencies]
+# 補正データの形式は preflate-rs の実装そのものに依存する。版を = で固定し、上げるときは
+# 古い版で作った補正データが新しい版で作り直せるかを確かめてから(docs/non-engineer-preflate-integration.md §4)
+preflate-rs = "=0.7.6"
+sha2 = "0.10"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "unwind"

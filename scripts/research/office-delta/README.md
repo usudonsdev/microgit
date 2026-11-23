@@ -9,6 +9,7 @@
 | `recompress.py` | ZIP の各部品の圧縮データが、zlib(レベル 1〜9、memLevel 8/9)で同じバイト列に再現できるか |
 | `recompress2.py` | 同上を、レベル 0〜9・memLevel 1〜9・窓 9〜15・strategy 0〜4 の全組み合わせで調べる(遅い。小さいファイル向け) |
 | `measure.py` | 1 か所を編集したときに新しく保存が要るバイト数を、3 つの保存形式(そのまま分割/展開してから分割/部品ごとの圧縮データを分割)で比べる。要 `pip install fastcdc` |
+| `ooxml-split/` | ZIP の文書を「骨組み + 部品ごとの中身 + 補正データ」に分け、元どおりに組み立て直す試作(Rust のライブラリ、確認用の exe、C の口)。設計は [docs/non-engineer-preflate-integration.md](../../../docs/non-engineer-preflate-integration.md) |
 | `preflate-roundtrip/` | Microsoft の preflate-rs で、圧縮データを「展開した中身 + 補正データ」から元のバイト列どおりに作り直せるかを確かめる Rust の小さなツール |
 
 実行例(Python は `-I` を付けて、データのあるディレクトリのファイルを読み込まないようにする):
