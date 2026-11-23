@@ -57,8 +57,8 @@ describe('package.json とソースの一致（改名後の名称）', () => {
 });
 
 describe('コマンド', () => {
-    test('contributes.commands は 10 個で、すべて vereve.*', () => {
-        assert.strictEqual(contributedCommands.length, 10);
+    test('contributes.commands は 11 個で、すべて vereve.*', () => {
+        assert.strictEqual(contributedCommands.length, 11);
         for (const id of contributedCommands) { assert.match(id, /^vereve\.[A-Za-z]+$/); }
     });
 
@@ -90,8 +90,8 @@ describe('コマンド', () => {
 });
 
 describe('設定キー', () => {
-    test('contributes.configuration のキーは 10 個で、すべて vereve.*', () => {
-        assert.strictEqual(settingKeys.length, 10);
+    test('contributes.configuration のキーは 12 個で、すべて vereve.*', () => {
+        assert.strictEqual(settingKeys.length, 12);
         for (const k of settingKeys) { assert.ok(k.startsWith('vereve.'), k); }
     });
 

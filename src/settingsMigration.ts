@@ -31,6 +31,8 @@ export const MIGRATED_SETTING_NAMES = [
 export const SETTINGS_ADDED_AFTER_RENAME = [
     'externalSaves.enabled',
     'externalSaves.maxFileSizeMb',
+    'diff.ffmpegPath',
+    'diff.timeoutSeconds',
 ] as const;
 
 export const LEGACY_SETTING_PREFIX = 'microgit.';

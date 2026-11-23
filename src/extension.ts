@@ -64,6 +64,7 @@ import { durabilityGitArgs, getDurability, setDurability } from './durability';
 import { PublishQueue } from './publishQueue';
 import { RecordedContents, SettleWatcher, decideExternalSave, isInsideGitDir, isTransientFileName } from './externalSave';
 import { buildPublishConfirmMessage } from './publishConfirm';
+import { registerStructuredDiff } from './diffCommand';
 
 /** workspaceState のキー：verEve が有効か（真偽値） */
 const STATE_ENABLED = 'vereve.enabled';
@@ -304,6 +305,15 @@ export function activate(context: vscode.ExtensionContext) {
             enqueueRecordSave(rootPath, absPath, () => captureSaveSnapshot(document), 'editor');
         })
     );
+
+    // 構造を理解した差分（vereve.showStructuredDiff、docs/structured-diff.md）
+    registerStructuredDiff(context, {
+        rootPath: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+        shadowPath: (root) => shadowWorkTreePath(root),
+        git: (cwd, args) => runGitAsync(cwd, args),
+        readBlob: (cwd, rev, rel) => readShadowBlob(cwd, rev, rel),
+        log: (m, l) => ExtensionLogger.log(m, l),
+    });
 
     // VS Code の外で保存されたファイルの記録（vereve.externalSaves.*、docs/external-saves.md）。既定は無効
     configureExternalSaves(context);
@@ -1343,6 +1353,20 @@ async function runGitAsync(cwd: string, args: string[]): Promise<string> {
 }
 
 /** runGitAsync が失敗したら、例外にせず undefined を返す版 */
+/** shadow の blob（rev:relPath）をバイト列で読む。無ければ undefined。速い記録の書き出しを先に吐き出させる（ADR-0015） */
+async function readShadowBlob(cwd: string, rev: string, relPath: string): Promise<Buffer | undefined> {
+    if (!isSafeGitRef(rev) || relPath.includes('\0')) { return undefined; }
+    flushPendingGitWrites(cwd);
+    try {
+        const { stdout } = await execFileAsync('git', ['cat-file', 'blob', `${rev}:${relPath}`], {
+            cwd, encoding: 'buffer', windowsHide: true, maxBuffer: 2 * 1024 * 1024 * 1024,
+        });
+        return stdout as Buffer;
+    } catch {
+        return undefined;
+    }
+}
+
 async function tryRunGitAsync(cwd: string, args: string[]): Promise<string | undefined> {
     try {
         return await runGitAsync(cwd, args);

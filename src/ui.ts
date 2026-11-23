@@ -236,6 +236,9 @@ export class VerEveUi implements vscode.WebviewViewProvider {
             case 'exportLogs':
                 await vscode.commands.executeCommand('vereve.exportLogs');
                 return;
+            case 'showDiff':
+                await vscode.commands.executeCommand('vereve.showStructuredDiff', typeof message.hash === 'string' ? message.hash : undefined);
+                return;
             case 'setInterval':
                 if (typeof message.intervalId === 'string') {
                     this.setIntervalFilter(message.intervalId);
@@ -356,6 +359,9 @@ function getSidebarHtml(): string {
     font-size: 12px;
   }
   .item:hover { outline: 1px solid var(--btn); }
+  .item-row { display: flex; gap: 4px; align-items: stretch; }
+  .item-row .item { flex: 1; min-width: 0; }
+  .item-diff { padding: 2px 6px; font-size: 11px; background: var(--btn2); color: var(--btn2-fg); border: 1px solid var(--border); border-radius: 4px; cursor: pointer; }
   .item.active { border-color: var(--active); background: rgba(63, 185, 80, 0.08); }
   .item-compact { display: flex; justify-content: space-between; gap: 8px; }
   .item-label { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
@@ -413,6 +419,7 @@ function getSidebarHtml(): string {
     <button class="secondary" id="btn-graph">グラフを開く</button>
     <button class="secondary" id="btn-jump">タグ / ハッシュへジャンプ</button>
     <button class="secondary" id="btn-export">ログをエクスポート</button>
+    <button class="secondary" id="btn-diff">差分を見る</button>
   </div>
 
   <h1>最近のマイクロ履歴</h1>
@@ -443,6 +450,7 @@ function getSidebarHtml(): string {
     btnGraph.onclick = () => vscode.postMessage({ command: 'showGraph' });
     btnJump.onclick = () => vscode.postMessage({ command: 'jumpPrompt' });
     btnExport.onclick = () => vscode.postMessage({ command: 'exportLogs' });
+    document.getElementById('btn-diff').onclick = () => vscode.postMessage({ command: 'showDiff' });
     intervalFilter.onchange = () => {
       vscode.postMessage({ command: 'setInterval', intervalId: intervalFilter.value });
     };
@@ -586,7 +594,17 @@ function getSidebarHtml(): string {
         btn.onmouseenter = () => showTip(sidebarTip, commitDetailText(c), btn);
         btn.onmouseleave = () => hideTip(sidebarTip);
         btn.onclick = () => vscode.postMessage({ command: 'jumpToCommit', hash: c.hash });
-        commitList.appendChild(btn);
+        // その保存で何が変わったか（構造を理解した差分。docs/structured-diff.md）
+        const diffBtn = document.createElement('button');
+        diffBtn.className = 'item-diff';
+        diffBtn.textContent = '差分';
+        diffBtn.title = 'この保存で変わったところを見る';
+        diffBtn.onclick = (e) => { e.stopPropagation(); vscode.postMessage({ command: 'showDiff', hash: c.hash }); };
+        const row = document.createElement('div');
+        row.className = 'item-row';
+        row.appendChild(btn);
+        row.appendChild(diffBtn);
+        commitList.appendChild(row);
       });
     }
 

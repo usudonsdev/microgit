@@ -18,9 +18,11 @@ export function makeNonce(): string {
 }
 
 /** nonce を使う CSP の文字列。 */
-export function buildCsp(nonce: string): string {
+export function buildCsp(nonce: string, options: { dataImages?: boolean } = {}): string {
     return [
         `default-src 'none'`,
+        // 差分の画面（diffView.ts）だけ、結果に入れた縮小画像（data:image/png）を表示する。外部の画像は読まない
+        ...(options.dataImages ? [`img-src data:`] : []),
         `style-src 'nonce-${nonce}'`,
         `script-src 'nonce-${nonce}'`,
         `base-uri 'none'`,
@@ -32,11 +34,11 @@ export function buildCsp(nonce: string): string {
  * テンプレートの HTML に CSP の <meta> を足し、<script>・<style> の開始タグに nonce を付けて返す。
  * <head> が無い HTML は不正なので例外にする（CSP が付かないまま表示してしまうのを防ぐ）。
  */
-export function applyCsp(html: string, nonce: string = makeNonce()): string {
+export function applyCsp(html: string, nonce: string = makeNonce(), options: { dataImages?: boolean } = {}): string {
     if (!/<head>/.test(html)) {
         throw new Error('applyCsp: <head> が見つからない');
     }
-    const meta = `<meta http-equiv="Content-Security-Policy" content="${buildCsp(nonce)}" />`;
+    const meta = `<meta http-equiv="Content-Security-Policy" content="${buildCsp(nonce, options)}" />`;
     return html
         .replace('<head>', `<head>\n${meta}`)
         .replace(/<(script|style)>/g, `<$1 nonce="${nonce}">`);

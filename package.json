@@ -80,6 +80,10 @@
       {
         "command": "vereve.fetchMicroHistory",
         "title": "verEve: Fetch Micro History"
+      },
+      {
+        "command": "vereve.showStructuredDiff",
+        "title": "verEve: Show Structured Diff"
       }
     ],
     "configuration": {
@@ -158,6 +162,17 @@
           "default": 100,
           "minimum": 0,
           "description": "VS Code の外で保存されたファイルを記録する大きさの上限（MB）。超えるファイルは記録しない。0 で上限なし"
+        },
+        "vereve.diff.ffmpegPath": {
+          "type": "string",
+          "default": "",
+          "description": "動画（と PNG 以外の画像）の差分に使う ffmpeg の場所。同じフォルダの ffprobe も使う。空なら PATH から探す。見つからなければ動画の差分は出せない（docs/structured-diff.md）"
+        },
+        "vereve.diff.timeoutSeconds": {
+          "type": "number",
+          "default": 120,
+          "minimum": 5,
+          "description": "差分（verEve: Show Structured Diff）の計算の時間の上限（秒）。超えたら打ち切る。大きい動画では長くする"
         },
         "vereve.kernel.memoryMb": {
           "type": "number",
