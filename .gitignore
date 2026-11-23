@@ -17,3 +17,6 @@ windows/qemu/.cache/
 # VSIX を作るときの一時的な置き場所（scripts/package-vsix.mjs）
 resources/kernel/
 .cache/
+
+# 非エンジニア版デスクトップアプリ(Rust)のビルド成果物
+desktop/engine/target/
