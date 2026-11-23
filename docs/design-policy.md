@@ -445,6 +445,7 @@ Cursor と Claude Code を併用する。チャット履歴・コンテキスト
 - Phase 2（Windows）: [windows-backend.md](./windows-backend.md) — QEMU を同梱する方式に決定（O-1）。WHPX が無効でも TCG で動く。計測結果と、同梱用の小さい QEMU のビルド（#18）
 - Phase 3（公開）: [release.md](./release.md) — プラットフォーム別の VSIX、5 つの環境での確認、公開の手順と利用者が決めること、ライセンスとソース、Windows の保護機能、TCG の境界、同梱する部品の更新方針（O-6）。同梱物の一覧は [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)（#19）
 - VS Code の外で保存されたファイルの記録（第 0 段階、実装済み・既定は無効）: [external-saves.md](./external-saves.md) — ファイルの監視、書き終わりの判定、一時ファイル・.gitignore・git checkout の書き換え・過去に戻る操作の書き込みを記録しない理由
+- 構造を理解した差分（実装、第 1〜3 段階）: [structured-diff-implementation.md](./structured-diff-implementation.md) — xlsx・CSV・docx・pptx・画像・動画の差分ドライバ、別プロセスでの計算とキャッシュ、決めたこと（ffmpeg は同梱しない など）
 - 構造を理解した差分（構想・案）: [structured-diff.md](./structured-diff.md) — xlsx はセル単位、動画はコマ単位で差分を見せる構想。正本は保存したバイト列のまま、差分は見るときに計算する。前提として VS Code の外で保存されたファイルの記録が要る
 - 変更履歴: [CHANGELOG.md](../CHANGELOG.md)
 - エージェント共通指示: [AGENTS.md](../AGENTS.md) / [CLAUDE.md](../CLAUDE.md)

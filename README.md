@@ -24,6 +24,7 @@
 - **直感的なタイムトラベル**: 過去の保存ポイントへ、ボタン一つでワークスペースのファイルを復元できます。
 - **タイムライングラフ**: 専用の Webview ビューアで、分岐したマイクロ履歴を視覚的に確認できます。
 - **VS Code の外で保存したファイルも記録（試験的・既定はオフ）**: 設定 `vereve.externalSaves.enabled` を true にすると、Excel や画像・動画の編集ソフトなど、VS Code の外で保存したファイルも記録します。書き終わる（1 秒変わらなくなる）のを待ってから記録し、一時ファイル・ロックファイル（`~$book.xlsx` など）、`.gitignore` で無視されるファイル、`git checkout` などで書き換わっただけのファイル、`vereve.externalSaves.maxFileSizeMb`（既定 100 MB）を超えるファイルは記録しません。差分の表示はまだありません（過去に戻ることはできます）。詳細は [docs/external-saves.md](docs/external-saves.md)
+- **構造を理解した差分（試験的）**: サイドバーの履歴の「差分」ボタン、または `verEve: Show Structured Diff` で、その保存で何が変わったかを形式ごとに見られます。Excel（セルの値・式・式の結果だけ・書式、行・列の挿入、シート）、CSV、Word（段落と文字）、PowerPoint（スライドと図形）、画像（変わった範囲）、動画（差し替え・追加・削除の区間。ffmpeg が必要）。テキストは VS Code の差分エディタで開きます。詳細は [docs/structured-diff-implementation.md](docs/structured-diff-implementation.md)
 - **コントロールパネル**: Activity Bar の専用ビューから GUI 操作できます。保存やジャンプに合わせてリアルタイム更新されます。
 
 ## 使い方

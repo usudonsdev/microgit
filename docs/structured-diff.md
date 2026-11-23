@@ -2,7 +2,7 @@
 
 2026-11-23。利用者の提案：「バイナリファイルを、動画ならどのコマをどう変えたか、xlsx ならどのセルをどう変えたか、という単位で差分管理できれば、verEve はただの Git の入れ子より広く使える」。
 
-ここに書くのは**案**であり、未実装・未検証。実装の正本にはしない。容量の話（ZIP を展開して分割すると節約できる、など）は [non-engineer-history-storage-survey.md](./non-engineer-history-storage-survey.md) §6 に実験がある。本書は**差分の見せ方（意味のある単位での比較）**を主に扱う。
+ここに書くのは**案**であり、実装の正本にはしない。**2026-11-24 に第 0〜3 段階を実装した（未公開）。実装と、§7 の未決のうち実装で決めたことは [structured-diff-implementation.md](./structured-diff-implementation.md)。**容量の話（ZIP を展開して分割すると節約できる、など）は [non-engineer-history-storage-survey.md](./non-engineer-history-storage-survey.md) §6 に実験がある。本書は**差分の見せ方（意味のある単位での比較）**を主に扱う。
 
 ## 1. 結論（案）
 
