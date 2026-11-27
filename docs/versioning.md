@@ -69,13 +69,17 @@ agent の命令の形には、これとは別に **protocol の版**（`main.go`
 
 ### 罠
 
-- CI は `actions/checkout` の `fetch-depth: 0`（タグごと取る）で流す。浅い clone ではタグが見えず、`--strict` で失敗する
+- CI は `actions/checkout` の `fetch-depth: 0`（タグごと取る）で流す。`--strict` は浅い clone やタグが 1 つも無いときに失敗する。部品のタグ（`agent-v*` など）がまだ 1 つも無いときは注意だけ（その部品の上げ忘れは確かめられない）
 - タグ `v*` を push すると、**そのコミットの** `package.yml` が走る（2026-09 以降のコミット）。さかのぼってタグを打つときは気をつける（§4）
 - 一度 Marketplace に出した版の番号は使い直せない（release.md §3）
 
 ## 4. さかのぼって付けた版とタグ（2026-11-27）
 
 `package.json` の `version` が変わったコミットを、master の first-parent の履歴からたどり、その版が初めて出たコミットにタグを打った（5.x のタグがマージコミットに打ってあるのに合わせた）。注釈つきタグの日付はコミットの日付にそろえ、本文に「さかのぼって付けた」と書いた。
+
+**タグを打つのは [scripts/tag-past-versions.sh](../scripts/tag-past-versions.sh)**（すでにあるタグは飛ばす。`--push` で origin へ送る。`v5.1.3` だけは送ると package.yml が走るので `--push-5.1.3` を足したときだけ送る）。
+
+> 2026-11-27 時点：Claude Code のクラウドのセッションからはタグを push できなかった（作業ブランチ以外への push は HTTP 403）。そのため、下の表のタグは**まだ origin に無い**。運営者が手元で `bash scripts/tag-past-versions.sh --push` を流すと揃う。それまで `check:versions` は「タグ agent-v* が見えない」の注意を出し、agent の版の上げ忘れは確かめられない（CI は落とさない）。
 
 ### 拡張機能
 
@@ -117,7 +121,7 @@ agent の命令の形には、これとは別に **protocol の版**（`main.go`
 
 版を上げるコミットのあいだの、版を上げずに入った変更（例：4.0.0〜5.0.0 のあいだの 2 か月分）には、新しい版を作らなかった。当時その番号で配ったものは無く、あとから番号を作ると、配った版と番号が合わなくなるため。それぞれ、次の版に含まれる。
 
-タグを打つときの手順（同じことをやり直すとき）：
+1 つだけ手で打つときの手順：
 
 ```bash
 GIT_COMMITTER_DATE="$(git log -1 --format=%cI <コミット>)" git tag -a v<版> <コミット> -m "MicroGit <版>" -m "さかのぼって付けたタグ（docs/versioning.md §4）"

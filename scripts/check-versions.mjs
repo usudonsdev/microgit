@@ -3,7 +3,8 @@
  * 版（バージョン）の付け忘れ・食い違いを確かめる（docs/versioning.md）。
  *
  * 使い方: node scripts/check-versions.mjs [--strict]
- *   --strict  タグ（v*・agent-v*）が 1 つも見えないときも失敗にする（CI 用。actions/checkout は fetch-depth: 0 にする）
+ *   --strict  浅い clone、またはタグが 1 つも見えないときに失敗にする（CI 用。actions/checkout は fetch-depth: 0 にする）。
+ *             部品ごとのタグ（例 agent-v*）がまだ無いだけなら注意にとどめる（タグを push する前でも CI を通すため）
  *
  * 版を持つ部品は 2 つ（docs/versioning.md §1）:
  *   extension  拡張機能（アプリ）。版は package.json の version、記録は CHANGELOG.md、タグは v<版>
@@ -151,6 +152,12 @@ const COMPONENTS = [
 const tagList = git(['tag', '-l']);
 if (tagList === null) { warnings.push('git が使えないので、タグとの比較を飛ばした'); }
 const allTags = (tagList || '').split('\n').filter(Boolean);
+if (strict && (git(['rev-parse', '--is-shallow-repository']) || '').trim() === 'true') {
+    errors.push('浅い clone なので、タグとの比較ができない（actions/checkout は fetch-depth: 0）');
+}
+if (strict && tagList !== null && !allTags.length) {
+    errors.push('タグが 1 つも見えない（git fetch --tags）');
+}
 
 for (const comp of COMPONENTS) {
     const version = comp.versionAt(null);
@@ -169,7 +176,7 @@ for (const comp of COMPONENTS) {
         .map((t) => ({ tag: t, version: t.slice(comp.tagPrefix.length) }))
         .sort((a, b) => cmp(a.version, b.version));
     if (!tags.length) {
-        (strict ? errors : warnings).push(`${comp.name}: タグ ${comp.tagPrefix}* が見えない（git fetch --tags。CI は fetch-depth: 0）`);
+        warnings.push(`${comp.name}: タグ ${comp.tagPrefix}* が見えない（git fetch --tags。まだ打っていなければ scripts/tag-past-versions.sh）`);
         continue;
     }
 
