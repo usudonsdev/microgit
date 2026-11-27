@@ -18,3 +18,7 @@ Cursor と Claude Code を併用する。チャットは共有されず、トー
 | 不変条件・罠 | ソース近傍コメントまたは `docs/` |
 
 「なぜ」を優先し、後続エージェントがファイルだけで再開できる粒度にする。秘密情報は書かない。正本は `AGENTS.md` と `docs/design-policy.md` §8。
+
+## 版（バージョン）
+
+アプリ（拡張機能）とサーバー（`microgit-agent`）の配るものを変えたら、同じ作業で版と変更履歴を更新し、`npm run check:versions` を流す。決まりは `docs/versioning.md`。

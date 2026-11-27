@@ -3,6 +3,8 @@
 All notable changes to the "verEve" extension (formerly "MicroGit") will be documented in this file.
 
 > 5.2.0 以前の記述は、書いた時点の名称（MicroGit）・コマンド ID・設定キーのまま残している。
+>
+> 版の決まり（いつ・どれを上げるか、タグ）は [docs/versioning.md](docs/versioning.md)。各版にはタグ `v<版>` がある（4.0.0 以前と 5.1.3 は 2026-11-27 にさかのぼって付けた）。ゲストのサーバー（`microgit-agent`）の変更履歴は [guest/agent/CHANGELOG.md](guest/agent/CHANGELOG.md)。
 
 ## [6.0.0] - 未公開（2026-10-26 に実装。リリース作業と公開はまだ）
 
@@ -140,6 +142,8 @@ All notable changes to the "verEve" extension (formerly "MicroGit") will be docu
 
 ## [3.6.0] - 2026-07-26
 
+> 3.5.0 と 3.6.0 は、package.json の版としては一度も出ていない（3.4.1 の次のコミット 4bd8431 で 3.6.1 にした）。そのためタグは無く、中身は `v3.6.1` に入っている。
+
 ### Added
 - OverlayGit 型「空間で時間を買う」: `views/<hash>/` に完全展開ビューを永続化
 - 保存時に親ビュー + 差分レイヤで O(変更) 展開、再訪問・分岐切替はキャッシュヒット
@@ -206,10 +210,46 @@ All notable changes to the "verEve" extension (formerly "MicroGit") will be docu
 - タイムトラベル後の detached HEAD による記録不安定を解消
 - 記録成功 / 失敗のフィードバックを追加
 
-## [3.1.0]
+## [3.1.0] - 2026-07-04
 
 - オンオフ切替とブランチ単位のシャドウ管理を追加
+- Git の起動を、引数の配列で渡す形にして、コマンドの差し込みを防いだ。shadow の履歴をリモートへ push しないことを文書にした
 
-## [3.0.0]
+## [3.0.0] - 2026-06-29
 
+- 分岐ロジックの正式実装（過去に戻ってから保存すると、枝分かれとして記録する）
 - 初期の公開ライン向け機能一式
+
+> ここから下（2.0.1 以前）は、当時 CHANGELOG を書いていなかったので、2026-11-27 にコミットの記録から書き起こした。
+
+## [2.0.1] - 2026-06-29
+
+### Fixed
+- ブランチが表示されない問題と、ログを出すときのエラー
+
+## [2.0.0] - 2026-06-29
+
+### Changed
+- ブランチの扱い（バックエンド）を作り直し、グラフ（フロントエンド）も分岐を表示するようにした
+
+### Fixed
+- 初めてのコミットのときのエラー、ログを作るときの不具合
+
+## [1.0.1] - 2026-06-23
+
+### Fixed
+- テスト用のファイルが拡張機能に混ざっていたのを取り除いた
+
+## [1.0.0] - 2026-06-23
+
+最初の公開版。
+
+### Added
+- 保存のたびに shadow リポジトリ（`.microgit_shadow`）へ自動でコミットする
+- ブランチへの対応、GUI（コマンド `MicroGit: Export Logs`・`Jump to Commit or Tag`・`Show Graph`・`Pull Shared History`）
+- ファイルを開いていなくても動く、push のときに履歴がついていく
+- GitHub Actions の自動テスト
+
+## [0.0.1] - 2026-06-22
+
+- 最初のひな形（保存で記録し、ログを残せるところまで）
