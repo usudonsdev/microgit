@@ -171,7 +171,8 @@
     "test:unit": "npm run compile && node scripts/run-unit-tests.mjs",
     "test:overlay": "npm run compile && node scripts/overlay-smoke.mjs",
     "golden:record": "node scripts/golden/record-kernel.mjs",
-    "golden:check": "npm run compile && node scripts/golden/check-node.mjs"
+    "golden:check": "npm run compile && node scripts/golden/check-node.mjs",
+    "check:versions": "node scripts/check-versions.mjs"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",

@@ -12,7 +12,7 @@ Cursor と併用する。指示の正本は [AGENTS.md](AGENTS.md)。内容が�
 4. チャット内の長い説明で終わらせない。**後続エージェントがファイルだけ読んで再開できる**粒度にする
 5. 秘密情報は書かない
 
-作業単位の終わりに「ドキュメントを更新したか」を自分で確認してから完了とする。
+作業単位の終わりに「ドキュメントを更新したか」「版と変更履歴を更新したか（`npm run check:versions`）」を自分で確認してから完了とする。
 
 ## プロジェクト要約
 
@@ -23,3 +23,4 @@ Cursor と併用する。指示の正本は [AGENTS.md](AGENTS.md)。内容が�
 - 次期メジャー（カーネル機能ポータブル化・要件確定）: [要件定義書](docs/microgit-kernel-feature-portability-requirements.md) / [初期設計](docs/microgit-kernel-feature-portability-design.md) / [補足](docs/microgit-kernel-feature-portability-supplement.md)。進捗は Issue #8（Epic）、ブランチ `feature/kernel-portability`
 - AI 編集の `[AI]` 印は Cursor フックの観測で付ける。Agent Skill にはしない（`docs/design-policy.md` §2.3）
 - **名称は verEve（versioning everything の略）に改めた**（運営者の決定 2026-10-26。旧称 MicroGit）。**6.0.0 として実装済み・未公開**（リリース作業・Marketplace/Open VSX への公開・旧拡張の非推奨化・GitHub リポジトリ名の変更は未実施）。拡張 ID `usudonsdev.vereve`、コマンド・設定は `vereve.*`。**履歴の `refs/microgit/*`、保存場所 `.microgit/`、同梱バイナリ名（`microgit-agent`・`microgit-vm`）は互換のため旧名のまま**（これらを改名しない。理由と却下案は `docs/design-policy.md` §2.5）。調査・進捗・未決・実機確認の項目は [docs/rename-vereve.md](docs/rename-vereve.md)
+- **版（バージョン）は更新のたびに上げる**（運営者の依頼 2026-11-27）。版を持つのはアプリ（拡張機能：`package.json` の `version`、`CHANGELOG.md`、タグ `v<版>`）とサーバー（`microgit-agent`：`guest/agent/main.go` の `agentVersion`、`guest/agent/CHANGELOG.md`、タグ `agent-v<版>`）。配るものを変えたら同じ変更セットで版と変更履歴を更新する（今の版が未公開＝タグが無いなら、その版の見出しに書き足す）。agent を変えたら拡張機能の版も上げる。作業の終わりに `npm run check:versions` を流す（CI でも `--strict` で流れる）。決まり・さかのぼって付けたタグの一覧は [docs/versioning.md](docs/versioning.md)

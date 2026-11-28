@@ -9,6 +9,7 @@
 | 版 | 初版（2026-09-26）。公開はまだしていない |
 | 仕組み | [.github/workflows/package.yml](../.github/workflows/package.yml)、[scripts/package-vsix.mjs](../scripts/package-vsix.mjs)、[THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) |
 | 学習用 | [learning/10-packaging-and-licenses.md](./learning/10-packaging-and-licenses.md) |
+| 版の決まり | [versioning.md](./versioning.md)（いつ版を上げるか、タグ `v*`・`agent-v*`、`npm run check:versions`。2026-11-27） |
 
 ---
 

@@ -444,5 +444,6 @@ Cursor と Claude Code を併用する。チャット履歴・コンテキスト
 - Phase 1（最小ゲストと macOS）: [guest-phase1.md](./guest-phase1.md) — Go の agent、Linux 6.18.53 の最小カーネル、Virtualization.framework の起動ツール。決めたこと（agent は Go、通り道は virtio-console の仮決め）と計測結果
 - Phase 2（Windows）: [windows-backend.md](./windows-backend.md) — QEMU を同梱する方式に決定（O-1）。WHPX が無効でも TCG で動く。計測結果と、同梱用の小さい QEMU のビルド（#18）
 - Phase 3（公開）: [release.md](./release.md) — プラットフォーム別の VSIX、5 つの環境での確認、公開の手順と利用者が決めること、ライセンスとソース、Windows の保護機能、TCG の境界、同梱する部品の更新方針（O-6）。同梱物の一覧は [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)（#19）
-- 変更履歴: [CHANGELOG.md](../CHANGELOG.md)
+- 変更履歴: [CHANGELOG.md](../CHANGELOG.md)（拡張機能）、[guest/agent/CHANGELOG.md](../guest/agent/CHANGELOG.md)（`microgit-agent`）
+- 版の決まり: [versioning.md](./versioning.md) — 版を持つのはアプリ（拡張機能）とサーバー（agent）の 2 つ。配るものを変えたら同じ変更セットで上げる。さかのぼって付けたタグの一覧、却下した案（microgit-vm にも版、agent の版を拡張機能にそろえる）。`npm run check:versions`（2026-11-27）
 - エージェント共通指示: [AGENTS.md](../AGENTS.md) / [CLAUDE.md](../CLAUDE.md)

@@ -29,6 +29,7 @@
 - AI 編集の `[AI]` 印は `.cursor/hooks` の観測で付ける。Agent Skill にはしない（`docs/design-policy.md` §2.3）
 - **名称は verEve（versioning everything の略）に改めた**（運営者の決定 2026-10-26。旧称 MicroGit）。**6.0.0 として実装済み・未公開**（リリース作業・Marketplace/Open VSX への公開・旧拡張の非推奨化・GitHub リポジトリ名の変更は未実施）。拡張 ID `usudonsdev.vereve`、コマンド・設定は `vereve.*`。**履歴の `refs/microgit/*`、保存場所 `.microgit/`、同梱バイナリ名（`microgit-agent`・`microgit-vm`）は互換のため旧名のまま**（これらを改名しない。理由と却下案は `docs/design-policy.md` §2.5）。調査・進捗・未決・実機確認の項目は [docs/rename-vereve.md](docs/rename-vereve.md)
 - セキュリティ: `execFileSync` + 引数配列。シェル連結禁止
+- **版（バージョン）は更新のたびに上げる**（運営者の依頼 2026-11-27）。版を持つのはアプリ（拡張機能：`package.json` の `version`、`CHANGELOG.md`、タグ `v<版>`）とサーバー（`microgit-agent`：`guest/agent/main.go` の `agentVersion`、`guest/agent/CHANGELOG.md`、タグ `agent-v<版>`）。配るものを変えたら同じ変更セットで版と変更履歴を更新する（今の版が未公開＝タグが無いなら、その版の見出しに書き足す）。agent を変えたら拡張機能の版も上げる。作業の終わりに `npm run check:versions` を流す（CI でも `--strict` で流れる）。決まり・さかのぼって付けたタグの一覧は [docs/versioning.md](docs/versioning.md)
 
 ## Claude Code
 

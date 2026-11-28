@@ -19,6 +19,8 @@ jobs:
       # 1. ソースコードのチェックアウト
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 版の確認（scripts/check-versions.mjs）がタグ v*・agent-v* と比べるため
 
       # 2. Node.js 環境のセットアップ
       - name: Setup Node.js
@@ -30,6 +32,11 @@ jobs:
       # 3. 依存パッケージのインストール
       - name: Install Dependencies
         run: npm ci
+
+      # 3.5 版の確認（docs/versioning.md）：公開済みのタグから配るものが変わったのに版が上がっていない、
+      # 変更履歴に今の版の見出しが無い、などを止める
+      - name: Check Versions
+        run: node scripts/check-versions.mjs --strict
 
       # 4. リンターとコンパイルの実行 (package.json の pretest で走る内容)
       - name: Compile and Lint
